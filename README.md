@@ -14,12 +14,32 @@ Hyperbolic Cartographer is an incremental game in the browser. You place tiles t
 - **Sell (S)**: removes a tile for a 50% refund.
 - **Pin (P)**: pins a tile so it survives Drift. The number of pins is limited; Brass Pins adds more.
 - Hotkeys **1-5** select the tiles.
-- Hover a cell to preview the Ink/s change from placing the selected tool there.
 - Drag to pan. In hyperbolic mode dragging applies a Lorentz boost, so the board slides like a hyperbolic plane.
-- Right-drag to tilt the view. Scroll to zoom.
+- Right-drag to tilt the view. Scroll or pinch to zoom.
 - **Drift** (prestige 1) resets the run and gives Charts. Drift unlocks at 1,000,000 Ink in a run.
-- **Projection** (prestige 2) spends Charts on Curvature, switches the board to hyperbolic geometry, and resets the run.
+- **Projection** (prestige 2) spends Charts on Curvature, switches the board to hyperbolic geometry, and resets the run. Its tab is visible from the start (locked until you can project) and compares 4 neighbours per cell on the square board with 7 on the {7,3} board.
+- The Drift and Projection tabs list what resets and what is kept.
+- Disabled buttons show a red line saying what is missing.
 - Milestones automate parts of play (auto-Survey, auto-placed Springs, and similar).
+
+### Input
+
+- Mouse: click places at once. Hover previews the cost and the Ink/s change.
+- Touch and pen: the first tap previews the cell in the card above the tools (cost, Ink/s change, or the reason it's blocked). Tap the same cell again, or press **Place**, to confirm. **Cancel** or **Esc** clears the preview.
+- Drags, pinches and cancelled touches never place.
+
+### Tutorial and top bar
+
+- The first run shows a 5-step tutorial card above the tools: Ink buys tiles, place your first Spring, save for a Mill, the adjacency boost, and reading the preview. Each step moves on by itself once its goal is met.
+- **Hide** dismisses the card. The top-right **Guide** button reopens it.
+- The Menu's **Guide** tab has Show tutorial and Restart tutorial, plus a reference for every tool and button.
+- Tutorial progress is stored in `localStorage` under `hc-tutorial`, separate from your save. The save format and `SAVE_VERSION` are unchanged.
+- The top bar always shows **Now** (your next concrete step, with progress and an ETA), a live line explaining what the board is producing, and the next unlock.
+
+### Layout
+
+- Panels are bounded and scroll. Close them with **Close** or **Menu**. On small screens, Esc also closes them.
+- All controls are at least 44px.
 
 ## Local dev
 
@@ -61,6 +81,8 @@ Changes from the original brief (all in `src/core/config.ts`; formulas unchanged
 - Offline base efficiency 50% (unspecified in brief).
 - Bot results with these numbers: Drift available ~11 min (bot drifts at ~14), Projection ~71 min, hyperbolic board fully built ~95 min (~24 min of hyperbolic play).
 
+Pass 1 (clarity/touch) made no balance changes.
+
 ## Architecture
 
 ```
@@ -86,3 +108,5 @@ tests/             Vitest suites, plus the opt-in pacing bot
 ```
 
 Game logic never knows its geometry. It only sees a `TileGraph`, so tile indices stay stable while Survey just raises `state.ring`.
+
+- `src/ui/help.ts`, `goals.ts`, `tutorial.ts`, `input.ts` are pure (no DOM) and unit-tested in `tests/`.

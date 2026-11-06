@@ -1,3 +1,4 @@
+import Decimal from 'break_eternity.js';
 import type { GameState } from '../core/state';
 import { TILE_INFO, TILE_TYPES, type TileType } from '../core/tiles';
 import type { ImportResult } from '../core/save';
@@ -5,14 +6,27 @@ import type { OfflineReport } from '../core/tick';
 import { autoSurveyOn } from '../core/tick';
 import { config, chartUpgrades, curvUpgrades, type ChartUpgradeId, type CurvUpgradeId, type UpgradeDef } from '../core/config';
 import { MILESTONES, has } from '../core/milestones';
-import { canDrift, canProject, chartsOnDrift, curvatureOnProjection } from '../core/prestige';
+import { canProject, chartsOnDrift, curvatureOnProjection } from '../core/prestige';
 import { cellsInRing, isActive, maxPins, maxRing, prod, surveyCost, tileCost } from '../core/economy';
 import { fmt, fmtTime } from './format';
+import {
+  BUTTON_HELP, DRIFT_EXPLAIN, DRIFT_KEEPS, DRIFT_RESETS, PROJECTION_KEEPS, PROJECTION_RESETS, SURVEY_EXPLAIN, TAB_HELP, TOOL_HELP,
+  driftBlocked, placeBlocked, projectBlocked, projectionCompare, surveyBlocked, upgradeBlocked,
+  type Tab, type Tool,
+} from './help';
+import { explainNow, immediateGoal, longGoal } from './goals';
+import {
+  STEPS, currentStep, dismissTutorial, nextStep, parseTutorial, prevStep, reopenTutorial, restartTutorial, serializeTutorial, syncTutorial,
+  type TutorialState,
+} from './tutorial';
 
-export type Tool = TileType | 'sell' | 'pin';
+export type { Tool } from './help';
 export interface UICtx {
   state: () => GameState; // live mutable state object (may be replaced after import/reset, so always call it)
   tool: { current: Tool };
+  selected(): number; // touch-previewed cell, -1 if none
+  cellInfo(i: number): string; // HTML describing cell i for the current tool (cost, Ink/s delta, blocked reason)
+  tutorial: { load(): string | null; save(v: string): void }; // stored apart from the game save
   act: {
     survey(): void; drift(): void; project(): void;
     buyChart(id: ChartUpgradeId): void; buyCurv(id: CurvUpgradeId): void;
@@ -24,6 +38,8 @@ export interface UICtx {
     setSpeed(x: number): void;
     grant(kind: 'ink' | 'charts' | 'curvature', amount: number): void;
     recenter(): void; // reset camera / hyperbolic view
+    confirmPlace(): void; // apply the current tool to the selected cell
+    cancelPlace(): void; // clear the selected cell
   };
   dev: boolean;
 }
@@ -36,10 +52,10 @@ export interface UI {
 }
 
 type Dec = GameState['ink'];
-type Tab = 'map' | 'drift' | 'charts' | 'proj' | 'miles' | 'save';
 const TABS: [Tab, string][] = [
-  ['map', 'Map'], ['drift', 'Drift'], ['charts', 'Charts'], ['proj', 'Projection'], ['miles', 'Milestones'], ['save', 'Save'],
+  ['map', 'Map'], ['drift', 'Drift'], ['charts', 'Charts'], ['proj', 'Projection'], ['miles', 'Milestones'], ['save', 'Save'], ['guide', 'Guide'],
 ];
+const TOOL_NAME: Record<Tool, string> = { ...Object.fromEntries(TILE_TYPES.map((t) => [t, TILE_INFO[t].name])), sell: 'Sell', pin: 'Pin' } as Record<Tool, string>;
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] => {
   const e = document.createElement(tag);
@@ -59,31 +75,42 @@ const row = (...kids: HTMLElement[]) => {
   r.append(...kids);
   return r;
 };
+const list = (cls: string, items: string[]) => {
+  const u = el('ul', cls);
+  u.append(...items.map((i) => el('li', '', i)));
+  return u;
+};
 const btn = (label: string, cls: string, onclick: () => void) => {
   const b = el('button', cls, label);
+  b.type = 'button';
   b.onclick = onclick;
   return b;
 };
+let descId = 0;
+/** Gives a control help text: announced by screen readers and shown in the info card on keyboard focus / mouse hover. */
+const help = <T extends HTMLElement>(e: T, name: string, text: string): T => {
+  e.dataset.help = text;
+  e.dataset.helpName = name;
+  return e;
+};
+/**
+ * A control with its help text visible underneath (touch has no hover) and a live "why it's disabled" line.
+ * Both are linked via aria-describedby.
+ */
+const ctl = (b: HTMLElement, name: string, text: string) => {
+  const box = el('div', 'ctl');
+  const h = el('p', 'help', text);
+  const why = el('p', 'why');
+  why.hidden = true;
+  h.id = `d${++descId}`;
+  why.id = `d${++descId}`;
+  help(b, name, text).setAttribute('aria-describedby', `${h.id} ${why.id}`);
+  box.append(b, why, h);
+  return { box, why: (reason: string | null) => ((why.hidden = !reason), (why.textContent = reason ?? '')) };
+};
 const clamp = (x: number) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0);
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
-
-/** Next unlock label and its progress (0..1). */
-const nextGoal = (s: GameState): [string, number] => {
-  const dMin = Math.log10(config.drift.minInk);
-  if (s.drifts === 0) return [`Drift at ${fmt(config.drift.minInk)} Ink this run`, s.runInk.add(1).log10().toNumber() / dMin];
-  if (s.projections === 0 && !canProject(s))
-    return [`Projection at ${config.projection.minCharts} Charts`, s.cycleCharts.toNumber() / config.projection.minCharts];
-  if (s.projections === 0) return ['Projection ready!', 1];
-  if (s.ring < maxRing(s)) return [`Survey ring ${s.ring + 1}`, s.ink.div(surveyCost(s)).toNumber()];
-  let active = 0, filled = 0;
-  s.tiles.forEach((t, i) => {
-    if (isActive(s, i)) {
-      active++;
-      if (t) filled++;
-    }
-  });
-  return ['Horizon reached: fill every cell', active ? filled / active : 0];
-};
+const narrow = () => innerWidth < 700 || innerHeight <= 500;
 
 export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const get = () => ctx.state();
@@ -96,7 +123,16 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     f();
   };
 
+  // ---- Tutorial state (persisted separately from the save) ----
+  let tut: TutorialState = parseTutorial(ctx.tutorial.load(), get());
+  const setTut = (t: TutorialState) => {
+    if (t === tut) return;
+    tut = t;
+    ctx.tutorial.save(serializeTutorial(t));
+  };
+
   // ---- HUD ----
+  const topbar = el('div', 'topbar');
   const hud = el('div', 'hud');
   const stat = (label: string) => {
     const box = el('div', 'stat');
@@ -111,63 +147,152 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const sCharts = stat('Charts');
   const sCurv = stat('Curvature');
   const sCod = stat('Charts on Drift');
+  const goals = el('div', 'goals');
+  const goal = el('div', 'goal');
+  const goalText = el('span', 'goal-text');
+  goalText.setAttribute('aria-live', 'polite');
+  const goalEta = el('span', 'goal-eta muted');
+  const goalFill = el('div', 'fill');
+  const goalBar = el('div', 'bar');
+  goalBar.append(goalFill);
+  goal.append(el('span', 'label', 'Now'), goalText, goalEta, goalBar);
+  const explain = el('p', 'explain');
   const nextLabel = el('span', 'label');
   const fill = el('div', 'fill');
   const bar = el('div', 'bar');
   bar.append(fill);
   const next = el('div', 'next');
   next.append(nextLabel, bar);
-  hud.append(next);
+  goals.append(goal, explain, next);
+  hud.append(goals);
 
   // ---- Palette ----
   const palette = el('div', 'palette');
-  const addTool = (t: Tool, key: string, name: string, desc: string, color?: number) => {
-    const b = el('button', 'tool');
-    b.title = desc;
+  palette.setAttribute('role', 'toolbar');
+  palette.setAttribute('aria-label', 'Tools');
+  const addTool = (t: Tool, key: string, desc: string, color?: number) => {
+    const b = help(el('button', 'tool'), `${TOOL_NAME[t]} (${key})`, desc);
+    b.type = 'button';
+    b.setAttribute('aria-label', `${TOOL_NAME[t]}, key ${key}. ${desc}`);
     const n = el('span', 'name');
     if (color !== undefined) {
       const dot = el('span');
       dot.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:${hex(color)}`;
       n.append(dot);
     }
-    n.append(name);
+    n.append(TOOL_NAME[t]);
     const cost = el('span', 'cost');
     b.append(el('span', 'key', key), n, cost);
     b.onclick = () => {
       ctx.tool.current = t;
+      update();
     };
     palette.append(b);
     return { t, b, cost };
   };
   const tileBtns: { t: TileType; b: HTMLButtonElement; cost: HTMLElement }[] = TILE_TYPES.map((t, i) => ({
-    ...addTool(t, `${i + 1}`, TILE_INFO[t].name, TILE_INFO[t].desc, TILE_INFO[t].color),
+    ...addTool(t, `${i + 1}`, TOOL_HELP[t], TILE_INFO[t].color),
     t,
   }));
-  const sellBtn = addTool('sell', 'S', 'Sell', `Remove a tile for a ${config.sellRefund * 100}% refund.`);
-  const pinBtn = addTool('pin', 'P', 'Pin', 'Pinned tiles survive Drift.');
+  const sellBtn = addTool('sell', 'S', TOOL_HELP.sell);
+  const pinBtn = addTool('pin', 'P', TOOL_HELP.pin);
   sellBtn.cost.textContent = `${config.sellRefund * 100}% refund`;
 
   // ---- Panel ----
-  const panel = el('div', innerWidth < 700 ? 'panel hidden' : 'panel');
+  const panel = el('div', 'panel');
+  panel.id = 'menu-panel';
+  const toggle = help(btn('Menu', 'panel-toggle', () => setPanel(panel.classList.contains('hidden'))), 'Menu', BUTTON_HELP.menu);
+  toggle.setAttribute('aria-controls', panel.id);
+  const setPanel = (open: boolean) => {
+    panel.classList.toggle('hidden', !open);
+    root.classList.toggle('panel-open', open);
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.textContent = open ? 'Close' : 'Menu';
+  };
+  const openTab = (t: Tab) => {
+    tab = t;
+    bodyKey = '';
+    setPanel(true);
+    update();
+  };
+  const head = el('div', 'panel-head');
+  head.append(el('h2', '', 'Cartographer'), help(btn('Close', 'panel-close', () => setPanel(false)), 'Close', 'Close this panel and return to the board.'));
   const tabBar = el('div', 'tabs');
+  tabBar.setAttribute('role', 'tablist');
   const tabBtns = new Map<Tab, HTMLButtonElement>();
   for (const [id, label] of TABS) {
-    const b = el('button', 'tab', label);
-    b.onclick = () => {
-      tab = id;
-      bodyKey = '';
-      update();
-    };
+    const b = help(btn(label, 'tab', () => openTab(id)), `${label} tab`, TAB_HELP[id]);
+    b.setAttribute('role', 'tab');
     tabBtns.set(id, b);
     tabBar.append(b);
   }
   const body = el('div');
-  panel.append(tabBar, body);
-  const toggle = btn('☰', 'panel-toggle', () => panel.classList.toggle('hidden'));
+  body.setAttribute('role', 'tabpanel');
+  panel.append(head, tabBar, body);
+
+  // ---- Guide button (reopens / hides the tutorial) ----
+  const guideBtn = help(
+    btn('Guide', 'guide-btn', () => setTut(tutVisible() ? dismissTutorial(tut) : reopenTutorial(tut))),
+    'Guide',
+    BUTTON_HELP.guide,
+  );
+  const actions = el('div', 'top-actions');
+  actions.append(guideBtn, toggle);
+  topbar.append(hud, actions);
+  setPanel(!narrow());
+
+  // ---- Dock: tutorial card + info / preview card ----
+  const dock = el('div', 'dock');
+  const tutBox = el('section', 'tutorial hidden');
+  tutBox.setAttribute('aria-label', 'Tutorial');
+  const tutTitle = el('h3', 'tut-title');
+  const tutProg = el('span', 'tut-progress muted');
+  const tutBody = el('p', 'tut-body');
+  const tutBack = help(btn('Back', '', () => setTut(prevStep(tut))), 'Back', BUTTON_HELP.tutBack);
+  const tutNext = help(btn('Next', 'primary', () => {
+    setTut(nextStep(tut));
+    if (tut.done) toast('Tutorial done. The Guide button brings it back.');
+  }), 'Next', BUTTON_HELP.tutNext);
+  const tutHide = help(btn('Hide', '', () => setTut(dismissTutorial(tut))), 'Hide', BUTTON_HELP.tutHide);
+  const tutActs = el('div', 'row tut-actions');
+  tutActs.append(tutBack, tutNext, tutHide);
+  tutBox.append(tutProg, tutTitle, tutBody, tutActs);
+  const tutVisible = () => !tut.dismissed && !tut.done;
+
+  const info = el('section', 'infocard');
+  info.setAttribute('aria-label', 'Selected tool and cell');
+  const infoText = el('div', 'info-text');
+  const placeBtn = help(btn('Place', 'primary', () => ctx.act.confirmPlace()), 'Place', BUTTON_HELP.place);
+  const cancelBtn = help(btn('Cancel', '', () => ctx.act.cancelPlace()), 'Cancel', 'Clear the previewed cell without buying anything.');
+  const infoActs = el('div', 'row info-actions');
+  infoActs.append(placeBtn, cancelBtn);
+  info.append(infoText, infoActs);
+  dock.append(tutBox, info);
+
+  /** Help for the control under keyboard focus or the mouse, shown in the info card. */
+  let helpFor: HTMLElement | null = null;
+  const helpTarget = (e: Event) => (e.target as HTMLElement | null)?.closest?.('[data-help]') as HTMLElement | null;
+  root.addEventListener('focusin', (e) => {
+    const t = helpTarget(e);
+    if (t?.matches(':focus-visible')) (helpFor = t), update();
+  });
+  root.addEventListener('focusout', () => ((helpFor = null), update()));
+  root.addEventListener('pointerover', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    const t = helpTarget(e);
+    if (t !== helpFor) (helpFor = t), update();
+  });
+  root.addEventListener('pointerout', (e) => {
+    if (e.pointerType !== 'mouse' || !helpFor) return;
+    const to = (e.relatedTarget as HTMLElement | null)?.closest?.('[data-help]');
+    if (!to || !root.contains(to)) (helpFor = null), update();
+  });
 
   // ---- Modal ----
   const backdrop = el('div', 'modal-backdrop hidden');
   const modal = el('div', 'modal');
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
   backdrop.append(modal);
   const closeModal = () => backdrop.classList.add('hidden');
   backdrop.onclick = (e) => {
@@ -176,26 +301,30 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const openModal = (heading: string, content: HTMLElement, buttons: HTMLElement[]) => {
     modal.replaceChildren(el('h2', '', heading), content, row(...buttons));
     backdrop.classList.remove('hidden');
+    buttons[0]?.focus();
   };
+  const closeBtn = (label = 'Close') => help(btn(label, '', closeModal), label, label === 'Cancel' ? BUTTON_HELP.cancel : BUTTON_HELP.close);
   const showText = (str: string) => {
     const ta = el('textarea');
     ta.value = str;
     ta.readOnly = true;
-    openModal('Save string', ta, [btn('Close', '', closeModal)]);
+    openModal('Save string', ta, [closeBtn()]);
   };
   const openImport = () => {
     const ta = el('textarea');
     ta.rows = 5;
     ta.placeholder = 'Paste a save string or .json text';
+    ta.setAttribute('aria-label', 'Save string');
     const file = el('input');
     file.type = 'file';
     file.accept = '.json,.txt';
+    file.setAttribute('aria-label', 'Load save from file');
     file.onchange = async () => {
       const f = file.files?.[0];
       if (f) ta.value = await f.text();
     };
     const msg = el('div');
-    const check = btn('Check', '', () => {
+    const check = help(btn('Check', '', () => {
       msg.replaceChildren();
       const r = ctx.act.parseImport(ta.value);
       if (!r.ok) {
@@ -208,33 +337,36 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
         txt(`Charts: ${fmt(g.charts, g.notation)}`),
         txt(`Curvature: ${fmt(g.curvature, g.notation)}`),
         txt(`Saved: ${new Date(r.save.savedAt).toLocaleString()}`),
-        btn('Overwrite current save', 'primary', () => {
+        ctl(btn('Overwrite current save', 'primary', () => {
           ctx.act.applyImport(g);
           closeModal();
           toast('Save imported');
-        }),
+        }), 'Overwrite', BUTTON_HELP.overwrite).box,
       );
-    });
+    }), 'Check', BUTTON_HELP.check);
     const body2 = el('div');
-    body2.append(ta, file, msg);
-    openModal('Import save', body2, [check, btn('Cancel', '', closeModal)]);
+    body2.append(txt(`${BUTTON_HELP.import} Check shows a preview first.`), ta, file, msg);
+    openModal('Import save', body2, [check, closeBtn('Cancel')]);
   };
-  const openReset = () => {
+  const openReset = (afterReset: () => void) => {
     const input = el('input');
     input.type = 'text';
     input.placeholder = 'RESET';
-    const go = btn('Confirm reset', 'danger', () => {
+    input.setAttribute('aria-label', 'Type RESET to confirm');
+    const go = help(btn('Confirm reset', 'danger', () => {
       ctx.act.hardReset();
+      afterReset();
       closeModal();
       toast('Progress wiped');
-    });
+    }), 'Confirm reset', BUTTON_HELP.confirmReset);
     go.disabled = true;
     input.oninput = () => {
       go.disabled = input.value !== 'RESET';
     };
     const content = el('div');
-    content.append(txt('This wipes all progress, including Charts, Curvature and milestones. Type RESET to confirm.'), input);
-    openModal('Hard reset', content, [go, btn('Cancel', '', closeModal)]);
+    content.append(txt('This wipes all progress, including Charts, Curvature and milestones. Type RESET to enable Confirm reset.'), input);
+    openModal('Hard reset', content, [go, closeBtn('Cancel')]);
+    input.focus();
   };
 
   // ---- Tab bodies (each returns fresh elements; live bits register via watch) ----
@@ -247,7 +379,8 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   ) => {
     const lv = txt('');
     const b = btn('', 'buy', () => buy(d.id));
-    const c = card(title(d.name), txt(d.desc), lv, b);
+    const c = ctl(b, d.name, `${d.desc} ${unit === 'Charts' ? BUTTON_HELP.buyChart : BUTTON_HELP.buyCurv}`);
+    const box = card(title(d.name), lv, c.box);
     watch(() => {
       const g = get();
       const l = levels(g)[d.id];
@@ -255,25 +388,32 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       const cost = d.cost(l);
       lv.textContent = `Lv ${l}/${d.max}`;
       b.textContent = maxed ? 'Maxed' : `Buy · ${fmt(cost, g.notation)} ${unit}`;
-      b.disabled = maxed || bank(g).lt(cost);
-      c.classList.toggle('done', maxed);
+      const why = upgradeBlocked(l, d.max, new Decimal(cost), bank(g), unit, g.notation);
+      b.disabled = why !== null;
+      c.why(maxed ? null : why);
+      box.classList.toggle('done', maxed);
     });
-    return c;
+    return box;
   };
 
   const mapTab = (s: GameState): HTMLElement[] => {
     const full = s.ring >= maxRing(s);
     const sb = btn('', 'buy', () => ctx.act.survey());
+    const sc = ctl(sb, 'Survey', BUTTON_HELP.survey);
     watch(() => {
       const g = get();
       sb.textContent = `Survey · ${fmt(surveyCost(g), g.notation)}`;
-      sb.disabled = g.ring >= maxRing(g) || g.ink.lt(surveyCost(g));
+      const why = surveyBlocked(g);
+      sb.disabled = why !== null;
+      const r = prod(g).total;
+      const eta = why && g.ring < maxRing(g) && r > 0 ? ` (~${fmtTime(surveyCost(g).sub(g.ink).toNumber() / r)})` : '';
+      sc.why(why && why + eta);
     });
     const survey = card(
       title(full ? 'Survey complete' : `Survey ring ${s.ring + 1}`),
-      txt(full ? 'Every ring is surveyed.' : `Adds ${cellsInRing(s, s.ring + 1)} cells to the board.`),
+      txt(full ? 'Every ring is surveyed.' : `Adds ${cellsInRing(s, s.ring + 1)} cells to the board. ${SURVEY_EXPLAIN}`),
       ...(autoSurveyOn(s) ? [txt('Auto-Survey is on.')] : []),
-      sb,
+      sc.box,
     );
     const boardP = txt('');
     watch(() => {
@@ -283,22 +423,36 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       const geo = g.geometry === 'square' ? 'Square grid' : 'Hyperbolic {7,3}';
       boardP.textContent = `${geo}: ${active} active cells, ${placed} tiles placed, ${g.pinned.length}/${maxPins(g)} pins.`;
     });
-    const board = card(title('Board'), boardP, btn('Recenter view', '', () => ctx.act.recenter()));
-    return [survey, board, txt('Click a cell to place the selected tile. Hover shows the Ink/s change. Drag to pan, right-drag to tilt, scroll to zoom.')];
+    const board = card(title('Board'), boardP, ctl(btn('Recenter view', '', () => ctx.act.recenter()), 'Recenter view', BUTTON_HELP.recenter).box);
+    const how = card(
+      title('Controls'),
+      list('guide-list', [
+        'Mouse: click a cell to use the tool at once; hover shows cost and Ink/s change.',
+        'Touch: tap a cell to preview it, then tap it again or press Place to buy.',
+        'Drag to pan, pinch or scroll to zoom, right-drag to tilt. Dragging never buys.',
+      ]),
+    );
+    return [survey, board, how];
   };
 
   const driftTab = (s: GameState): HTMLElement[] => {
     const stats = txt('');
     const dbtn = btn('', 'primary', () => ctx.act.drift());
+    const dc = ctl(dbtn, 'Drift', BUTTON_HELP.drift);
     watch(() => {
       const g = get();
       const cod = chartsOnDrift(g);
       const perMin = g.runTime > 0 ? cod.toNumber() / (g.runTime / 60) : 0;
       stats.textContent = `Charts on drift: ${fmt(cod, g.notation)} (${fmt(perMin, g.notation)}/min). Run Ink: ${fmt(g.runInk, g.notation)}.`;
       dbtn.textContent = `Drift for ${fmt(cod, g.notation)} Charts`;
-      dbtn.disabled = !canDrift(g);
+      const why = driftBlocked(g);
+      dbtn.disabled = why !== null;
+      dc.why(why);
     });
-    const out = [card(title('Drift'), stats, txt('Resets Ink, tiles (except pinned), Survey rings. Keeps Charts, upgrades, milestones, pins.'), dbtn)];
+    const out = [
+      card(title('Drift'), txt(DRIFT_EXPLAIN), stats, dc.box),
+      card(title('Drift resets'), list('reset', DRIFT_RESETS), title('Drift keeps'), list('keep', DRIFT_KEEPS)),
+    ];
     if (has(s, 'autoDrift')) {
       const cb = el('input');
       cb.type = 'checkbox';
@@ -310,33 +464,49 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       at.type = 'number';
       at.min = '1';
       at.value = String(s.autoDrift.at);
+      at.setAttribute('aria-label', 'Auto-Drift Charts threshold');
       at.onchange = () => {
         get().autoDrift.at = Math.max(1, Number(at.value) || 1);
       };
-      const lab = el('label');
+      const lab = el('label', 'check');
       lab.append(cb, ' Auto-Drift at ', at, ' Charts');
-      out.push(card(title('Auto-Drift'), lab));
+      out.push(card(title('Auto-Drift'), lab, el('p', 'help', BUTTON_HELP.autoDrift)));
     }
     return out;
   };
 
   const chartsTab = (s: GameState): HTMLElement[] =>
     s.drifts === 0
-      ? [txt('Drift once to start earning Charts. Charts buy permanent upgrades.')]
+      ? [card(title('Locked until your first Drift'), txt(`Drift (at ${fmt(config.drift.minInk)} run Ink) to earn Charts. Charts buy permanent upgrades that survive every Drift.`))]
       : chartUpgrades.map((d) => upgCard(d, 'Charts', (g) => g.chartUpg, (g) => g.charts, (id) => ctx.act.buyChart(id)));
 
   const projTab = (s: GameState): HTMLElement[] => {
+    const cmp = projectionCompare();
+    const box = (head: string, n: number, mill: number) => {
+      const b = el('div', 'box');
+      b.append(head, el('span', 'big', `${n}`), 'neighbours per cell', el('br'), `Mill up to ${fmt(mill)} Ink/s`);
+      return b;
+    };
+    const compare = el('div', 'compare');
+    compare.append(box('Square (now)', cmp.square.neighbours, cmp.square.millMax), box('Hyperbolic {7,3}', cmp.hyper.neighbours, cmp.hyper.millMax));
     const req = txt('');
     const curvP = txt('');
     const pb = btn('', 'primary', () => ctx.act.project());
+    const pc = ctl(pb, 'Project', BUTTON_HELP.project);
     watch(() => {
       const g = get();
       req.textContent = `Requires ${config.projection.minCharts} Charts this cycle (${fmt(g.cycleCharts, g.notation)}/${config.projection.minCharts}).`;
       curvP.textContent = `Curvature on projection: ${fmt(curvatureOnProjection(g), g.notation)}.`;
       pb.textContent = `Project for ${fmt(curvatureOnProjection(g), g.notation)} Curvature`;
-      pb.disabled = !canProject(g);
+      const why = projectBlocked(g);
+      pb.disabled = why !== null;
+      pc.why(why);
     });
-    const out = [card(title('Projection'), req, txt('Board becomes a hyperbolic {7,3} tiling: every cell has 7 neighbours.'), curvP, pb)];
+    const lead = s.projections > 0 || canProject(s) ? 'Projection' : 'Projection (locked)';
+    const out = [
+      card(title(lead), compare, list('guide-list', cmp.lines), req, curvP, pc.box),
+      card(title('Projection resets'), list('reset', PROJECTION_RESETS), title('Projection keeps'), list('keep', PROJECTION_KEEPS)),
+    ];
     if (s.projections > 0 || s.curvature.gt(0))
       out.push(...curvUpgrades.map((d) => upgCard(d, 'Curvature', (g) => g.curvUpg, (g) => g.curvature, (id) => ctx.act.buyCurv(id))));
     return out;
@@ -372,16 +542,66 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     return [
       card(
         title('Save'),
-        txt('Export or import your progress as a string or .json file.'),
-        row(copy, btn('Download file', '', () => ctx.act.exportFile()), btn('Import…', '', openImport)),
+        txt('The game autosaves every 10 seconds and when you leave. Export a copy to move or back up progress.'),
+        ctl(copy, 'Copy save string', BUTTON_HELP.copy).box,
+        ctl(btn('Download file', '', () => ctx.act.exportFile()), 'Download file', BUTTON_HELP.download).box,
+        ctl(btn('Import…', '', openImport), 'Import', BUTTON_HELP.import).box,
       ),
-      card(title('Display'), nl),
-      card(title('Hard reset'), txt('Wipes all progress, including Charts, Curvature and milestones.'), btn('Hard reset', 'danger', openReset)),
+      card(title('Display'), nl, el('p', 'help', BUTTON_HELP.notation)),
+      card(title('Hard reset'), ctl(btn('Hard reset', 'danger', () => openReset(() => setTut(restartTutorial()))), 'Hard reset', BUTTON_HELP.reset).box),
+    ];
+  };
+
+  const guideTab = (): HTMLElement[] => {
+    const tutState = txt('');
+    watch(() => {
+      tutState.textContent = tut.done ? 'Tutorial finished.' : `Tutorial step ${tut.step + 1} of ${STEPS.length}${tut.dismissed ? ' (hidden)' : ''}.`;
+    });
+    const show = ctl(btn('Show tutorial', 'primary', () => {
+      setTut(reopenTutorial(tut));
+      if (narrow()) setPanel(false);
+    }), 'Show tutorial', 'Show the tutorial card above the tools, at the step you reached.');
+    const restart = ctl(btn('Restart tutorial', '', () => {
+      setTut(restartTutorial());
+      if (narrow()) setPanel(false);
+    }), 'Restart tutorial', BUTTON_HELP.tutRestart);
+    const named = (items: [string, string][]) => {
+      const u = el('ul', 'guide-list');
+      for (const [n, d] of items) {
+        const li = el('li');
+        li.append(el('b', '', `${n}: `), d);
+        u.append(li);
+      }
+      return u;
+    };
+    return [
+      card(title('Tutorial'), tutState, show.box, restart.box),
+      card(
+        title('Goals'),
+        txt('The top bar always shows "Now", your next concrete step, a live line about what your board is doing, and the next big unlock with its progress bar.'),
+      ),
+      card(title('Tools'), named([...TILE_TYPES.map((t, i) => [`${TILE_INFO[t].name} (${i + 1})`, TOOL_HELP[t]] as [string, string]), ['Sell (S)', TOOL_HELP.sell], ['Pin (P)', TOOL_HELP.pin]])),
+      card(title('Survey'), txt(SURVEY_EXPLAIN)),
+      card(title('Drift'), txt(DRIFT_EXPLAIN), list('reset', DRIFT_RESETS), list('keep', DRIFT_KEEPS)),
+      card(title('Projection'), list('guide-list', projectionCompare().lines)),
+      card(
+        title('Buttons'),
+        named([
+          ['Guide', BUTTON_HELP.guide], ['Menu / Close', BUTTON_HELP.menu], ['Place', BUTTON_HELP.place],
+          ['Cancel', 'Clear the previewed cell without buying anything.'],
+          ['Next / Back / Hide', `${BUTTON_HELP.tutNext} ${BUTTON_HELP.tutBack} ${BUTTON_HELP.tutHide}`],
+          ['Survey', BUTTON_HELP.survey], ['Recenter view', BUTTON_HELP.recenter], ['Drift', BUTTON_HELP.drift], ['Project', BUTTON_HELP.project],
+          ['Buy (upgrades)', `${BUTTON_HELP.buyChart} ${BUTTON_HELP.buyCurv}`], ['Copy / Download / Import', `${BUTTON_HELP.copy} ${BUTTON_HELP.download} ${BUTTON_HELP.import}`],
+          ['Hard reset', BUTTON_HELP.reset],
+          ['Greyed-out buttons', 'A red line under a disabled button says exactly what is missing.'],
+        ]),
+      ),
+      card(title('Keyboard'), txt('1-5 pick tiles, S Sell, P Pin, Esc cancels a preview or closes a window. Tab moves between buttons; focused buttons show their help in the card above the tools.')),
     ];
   };
 
   const tabs: Record<Tab, (s: GameState) => HTMLElement[]> = {
-    map: mapTab, drift: driftTab, charts: chartsTab, proj: projTab, miles: milesTab, save: saveTab,
+    map: mapTab, drift: driftTab, charts: chartsTab, proj: projTab, miles: milesTab, save: saveTab, guide: guideTab,
   };
 
   // ---- Tooltip / toast / flash ----
@@ -399,6 +619,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     tip.style.top = `${Math.max(8, Math.min(y + 14, window.innerHeight - h - 8))}px`;
   };
   const toastEl = el('div', 'toast');
+  toastEl.setAttribute('role', 'status');
   let toastTimer = 0;
   const toast = (msg: string) => {
     toastEl.textContent = msg;
@@ -416,13 +637,13 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     const content = el('div');
     content.append(txt(`Away for ${fmtTime(r.seconds)}.`), txt(`Ink gained: ${fmt(r.ink)}`), txt(`Efficiency: ${Math.round(r.eff * 100)}%`));
     if (r.drifts > 0) content.append(txt(`Drifts: ${r.drifts}`));
-    openModal('While you were away', content, [btn('OK', 'primary', closeModal)]);
+    openModal('While you were away', content, [help(btn('OK', 'primary', closeModal), 'OK', BUTTON_HELP.close)]);
   };
 
   // ---- Dev panel ----
   const dev = el('div', 'dev hidden');
   if (ctx.dev) {
-    const g = (label: string, f: () => void) => btn(label, '', f);
+    const g = (label: string, f: () => void) => help(btn(label, '', f), label, 'Dev/QA cheat; not part of normal play.');
     dev.append(
       g('+1e3 Ink', () => ctx.act.grant('ink', 1e3)),
       g('+1e6 Ink', () => ctx.act.grant('ink', 1e6)),
@@ -439,6 +660,50 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   }
 
   // ---- Update ----
+  let infoHtml = '';
+  const setInfo = (html: string) => {
+    if (html !== infoHtml) infoText.innerHTML = infoHtml = html;
+  };
+  function updateDock(s: GameState) {
+    // Tutorial card
+    setTut(syncTutorial(tut, s));
+    const step = currentStep(tut);
+    tutBox.classList.toggle('hidden', !tutVisible() || !step);
+    guideBtn.classList.toggle('attention', !tutVisible() && !tut.done);
+    guideBtn.setAttribute('aria-pressed', String(tutVisible()));
+    if (step && tutVisible()) {
+      tutProg.textContent = `Tutorial ${tut.step + 1}/${STEPS.length}`;
+      tutTitle.textContent = step.title;
+      const b = step.body(s);
+      if (tutBody.textContent !== b) tutBody.textContent = b;
+      tutBack.hidden = tut.step === 0;
+      tutNext.hidden = !step.manual;
+      tutNext.textContent = tut.step === STEPS.length - 1 ? 'Finish' : 'Next';
+    }
+    const hint = step && tutVisible() ? step.tool : undefined;
+    for (const x of tileBtns) x.b.classList.toggle('hint', x.t === hint && ctx.tool.current !== hint);
+
+    // Info card: focused/hovered control help > touch cell preview > selected tool
+    const sel = ctx.selected();
+    const tl = ctx.tool.current;
+    if (helpFor?.isConnected) {
+      setInfo(`<b>${escape(helpFor.dataset.helpName ?? '')}</b> · ${escape(helpFor.dataset.help ?? '')}${helpFor.matches(':disabled') ? ' <span class="neg">(unavailable now; see the red note)</span>' : ''}`);
+      infoActs.hidden = true;
+    } else if (sel >= 0) {
+      setInfo(ctx.cellInfo(sel));
+      const why = placeBlocked(s, sel, tl);
+      placeBtn.disabled = why !== null;
+      placeBtn.textContent = tl === 'sell' ? 'Sell' : tl === 'pin' ? (s.pinned.includes(sel) ? 'Unpin' : 'Pin') : `Place ${TOOL_NAME[tl]}`;
+      infoActs.hidden = false;
+    } else {
+      const isTile = tl !== 'sell' && tl !== 'pin';
+      const cost = isTile ? tileCost(s, tl) : null;
+      const short = cost && s.ink.lt(cost) ? ` <span class="neg">Need ${fmt(cost.sub(s.ink), s.notation)} more Ink.</span>` : '';
+      setInfo(`<b>${TOOL_NAME[tl]}</b>${cost ? ` · ${fmt(cost, s.notation)} Ink` : ''} · ${escape(TOOL_HELP[tl])}${short}<br><span class="muted">Tap a cell to preview it, tap again to confirm. Mouse: click.</span>`);
+      infoActs.hidden = true;
+    }
+  }
+
   function update() {
     const s = get();
     sInk.v.textContent = fmt(s.ink, s.notation);
@@ -450,8 +715,13 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     const cod = chartsOnDrift(s);
     sCod.v.textContent = fmt(cod, s.notation);
     sCod.sub.textContent = `${fmt(s.runTime > 0 ? cod.toNumber() / (s.runTime / 60) : 0, s.notation)}/min`;
-    const [label, p] = nextGoal(s);
-    nextLabel.textContent = label;
+    const g = immediateGoal(s);
+    if (goalText.textContent !== g.text) goalText.textContent = g.text;
+    goalEta.textContent = g.eta;
+    goalFill.style.width = `${Math.round(clamp(g.progress) * 100)}%`;
+    explain.textContent = explainNow(s);
+    const [label, p] = longGoal(s);
+    nextLabel.textContent = `Next unlock: ${label}`;
     fill.style.width = `${Math.round(clamp(p) * 100)}%`;
 
     for (const x of tileBtns) {
@@ -459,15 +729,20 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       x.cost.textContent = fmt(c, s.notation);
       x.b.classList.toggle('cant', s.ink.lt(c));
       x.b.classList.toggle('active', ctx.tool.current === x.t);
+      x.b.setAttribute('aria-pressed', String(ctx.tool.current === x.t));
     }
-    for (const x of [sellBtn, pinBtn]) x.b.classList.toggle('active', ctx.tool.current === x.t);
+    for (const x of [sellBtn, pinBtn]) {
+      x.b.classList.toggle('active', ctx.tool.current === x.t);
+      x.b.setAttribute('aria-pressed', String(ctx.tool.current === x.t));
+    }
     pinBtn.cost.textContent = `${s.pinned.length}/${maxPins(s)}`;
 
-    for (const [id, b] of tabBtns) b.classList.toggle('active', id === tab);
+    for (const [id, b] of tabBtns) {
+      b.classList.toggle('active', id === tab);
+      b.setAttribute('aria-selected', String(id === tab));
+    }
     tabBtns.get('charts')!.classList.toggle('locked', s.drifts === 0);
-    const proj = tabBtns.get('proj')!;
-    proj.style.display = s.drifts > 0 || s.cycleCharts.gt(0) || s.projections > 0 ? '' : 'none';
-    proj.classList.toggle('locked', !(canProject(s) || s.projections > 0));
+    tabBtns.get('proj')!.classList.toggle('locked', !(canProject(s) || s.projections > 0));
 
     const key = [
       tab, s.drifts, s.projections, s.ring, s.geometry, s.curvature.gt(0), canProject(s), autoSurveyOn(s),
@@ -476,15 +751,19 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     if (key !== bodyKey) {
       bodyKey = key;
       live = [];
-      body.replaceChildren(...tabs[tab](s));
+      body.replaceChildren(el('p', 'help', TAB_HELP[tab]), ...tabs[tab](s));
     }
     for (const f of live) f();
+    updateDock(s);
   }
 
   // ---- Keyboard ----
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      closeModal();
+      if (!backdrop.classList.contains('hidden')) closeModal();
+      else if (ctx.selected() >= 0) ctx.act.cancelPlace();
+      else if (narrow() && !panel.classList.contains('hidden')) setPanel(false);
+      update();
       return;
     }
     const t = e.target as HTMLElement | null;
@@ -500,10 +779,14 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     if (Number.isInteger(n) && n >= 1 && n <= TILE_TYPES.length) ctx.tool.current = TILE_TYPES[n - 1];
     else if (k === 's') ctx.tool.current = 'sell';
     else if (k === 'p') ctx.tool.current = 'pin';
+    else return;
+    update();
   });
 
   // ---- Mount ----
-  root.append(hud, palette, toggle, panel, tip, toastEl, dev, backdrop);
+  root.append(topbar, panel, dock, palette, tip, toastEl, dev, backdrop);
   update();
   return { update, tooltip, showOffline, toast, flash };
 }
+
+const escape = (str: string) => str.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);

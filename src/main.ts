@@ -12,6 +12,9 @@ import { Board } from './render/board';
 import { Pulses } from './render/fx';
 import { createUI, type Tool } from './ui/ui';
 import { fmt } from './ui/format';
+import { placeBlocked } from './ui/help';
+import { TapController, type PointerKind } from './ui/input';
+import { TUTORIAL_KEY } from './ui/tutorial';
 
 const KEY = 'hc-save', BACKUP = 'hc-save-backup';
 const dev = import.meta.env.DEV || location.search.includes('dev');
@@ -39,6 +42,7 @@ const { renderer, scene, camera, controls } = createScene(canvas);
 const pulses = new Pulses();
 scene.add(pulses.points);
 let board: Board;
+const tap = new TapController(); // tap/drag/pinch classification; holds the touch-previewed cell
 const frameCamera = () => {
   controls.target.set(0, 0, 0);
   const k = s.geometry === 'hyper' ? 1.4 : 1;
@@ -51,6 +55,7 @@ function syncBoard() {
     board.dispose();
   }
   board = new Board(s.geometry);
+  tap.clearSelection(); // cell indices belong to the old graph
   pulses.clear();
   scene.add(board.group);
   controls.enablePan = s.geometry === 'square';
@@ -61,11 +66,28 @@ syncBoard();
 // ---- actions ----
 let speed = 1;
 const tool: { current: Tool } = { current: 'spring' };
+/** Applies the current tool to cell i; toasts the reason and returns false when it can't. */
+function applyTool(i: number): boolean {
+  const tl = tool.current;
+  const why = placeBlocked(s, i, tl);
+  if (why) return ui.toast(why), false;
+  if (tl === 'sell') return sell(s, i);
+  if (tl === 'pin') return togglePin(s, i);
+  return place(s, i, tl);
+}
 const ui = createUI(document.getElementById('ui')!, {
   state: () => s,
   tool,
   dev,
+  selected: () => tap.selected,
+  cellInfo: (i) => cellHtml(i),
+  tutorial: { load: () => store.get(TUTORIAL_KEY), save: (v) => store.set(TUTORIAL_KEY, v) },
   act: {
+    confirmPlace: () => {
+      const c = tap.selected;
+      if (c >= 0 && applyTool(c)) tap.clearSelection();
+    },
+    cancelPlace: () => tap.clearSelection(),
     survey: () => void survey(s),
     drift: () => {
       persist();
@@ -93,12 +115,14 @@ const ui = createUI(document.getElementById('ui')!, {
     applyImport: (n) => {
       store.set(BACKUP, exportString(makeSave(s, Date.now())));
       s = n;
+      tap.clearSelection();
       persist();
       syncBoard();
     },
     hardReset: () => {
       store.set(BACKUP, exportString(makeSave(s, Date.now())));
       s = initialState();
+      tap.clearSelection();
       persist();
       syncBoard();
     },
@@ -125,49 +149,70 @@ const worldAt = (x: number, y: number) => {
   ray.setFromCamera(ndc, camera);
   return ray.ray.intersectPlane(plane, new THREE.Vector3());
 };
-let hover = -1;
-let down: { x: number; y: number; w: THREE.Vector3 | null; moved: boolean; button: number } | null = null;
+let hover = -1; // mouse hover only; touch uses tap.selected
+let panFrom: THREE.Vector3 | null = null; // hyperbolic one-pointer pan anchor
 
-function tooltipHtml(i: number): string {
+/** Cell description for the hover tooltip (mouse) and the preview card (touch). */
+function cellHtml(i: number): string {
   const t = s.tiles[i], tl = tool.current;
   if (!isActive(s, i)) return `<b>Unsurveyed</b><br><span class="muted">Survey ring ${graphOf(s).ring[i]} to open this cell.</span>`;
+  const why = placeBlocked(s, i, tl);
+  const whyHtml = why ? `<br><span class="neg">${why}</span>` : '';
   const delta = (d: number) => `<span class="${d >= 0 ? 'pos' : 'neg'}">${d >= 0 ? '+' : '−'}${fmt(Math.abs(d), s.notation)} Ink/s</span>`;
+  const nb = graphOf(s).neighbours[i].length;
   if (!t) {
-    if (tl === 'sell' || tl === 'pin') return `<span class="muted">Empty cell · ${graphOf(s).neighbours[i].length} neighbours</span>`;
+    if (tl === 'sell' || tl === 'pin') return `<span class="muted">Empty cell · ${nb} neighbours</span>${whyHtml}`;
     const cost = tileCost(s, tl);
-    return `<b>Place ${TILE_INFO[tl].name}</b> · ${fmt(cost, s.notation)} Ink<br>${delta(previewDelta(s, i, tl))}${s.ink.lt(cost) ? '<br><span class="neg">Not enough Ink</span>' : ''}`;
+    return `<b>Place ${TILE_INFO[tl].name}</b> · ${fmt(cost, s.notation)} Ink · ${nb} neighbours<br>${delta(previewDelta(s, i, tl))}${whyHtml}`;
   }
   const out = prod(s).perTile[i];
   let html = `<b>${TILE_INFO[t].name}</b>${s.pinned.includes(i) ? ' · 📌 pinned' : ''}<br><span class="muted">${out ? `${fmt(out, s.notation)} Ink/s` : TILE_INFO[t].desc}</span>`;
   if (tl === 'sell') html += `<br>Sell for ${fmt(sellValue(s, t), s.notation)} · ${delta(previewDelta(s, i, null))}`;
-  else if (tl === 'pin') html += `<br>Click to ${s.pinned.includes(i) ? 'unpin' : 'pin'} (kept through Drift)`;
-  else html += `<br><span class="muted">Occupied — use Sell (S) first</span>`;
-  return html;
+  else if (tl === 'pin') html += `<br>${s.pinned.includes(i) ? 'Unpin' : 'Pin'}: pinned tiles are kept through Drift`;
+  else return `${html}<br><span class="muted">Occupied: pick Sell (S) to remove it</span>`;
+  return html + whyHtml;
 }
 
+const pickAt = (x: number, y: number) => {
+  const w = worldAt(x, y);
+  return w ? board.pick(w.x, w.z, s) : -1;
+};
+const kindOf = (e: PointerEvent): PointerKind => (e.pointerType === 'touch' ? 'touch' : e.pointerType === 'pen' ? 'pen' : 'mouse');
+const endPointer = () => {
+  if (tap.active === 0) panFrom = null;
+};
+// Mouse: click applies at once (hover already previewed). Touch/pen: first tap previews, a second tap on the
+// same cell (or the Place button) confirms. Drags, pinches and cancelled pointers never place.
 canvas.addEventListener('pointerdown', (e) => {
-  const w0 = worldAt(e.clientX, e.clientY);
-  hover = w0 ? board.pick(w0.x, w0.z, s) : -1;
-  down ={ x: e.clientX, y: e.clientY, w: worldAt(e.clientX, e.clientY), moved: false, button: e.button };
+  tap.down(e.pointerId, e.clientX, e.clientY, kindOf(e), e.button);
+  panFrom = tap.active === 1 ? worldAt(e.clientX, e.clientY) : null;
 });
-addEventListener('pointerup', () => {
-  if (down && !down.moved && down.button === 0 && hover >= 0) {
-    const tl = tool.current;
-    if (tl === 'sell') sell(s, hover);
-    else if (tl === 'pin') togglePin(s, hover) || ui.toast('No pins left (buy Brass Pins)');
-    else if (!s.tiles[hover] && isActive(s, hover) && !place(s, hover, tl)) ui.toast('Not enough Ink');
+addEventListener('pointerup', (e) => {
+  if (e.target !== canvas) { // released over overlay UI: never place underneath panels
+    tap.cancel(e.pointerId);
+    endPointer();
+    return;
   }
-  down = null;
+  const touch = e.pointerType !== 'mouse';
+  const a = tap.up(e.pointerId, pickAt(e.clientX, e.clientY));
+  endPointer();
+  if (a.kind === 'apply' && !applyTool(a.cell) && touch) tap.selected = a.cell; // keep the preview so the reason stays visible
+  if (a.kind !== 'none') ui.update();
+});
+addEventListener('pointercancel', (e) => {
+  tap.cancel(e.pointerId);
+  endPointer();
+  hover = -1;
+  ui.tooltip(0, 0, null);
 });
 canvas.addEventListener('pointermove', (e) => {
-  if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) down.moved = true;
-  if (down?.moved && down.button === 0 && s.geometry === 'hyper' && down.w) {
+  if (tap.move(e.pointerId, e.clientX, e.clientY) && s.geometry === 'hyper' && panFrom) {
     const w = worldAt(e.clientX, e.clientY);
-    if (w) board.pan(w.x - down.w.x, w.z - down.w.z, maxRing(s)), (down.w = w);
+    if (w) board.pan(w.x - panFrom.x, w.z - panFrom.z, maxRing(s)), (panFrom = w);
   }
-  const w = worldAt(e.clientX, e.clientY);
-  hover = w && !down?.moved ? board.pick(w.x, w.z, s) : -1;
-  ui.tooltip(e.clientX, e.clientY, hover >= 0 ? tooltipHtml(hover) : null);
+  if (e.pointerType !== 'mouse') return;
+  hover = tap.active && tap.dragging ? -1 : pickAt(e.clientX, e.clientY);
+  ui.tooltip(e.clientX, e.clientY, hover >= 0 ? cellHtml(hover) : null);
 });
 canvas.addEventListener('pointerleave', () => ((hover = -1), ui.tooltip(0, 0, null)));
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -202,8 +247,9 @@ function frame(now: number) {
         if ((t === 'mill' && s.tiles[n] === 'spring') || s.tiles[n] === 'beacon') links.push([n, i]);
     });
   }
-  const hoverAdj = hover >= 0 ? (s.tiles[hover] ? adjacency(g, s.tiles, hover, mods(s).reach) : g.neighbours[hover]) : [];
-  board.update(s, p.perTile, hover, hoverAdj);
+  const focus = hover >= 0 ? hover : tap.selected;
+  const hoverAdj = focus >= 0 ? (s.tiles[focus] ? adjacency(g, s.tiles, focus, mods(s).reach) : g.neighbours[focus]) : [];
+  board.update(s, p.perTile, focus, hoverAdj);
   pulses.update(dt, board.tops, links, Math.min(40, 2 + links.length * 0.4));
   controls.update();
   renderer.render(scene, camera);
