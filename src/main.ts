@@ -11,7 +11,9 @@ import { createScene, type QualityLevel } from './render/scene';
 import { Board, DISK_R } from './render/board';
 import { cellCorners, circlePts, fitDistance, freeRect, shouldReframe, type Rect, type Role } from './render/framing';
 import type { SquareBoard } from './core/geometry/square';
-import { CartographyFX, type FxQuality } from './render/fx';
+import { CartographyFX, type FxContext, type FxQuality } from './render/fx';
+import { productionRoutes, revealSpans, surveyWave, type Route } from './render/fx-graph';
+import { budgetFor } from './render/fx-model';
 import { TRANSITION_S, transitionPhase } from './render/transition';
 import { TILE_IDENTITIES } from './art/palette';
 import { createUI, type Tool } from './ui/ui';
@@ -49,16 +51,21 @@ const persist = () => store.set(KEY, exportString(makeSave(s, Date.now())));
 
 // ---- render ----
 const canvas = document.getElementById('c') as HTMLCanvasElement;
-const { scene, camera, controls, renderFrame, getQuality, setQuality } = createScene(canvas);
+const { renderer, scene, camera, controls, composer, renderFrame, getQuality, setQuality } = createScene(canvas);
 const fx = new CartographyFX(getQuality().level as FxQuality);
 scene.add(fx.group);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 let inkTarget: [number, number] = [0, 0.92]; // HUD Ink counter centre in NDC, cached in layoutView
 let board: Board;
 let prevTiles: GameState['tiles'] = [], prevRing = s.ring; // FX diff: covers manual and automated changes once
-/** Prestige transition, driven by frame dt (no timers). The economy reset runs once, at the midpoint. */
-type Trans = { kind: 'drift' | 'projection'; t: number; swapped: boolean };
+/** Prestige transition, driven by frame dt (no timers). The economy reset runs once, at the midpoint.
+ *  total and reduced are captured at start, so a media-preference change mid-transition cannot desync the FX timeline. */
+type Trans = { kind: 'drift' | 'projection'; t: number; swapped: boolean; total: number; reduced: boolean };
 let trans: Trans | null = null;
+/** Incoming board rise and survey wave, queued at the swap and run once the new board's embedding is bound. */
+let pendingReveal: number | null = null;
+/** QA only: the 'in' half of a triggered prestige, fired at its midpoint. */
+let qaSwap: { kind: Trans['kind']; at: number; total: number; reduced: boolean } | null = null;
 const MAX_FX_EVENTS = 6; // per frame, so autoBuy bursts cannot flood the pool
 const tap = new TapController(); // tap/drag/pinch classification; holds the touch-previewed cell
 
@@ -125,7 +132,10 @@ const frameCamera = () => {
   controls.maxDistance = Math.max(40, fitD * 1.5);
   camera.position.set(0, Math.cos(POLAR) * fitD, Math.sin(POLAR) * fitD);
 };
-function syncBoard() {
+/** `full` (imports, resets) kills every FX instance; the transition swap passes false and calls fx.clearAnchored itself. */
+function syncBoard(full = true) {
+  // Before the geometry check: a full swap on the same geometry (import or reset during a Drift fade) must still reset FX
+  if (full) (fx.clear(), fx.setAnchorFade(1)); // stale particles/endpoints belong to the old graph; a new board is shown
   if (board?.geometry === s.geometry) return;
   if (board) {
     scene.remove(board.group);
@@ -133,7 +143,6 @@ function syncBoard() {
   }
   board = new Board(s.geometry, scene.environment);
   tap.clearSelection(); // cell indices belong to the old graph
-  fx.clear(); // stale particles/endpoints belong to the old graph
   prevTiles = s.tiles.slice();
   scene.add(board.group);
   controls.enablePan = s.geometry === 'square';
@@ -220,34 +229,40 @@ function applyImport(n: GameState) {
   (prevTiles = s.tiles.slice()), (prevRing = s.ring); // a loaded save is not a burst of placements
 }
 
+/** Transition length in seconds; reduced motion halves it. */
+const transitionTotal = (rm: boolean) => (rm ? TRANSITION_S * 0.5 : TRANSITION_S);
 function startTransition(kind: Trans['kind']) {
   if (trans || !(kind === 'drift' ? canDrift(s) : canProject(s))) return;
   persist();
-  trans = { kind, t: 0, swapped: false };
+  const total = transitionTotal(reduced.matches), rm = reduced.matches;
+  trans = { kind, t: 0, swapped: false, total, reduced: rm };
   tap.clearSelection();
   document.body.classList.add('transitioning');
   ui.setTransition(kind === 'drift' ? 'Drifting: the ink washes the old map away…' : 'Projecting: the square map folds into the hyperbolic disk…');
-  fx.prestige(kind);
+  fx.prestige(kind, 'out', total, rm);
 }
 /** Advances the transition; returns true while board input/actions must stay blocked. */
 function stepTransition(dt: number) {
   if (!trans) return false;
   trans.t += dt;
-  const total = reduced.matches ? TRANSITION_S * 0.5 : TRANSITION_S;
+  const { total, reduced: rm } = trans;
   const { phase, k } = transitionPhase(trans.t, total);
   if (phase !== 'out' && !trans.swapped) {
     trans.swapped = true;
     const g = trans.kind === 'drift' ? drift(s) : project(s); // the only economy reset
     persist();
-    syncBoard(); // projection: new disk board (fx.clear inside); drift: same board
-    if (trans.kind === 'drift') fx.clear(), (prevTiles = s.tiles.slice());
-    prevRing = s.ring;
-    fx.prestige(trans.kind); // fresh burst over the reveal, after any clear
+    syncBoard(false); // projection: new disk board; drift: same board
+    fx.clearAnchored(); // old-graph instances and pending motes; screen wash and vortex keep running
+    prevTiles = s.tiles.slice(), prevRing = s.ring; // reset tiles are not sells, and reset rings are not surveys
+    pendingReveal = s.ring; // rise and wave are queued until board.update and fx.prepare bind the new embedding
+    fx.prestige(trans.kind, 'in', total, rm); // screen-space only, so it needs no embedding
     ui.toast(trans.kind === 'drift' ? `Drifted for ${fmt(g)} Charts` : `Projected! +${fmt(g)} Curvature. The map is now hyperbolic.`);
   }
-  const warp = trans.kind === 'projection' && !reduced.matches;
-  if (phase === 'out') board.setFade(1 - k, warp ? k : 0);
-  else if (phase === 'in') board.setFade(k, warp ? 1 - k : 0);
+  const warp = trans.kind === 'projection' && !rm;
+  // One fade value for the board and the anchored FX, so their opacity cannot disagree (fx: setAnchorFade)
+  const fade = phase === 'out' ? 1 - k : phase === 'in' ? k : 1;
+  if (phase === 'out') board.setFade(fade, warp ? k : 0);
+  else if (phase === 'in') board.setFade(fade, warp ? 1 - k : 0);
   else {
     board.setFade(1);
     trans = null;
@@ -255,12 +270,42 @@ function stepTransition(dt: number) {
     ui.setTransition(null);
     layoutDirty = true;
   }
+  fx.setAnchorFade(fade);
   return true;
 }
+const emissiveOf = (t: TileType | null | undefined) => (t ? TILE_IDENTITIES[t].emissive : undefined);
+const viewportPx = () => innerWidth * innerHeight;
+/** Frame context for the FX. Built once per frame, so fx.prepare and fx.update see the same board, routes and budget. */
+function fxContext(perTile: readonly number[], routes: readonly Route[]): FxContext {
+  return {
+    tops: board.tops, tiles: s.tiles, perTile, quality: getQuality().level as FxQuality, inkTargetNdc: inkTarget,
+    embed: board.embed, routes, boardMatrix: board.group.matrixWorld, viewportPx: viewportPx(),
+  };
+}
+/** Survey and board rise for rings prev < ring ≤ next. The FX wave is sampled to budget; the board rise covers every cell. */
+function revealRings(prev: number, next: number) {
+  const g = graphOf(s);
+  fx.surveyReveal(surveyWave(g, prev, next, budgetFor(getQuality().level, viewportPx()).reveal));
+  const spans = revealSpans(g, prev, next);
+  board.markRevealed(spans.map((w) => w.i), fx.now, spans.map((w) => w.delay));
+}
+/** Work that needs the new board's bound embedding: the queued reveal after a swap, and the QA 'in' half of a prestige. */
+function flushDeferred() {
+  if (pendingReveal !== null) {
+    const ring = pendingReveal;
+    pendingReveal = null;
+    revealRings(-1, ring);
+  }
+  if (qaSwap && fx.now >= qaSwap.at) {
+    fx.prestige(qaSwap.kind, 'in', qaSwap.total, qaSwap.reduced);
+    qaSwap = null;
+  }
+}
+
 /** One-shot FX from state diffs (manual taps and automation alike, so nothing fires twice). */
 function diffFx() {
   let n = 0;
-  if (s.ring > prevRing && s.geometry === board.geometry) fx.survey(s.geometry === 'hyper' ? DISK_R : 2 + s.ring), n++;
+  if (s.ring > prevRing && s.geometry === board.geometry) revealRings(prevRing, s.ring), n++;
   prevRing = s.ring;
   const now = fx.now;
   for (let i = 0; i < s.tiles.length; i++) {
@@ -268,7 +313,7 @@ function diffFx() {
     if (a === b) continue;
     if (n < MAX_FX_EVENTS) {
       if (b) fx.placement(i, TILE_IDENTITIES[b].emissive), board.markPlaced(i, now);
-      else fx.sell(i);
+      else fx.sell(i, emissiveOf(a)); // the sold type's colour, read from the previous tiles
       n++;
     } else if (b) board.markPlaced(i, now); // squash is free; particles are capped
   }
@@ -362,7 +407,7 @@ addEventListener('pagehide', persist);
 
 // ---- loop: fixed 10 Hz simulation, rAF rendering ----
 const STEP = 1 / config.tickRate;
-let acc = 0, last = performance.now(), uiAcc = 0, linkKey = '', links: [number, number][] = [], lastRing = s.ring;
+let acc = 0, last = performance.now(), uiAcc = 0, routeKey = '', routes: Route[] = [], lastRing = s.ring;
 function frame(now: number) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.25, (now - last) / 1000);
@@ -376,23 +421,19 @@ function frame(now: number) {
   if (s.ring !== lastRing) (lastRing = s.ring), (layoutDirty = true);
   if (shouldReframe(layoutDirty, tap.selected)) layoutView(); // a previewed touch cell holds the board still
   if (board.geometry !== s.geometry) return renderFrame(dt); // mid-Projection swap
-  const p = prod(s), g = graphOf(s);
-  const key = s.geometry + s.tiles.join();
-  if (key !== linkKey) {
-    linkKey = key;
-    const reach = mods(s).reach;
-    links = [];
-    s.tiles.forEach((t, i) => {
-      if (t !== 'mill' && t !== 'spring') return;
-      for (const n of adjacency(g, s.tiles, i, reach))
-        if ((t === 'mill' && s.tiles[n] === 'spring') || s.tiles[n] === 'beacon') links.push([n, i]);
-    });
-  }
+  const p = prod(s), g = graphOf(s), reach = mods(s).reach;
+  // real graph paths through bridges (economy-matched pairs), cached on everything that changes them
+  const rKey = `${s.geometry}|${s.ring}|${reach}|${s.tiles.join()}`;
+  if (rKey !== routeKey) (routeKey = rKey), (routes = productionRoutes(g, s.tiles, reach));
   const focus = hover >= 0 ? hover : tap.selected;
   const hoverAdj = focus >= 0 ? (s.tiles[focus] ? adjacency(g, s.tiles, focus, mods(s).reach) : g.neighbours[focus]) : [];
   board.update(s, p.perTile, focus, hoverAdj);
+  // prepare binds the new board's embedding before any spawn; update then advances time once
+  const ctx = fxContext(p.perTile, routes);
+  fx.prepare(ctx);
+  flushDeferred();
   if (!locked) diffFx();
-  fx.update(dt, { tops: board.tops, links, tiles: s.tiles, perTile: p.perTile, neighbours: g.neighbours, quality: getQuality().level as FxQuality, inkTargetNdc: inkTarget });
+  fx.update(dt, ctx);
   board.tick(fx.now, reduced.matches);
   controls.update();
   renderFrame(dt);
@@ -471,12 +512,28 @@ if (dev) {
     get s() { return s; }, Decimal, TILE_TYPES, renderQuality: getQuality,
     // QA hooks for deterministic effect screenshots (dev flag only; FX only, never economy)
     fxStats: () => fx.stats(),
-    triggerFx: (kind: string, i = 0) => {
-      if (kind === 'place') fx.placement(i, TILE_IDENTITIES[s.tiles[i] ?? 'spring'].emissive), board.markPlaced(i, fx.now);
-      else if (kind === 'sell') fx.sell(i);
-      else if (kind === 'survey') fx.survey(s.geometry === 'hyper' ? DISK_R : 2 + s.ring);
+    /** Seeds the FX PRNG: the same seed and dt sequence give the same frames. */
+    seedFx: (n: number) => fx.seed(n),
+    /** Fires one FX through the real paths. Returns false for an unknown kind, or when no bridge route exists. */
+    triggerFx: (kind: string, i = 0): boolean => {
+      if (kind === 'place') {
+        fx.placement(i, TILE_IDENTITIES[s.tiles[i] ?? 'spring'].emissive);
+        board.markPlaced(i, fx.now);
+      } else if (kind === 'sell') fx.sell(i, emissiveOf(s.tiles[i]));
+      else if (kind === 'survey') revealRings(s.ring - 1, s.ring);
       else if (kind === 'aura') fx.beaconAura(i);
-      else if (kind === 'drift' || kind === 'projection') fx.prestige(kind);
+      else if (kind === 'bridge') {
+        // a real boost route with at least one bridge in it; beaconAura fires it with the relay glints
+        const r = routes.find((x) => x.kind === 'boost' && x.nodes.length > 2);
+        if (!r) return false;
+        fx.beaconAura(r.nodes[0]);
+      } else if (kind === 'drift' || kind === 'projection') {
+        // out now; the in half is queued for the midpoint, so the timeline matches a real transition
+        const total = transitionTotal(reduced.matches), rm = reduced.matches;
+        fx.prestige(kind, 'out', total, rm);
+        qaSwap = { kind, at: fx.now + total / 2, total, reduced: rm };
+      } else return false;
+      return true;
     },
   };
   if (qa) {
@@ -496,6 +553,31 @@ if (dev) {
       quality: (n: number) => setQuality(n as QualityLevel),
       /** Read-only: view matrix, camera zoom (orbit distance), previewed cell, occupied count, visible cells. */
       phoneSnapshot,
+      /**
+       * Real GPU draw calls: composer.render with the FX group hidden, then shown, counted by renderer.info. Visibility,
+       * autoReset and the info counters are restored in finally. fxDraws is the FX share (1 when FX is in the frame).
+       */
+      fxDrawProbe: () => {
+        const info = renderer.info, autoReset = info.autoReset, visible = fx.group.visible;
+        const saved = { ...info.render };
+        const draws = (show: boolean) => {
+          fx.group.visible = show;
+          info.reset();
+          composer.render(0);
+          return info.render.calls;
+        };
+        info.autoReset = false;
+        try {
+          const without = draws(false), withFx = draws(true);
+          return { without, withFx, fxDraws: withFx - without };
+        } finally {
+          fx.group.visible = visible;
+          info.autoReset = autoReset;
+          Object.assign(info.render, saved);
+        }
+      },
+      /** Read-only: cached free rect, the board's embedding revision and the revision FX last uploaded (pan-attachment checks). */
+      frameStats: () => ({ free: { ...free }, embedRev: board.embed.rev, fxEmbedRev: fx.stats().embedRev }),
       /** Fixture: previews an active cell the way a first touch tap does (no purchase). False if not active. */
       focusCell: (i: number): boolean => {
         if (!Number.isInteger(i) || i < 0 || i >= graphOf(s).ring.length || !isActive(s, i)) return false;

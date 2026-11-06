@@ -218,27 +218,23 @@ Every texture and environment is generated in code. Nothing is fetched at runtim
 
 ## 7a. FX
 
-Particle and transition effects live in `src/render/fx.ts`. Pure timing and curve logic lives in `src/render/transition.ts` and `src/render/fx-model.ts`.
+The particle mechanics are specified in `particle-language.md`. This section lists the rules that affect the art. Visual tokens (`FX`, `PLACE`, `TILE_IDENTITIES`) live in `src/art/palette.ts`.
 
-- **Draw calls.** All particles go through a single instanced, additive draw call.
-- **Capacity by quality.** 384 (level 0), 1024 (level 1), 2048 (level 2).
-- **Ambient rates by quality** (levels 0 / 1 / 2, `FX_BUDGETS` in `fx-model.ts`):
-  - Pulses per link: 1.5 / 2 / 2.5 per second, capped at 14 / 28 / 48 per second.
-  - Lone-Spring motes: 1 / 1.5 / 2 per second, capped at 4 / 8 / 14 per second.
-  - Per-frame spawn cap (all streams): 12 / 24 / 40. These caps are unchanged.
-- **Place.** A burst, plus a board squash-settle: `s = 1 + 0.25 * exp(-8t) * cos(18t)` over about 0.6 s (`SQUASH_S`). Motifs follow the squash.
-- **Sell.** A puff.
-- **Survey.** A ring sweep.
-- **Beacon.** An automatic aura.
-- **Bridge.** Arcs between linked neighbours.
-- **Spring.** Lone motes.
-- **Ink.** Motes fly to the HUD Ink counter (`#ink-counter`, `[data-fx-target="ink"]`). The counter pulses, rate-limited.
-- **Automation.** Automation-driven events are capped per frame.
-- **Prestige transitions** (about 1.5 s, `TRANSITION_S`). Each has a first half that fades out and a second half that reveals.
+- **Rendering.** All particles draw in one instanced call, premultiplied and hue-preserving. Colour is never mixed toward white, and brightness is capped. Additivity is per particle mode, not a single additive blend.
+- **Graph anchoring.** Feed legs, relay glints, Beacon boost legs, Mill motes and survey rings sit on real graph routes. They read tile frames from the live board embedding, so they move with boost-pan, recentre and warp.
+- **Producers.** Mill motes follow feed routes and fly to the HUD Ink counter (`#ink-counter`). Standalone Springs and Mills emit their own motes in the tile's emissive colour. Vault and Bridge emit none. Arrivals belong to their slot, so overwriting a slot cancels its pending arrival.
+- **Beacon.** Aura legs run only on real boost routes. A Beacon with no boost route shows an idle ring.
+- **Place.** A compress, impact and settle envelope (`PLACE`), with an impact ring and burst. Motifs follow the squash.
+- **Sell.** A puff in the sold tile's colour, then one refund mote to Ink.
+- **Survey.** A ring sweep over graph rings, not world distance. It is budgeted.
+- **Board-coupled fades.** During a prestige transition, anchored particles fade with the board. Wash, Vortex and Pop do not. Wash and Vortex carry across the board swap.
+- **Prestige transitions** (about 1.5 s).
   - Drift: an ink wash erases the old map, then the new map is revealed.
   - Projection: the old square board warps and fades out. A luminous disk fades in under a GPU vortex.
   - Board input is disabled while a transition runs.
-- **Reduced motion.** With `prefers-reduced-motion`, the squash is disabled, the HUD pulse animation is disabled, and transitions shorten to plain fades.
+- **Adaptive budgets.** Capacity, spawn rate, pop count and overlay counts scale with quality level. See `particle-language.md`, Adaptive budgets. Viewport size scales stream rates and overlay counts only.
+- **Phone HUD.** The compact phone HUD leaves at least 55% of a 360x640 screen as free band. Controls keep 44 px touch targets.
+- **Reduced motion.** With `prefers-reduced-motion`, the placement squash and HUD pulse are disabled, and transitions shorten to plain fades.
 - **Dev QA hooks.** Only with the dev flag: `game.fxStats()` and `game.triggerFx(kind, index?)`.
 
 ## 8. Known gaps

@@ -58,6 +58,8 @@ export interface UI {
   qa: {
     tab(id: string): void; openImport(text?: string): void; checkImport(): void; showExport(): void; openReset(): void;
     confirmDrift(): void; confirmProject(): void; closeModal(): void; modalOpen(): boolean; reloadTutorial(): void;
+    /** Phone HUD: with an argument, sets expanded (true) or collapsed (false); always returns the current state. */
+    hud(open?: boolean): boolean;
   };
 }
 
@@ -159,6 +161,10 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const sCharts = stat('Charts');
   const sCurv = stat('Curvature');
   const sCod = stat('Charts on Drift');
+  // Phone portrait collapses these to the compact row (CSS: .hud:not(.hud-open) .hud-detail).
+  sCharts.box.classList.add('hud-detail');
+  sCurv.box.classList.add('hud-detail');
+  sCod.box.classList.add('hud-detail');
   const goals = el('div', 'goals');
   const goal = el('div', 'goal');
   const goalText = el('span', 'goal-text');
@@ -178,6 +184,23 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   next.append(nextLabel, bar);
   goals.append(goal, explain, next);
   hud.append(goals);
+  // Phone portrait only (CSS hides it elsewhere): one compact row by default; this touch control expands the full detail.
+  hud.id = 'hud';
+  const hudToggle = el('button', 'hud-toggle');
+  hudToggle.type = 'button';
+  hudToggle.dataset.qa = 'hud-toggle';
+  hudToggle.setAttribute('aria-controls', hud.id);
+  let hudOpen = false;
+  const setHud = (open: boolean) => {
+    hudOpen = open;
+    hud.classList.toggle('hud-open', open);
+    hudToggle.setAttribute('aria-expanded', String(open));
+    hudToggle.setAttribute('aria-label', open ? 'Hide HUD details' : 'Show HUD details');
+    hudToggle.textContent = open ? 'Hide details ▴' : '▾';
+  };
+  hudToggle.onclick = () => setHud(!hudOpen);
+  hud.append(hudToggle);
+  setHud(false);
 
   // ---- Palette ----
   const palette = el('div', 'palette');
@@ -429,11 +452,13 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   };
   const resetOpen = () => openReset(() => setTut(restartTutorial()));
   // Drift / Projection go through a confirmation first; the button only opens it.
+  // Confirming closes the menu too, so the board transition is visible; the confirmation itself is never skipped.
   const confirmDrift = () => {
     const g = get();
     const why = driftBlocked(g);
     const go = help(btn('Confirm Drift', 'primary', () => {
       closeModal();
+      setPanel(false);
       ctx.act.drift();
     }), 'Confirm Drift', BUTTON_HELP.drift);
     go.disabled = why !== null;
@@ -448,6 +473,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     const why = projectBlocked(g);
     const go = help(btn('Confirm Projection', 'primary', () => {
       closeModal();
+      setPanel(false);
       ctx.act.project();
     }), 'Confirm Projection', BUTTON_HELP.project);
     go.disabled = why !== null;
@@ -911,6 +937,10 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       modalOpen: () => !backdrop.classList.contains('hidden'),
       /** Re-reads the tutorial from storage (QA fixtures write it directly). */
       reloadTutorial: () => ((tut = parseTutorial(ctx.tutorial.load(), get())), update()),
+      hud: (open?: boolean) => {
+        if (open !== undefined) setHud(open);
+        return hudOpen;
+      },
     },
   };
 }

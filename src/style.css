@@ -102,6 +102,8 @@ input[type=checkbox] {
 }
 
 .top-actions { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; }
+/* HUD expand/collapse control: shown only in the phone portrait block below */
+button.hud-toggle { display: none; }
 button.guide-btn, button.panel-toggle { min-width: 44px; min-height: 44px; padding: 6px 10px; background: var(--glass); }
 button.guide-btn.attention { position: relative; }
 button.guide-btn.attention::after {
@@ -327,10 +329,43 @@ ul.reset li::before {
   .palette { gap: 6px; padding: 6px; }
   button.tool { min-width: 78px; padding: 4px 8px; }
   .dock { max-height: 36vh; }
-  .tutorial { max-height: 24vh; padding: 8px 10px; }
+  .tutorial { max-height: 23vh; padding: 8px 10px; }
   .infocard { padding: 6px 10px; }
-  .info-text { margin-bottom: 4px; font-size: 12.5px; line-height: 1.3; }
-  .info-actions button { padding-inline: 10px; }
+  /* Three lines at most; the rest scrolls inside the card so the board keeps >= 55% of the height */
+  .info-text { margin-bottom: 4px; font-size: 12.5px; line-height: 1.3; max-height: 3.9em; overflow-y: auto; }
+  /* Place / Cancel / Centre cell stay on one row at 360px so the preview card keeps the board band free */
+  .info-actions button { padding-inline: 10px; font-size: 14px; }
+
+  /* Collapsed HUD: Ink, Ink/s, a goal chip and the 44px toggle share one row; Guide and Menu sit beside it */
+  .topbar { gap: 6px; }
+  .top-actions { flex-direction: row; gap: 4px; }
+  button.guide-btn, button.panel-toggle { padding: 6px; font-size: 14px; }
+  button.hud-toggle {
+    display: inline-flex; flex: 0 0 44px; align-items: center; justify-content: center;
+    padding: 0; font-size: 15px;
+  }
+  .hud:not(.hud-open) { flex-wrap: nowrap; align-items: center; gap: 6px; padding: 4px 8px; }
+  .hud:not(.hud-open) .stat { min-width: 0; }
+  .hud:not(.hud-open) .hud-detail,
+  .hud:not(.hud-open) .explain,
+  .hud:not(.hud-open) .next,
+  .hud:not(.hud-open) .goal .label,
+  .hud:not(.hud-open) .goal-eta { display: none; }
+  .hud:not(.hud-open) .goals { flex: 1 1 0; min-width: 0; flex-direction: row; gap: 0; }
+  /* The goal is one chip: its progress bar fills it behind the (ellipsised) text; full text is in the expanded HUD */
+  .hud:not(.hud-open) .goal {
+    position: relative; flex: 1 1 0; min-width: 0; height: 32px; padding: 0 8px;
+    flex-wrap: nowrap; overflow: hidden; font-size: 12px; border-radius: 8px;
+  }
+  .hud:not(.hud-open) .goal .bar {
+    position: absolute; inset: 0; flex: none; height: auto; margin: 0; opacity: 0.3; border-radius: 8px;
+  }
+  .hud:not(.hud-open) .goal-text {
+    position: relative; z-index: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* Expanded HUD: the full detail as before, scrolling inside its own box, with a full-width collapse control */
+  .hud.hud-open { max-height: 42vh; overflow-y: auto; overscroll-behavior: contain; }
+  .hud.hud-open button.hud-toggle { flex: 1 1 100%; }
 }
 
 /* Phone landscape (844x390, 932x430): two columns, panel spans the board */

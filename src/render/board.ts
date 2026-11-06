@@ -4,14 +4,16 @@ import type { SquareBoard } from '../core/geometry/square';
 import { apply, boost, boostToOrigin, dist, geodesic, identity, inverse, mul, normalize, orthonormalize, toDisk, type HyperBoard, type Mat3, type Vec3 } from '../core/geometry/hyperbolic';
 import { TILE_TYPES, type TileType } from '../core/tiles';
 import {
-  BLOOM, BOARD, EMPTY_SLOT, MATERIAL, NEXT_SLOT, TILE_IDENTITIES, bevelColour, hoverFace, motifScale, sideColour, tileHeight, trimGlow,
+  BLOOM, BOARD, EMPTY_SLOT, MATERIAL, NEXT_SLOT, PLACE, TILE_IDENTITIES, bevelColour, hoverFace, motifScale, sideColour, tileHeight, trimGlow,
 } from '../art/palette';
-import { SQUASH_S, squash } from './transition';
+import { placeGlsl, placeScale } from './transition';
+import { bumpRev, createEmbedding, medianEdgePitch, writeFrame, type Embedding } from './fx-graph';
 
 export const DISK_R = 9;
 const SEG = 8; // geodesic segments per heptagon edge
 const GAP = 0.9;
-const INSET = 0.8; // inner face / outline ratio; the ring between is the bevel or empty-slot border
+const INSET = 0.8; // inner face / outline ratio for placed tiles and focused or neighbour slots; at rest empty slots use EMPTY_SLOT.restInset
+const REVEAL_S = 0.25; // survey rise: tile height ramps 0 → full over this many seconds from its reveal time
 const PER_K = 15; // verts per outline segment: top fan 3 + bevel quad 6 + side quad 6
 const GLOW_STEPS = 8; // output quantisation per decade, so the cache key only changes on visible steps
 
@@ -107,6 +109,8 @@ function tableTexture(round: boolean): THREE.CanvasTexture {
 export class Board {
   readonly group = new THREE.Group();
   readonly tops: THREE.Vector3[];
+  /** Per-tile frame for FX (fx-graph.ts). Rewritten on rebuild, `embed.rev` bumps once per rebuild. */
+  readonly embed: Embedding;
   private geom = new THREE.BufferGeometry();
   private K: number;
   private view: Mat3 = identity();
@@ -127,6 +131,8 @@ export class Board {
   private c2 = new THREE.Vector3();
   /** Squash-settle: per-vertex birth time (fx clock) read by the shader against uFxClock; no per-frame rebuild. */
   private born: Float32Array;
+  /** Survey reveal: per-vertex fx time at which the tile starts rising. Default −1e4 means already revealed. */
+  private revealed: Float32Array;
   private uClock = { value: 0 };
   private motifSlot: Int32Array;
   private settling = new Map<number, number>();
@@ -143,6 +149,18 @@ export class Board {
     this.motifSlot = new Int32Array(n).fill(-1);
     this.born = new Float32Array(verts).fill(-1e4);
     this.geom.setAttribute('born', new THREE.BufferAttribute(this.born, 1).setUsage(THREE.DynamicDrawUsage));
+    this.revealed = new Float32Array(verts).fill(-1e4);
+    this.geom.setAttribute('revealAt', new THREE.BufferAttribute(this.revealed, 1).setUsage(THREE.DynamicDrawUsage));
+    // embedding positions in table world units, so the seam test compares like with like
+    const xy: [number, number][] = this.square ? this.square.xy : this.hyper!.centers.map((c) => {
+      const [u, w] = toDisk(c);
+      return [u * DISK_R, w * DISK_R];
+    });
+    // local scale at the identity view, the same s = 1 − |disk|² that outline() uses. Pitch is the chord at s = 1,
+    // so the shader's own multiply by s lands on the right size. Conformal, so it stays valid under boost-pan.
+    const scale = this.square ? g.ring.map(() => 1) : xy.map(([x, z]) => Math.max(0, 1 - (x * x + z * z) / (DISK_R * DISK_R)));
+    this.embed = createEmbedding(n);
+    this.embed.pitch = medianEdgePitch(g, xy, scale);
     for (const name of ['position', 'normal', 'color', 'glow'])
       this.geom.setAttribute(name, new THREE.BufferAttribute(new Float32Array(verts * 3), 3).setUsage(THREE.DynamicDrawUsage));
     // one merged draw call, so roughness/metalness are shared: the mean of the tile tokens
@@ -156,11 +174,20 @@ export class Board {
     });
     mat.onBeforeCompile = (sh) => {
       sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute vec3 glow;\nattribute float born;\nuniform float uFxClock;\nvarying vec3 vGlow;')
+        .replace('#include <common>', `#include <common>
+attribute vec3 glow;
+attribute float born;
+attribute float revealAt;
+uniform float uFxClock;
+varying vec3 vGlow;
+${placeGlsl()}`)
         .replace('#include <begin_vertex>', `#include <begin_vertex>
 vGlow = glow;
 float sqT = uFxClock - born;
-if (sqT >= 0.0 && sqT < ${SQUASH_S.toFixed(2)}) transformed.y *= 1.0 + 0.25 * exp(-8.0 * sqT) * cos(18.0 * sqT);`);
+if (sqT >= 0.0 && sqT < ${PLACE.life.toFixed(2)}) transformed.y *= placeScale(sqT);
+float rvT = uFxClock - revealAt;
+transformed.y *= smoothstep(0.0, ${REVEAL_S.toFixed(2)}, rvT);
+vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * vec3(0.35, 0.7, 1.0);`);
       sh.uniforms.uFxClock = this.uClock;
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vGlow;')
@@ -250,13 +277,15 @@ if (sqT >= 0.0 && sqT < ${SQUASH_S.toFixed(2)}) transformed.y *= 1.0 + 0.25 * ex
     const glowA = this.geom.attributes.glow.array as Float32Array;
     const g = GRAPHS[this.geometry], K = this.K, { c, side, border, glow, trim } = this;
     for (const t of TILE_TYPES) this.motifs[t].count = 0;
+    const embed = this.embed;
     for (let i = 0; i < n; i++) {
       const o = this.outline(i), t = s.tiles[i], r = g.ring[i];
       const active = r <= s.ring, next = r === s.ring + 1;
+      const near = i !== hover && hoverAdj.includes(i); // neighbour of the focus, not the focus itself
       // output level 0..1 (log decades / heightLogFull), quantised by glowQ
       const L = Math.min(1, this.glowQ[i] / GLOW_STEPS / MATERIAL.heightLogFull);
       const pinned = s.pinned.includes(i);
-      let h = 0;
+      let h = 0, ins = INSET;
       // face: lit albedo + tiny glow. trim (bevel): glassy edge glow, scaled by output, below bloom.
       if (t) {
         const tk = TOK[t];
@@ -268,15 +297,25 @@ if (sqT >= 0.0 && sqT < ${SQUASH_S.toFixed(2)}) transformed.y *= 1.0 + 0.25 * ex
         trim.copy(tk.emissive).multiplyScalar(i === hover ? MATERIAL.hoverTrim : trimGlow(L));
       } else if (active || next) {
         h = active ? MATERIAL.slotHeight : MATERIAL.nextHeight;
-        c.copy(active ? C.slot : C.next); border.copy(active ? C.slotBorder : C.nextBorder);
+        const edge = active ? C.slotBorder : C.nextBorder, face = active ? C.slot : C.next;
+        c.copy(face);
         side.copy(C.slotSide);
-        glow.copy(active ? C.slotGlow : C.black); trim.copy(glow);
+        glow.copy(active ? C.slotGlow : C.black);
+        if (i === hover || near) {
+          border.copy(edge); trim.copy(glow); // focus or neighbour: the current bright rim at the placed-tile inset
+        } else {
+          // at rest: a thin, quiet rim so the empty lattice does not shout
+          ins = EMPTY_SLOT.restInset;
+          border.copy(edge).lerp(face, EMPTY_SLOT.restRimMix);
+          trim.copy(glow).multiplyScalar(EMPTY_SLOT.restTrim);
+        }
         if (i === hover) c.lerp(C.white, MATERIAL.hoverLerp), border.copy(C.adj), trim.copy(C.adj).multiplyScalar(0.25);
       } else o.scale = 0;
-      if (i !== hover && hoverAdj.includes(i)) border.lerp(C.adj, 0.6), trim.lerp(C.adj, 0.25);
+      if (near) border.lerp(C.adj, 0.6), trim.lerp(C.adj, 0.25);
       h *= o.scale;
       const [cx, cz] = o.c;
       this.tops[i].set(cx, h, cz);
+      writeFrame(embed, i, { p: [cx, h, cz], s: o.scale, n: [0, 1, 0] });
       if (t && o.scale > 0.02) {
         const im = this.motifs[t], sc = Math.sqrt(o.scale) * (this.hyper ? 1.3 : 1) * motifScale(L);
         this.m4.compose(this.tops[i], this.q, this.sc.setScalar(sc));
@@ -295,7 +334,7 @@ if (sqT >= 0.0 && sqT < ${SQUASH_S.toFixed(2)}) transformed.y *= 1.0 + 0.25 * ex
       for (let k = 0; k < K; k++) {
         // hidden tiles collapse to the centre, giving zero-area triangles
         const [px, pz] = hidden ? o.c : o.pts[k], [qx, qz] = hidden ? o.c : o.pts[(k + 1) % K];
-        const ax = cx + (px - cx) * INSET, az = cz + (pz - cz) * INSET, bx = cx + (qx - cx) * INSET, bz = cz + (qz - cz) * INSET;
+        const ax = cx + (px - cx) * ins, az = cz + (pz - cz) * ins, bx = cx + (qx - cx) * ins, bz = cz + (qz - cz) * ins;
         put(cx, h, cz, c, glow); put(bx, h, bz, c, glow); put(ax, h, az, c, glow); // inner face (CCW from above)
         put(ax, h, az, border, trim); put(bx, h, bz, border, trim); put(qx, hb, qz, border, trim); // bevel / slot border
         put(ax, h, az, border, trim); put(qx, hb, qz, border, trim); put(px, hb, pz, border, trim);
@@ -304,6 +343,7 @@ if (sqT >= 0.0 && sqT < ${SQUASH_S.toFixed(2)}) transformed.y *= 1.0 + 0.25 * ex
       }
     }
     this.geom.computeVertexNormals(); // non-indexed: face normals, written in place
+    bumpRev(embed); // one bump per rebuild, after every tile's frame is written
     for (const name of ['position', 'normal', 'color', 'glow']) this.geom.attributes[name].needsUpdate = true;
     for (const t of TILE_TYPES) this.motifs[t].instanceMatrix.needsUpdate = true;
   }
@@ -318,18 +358,35 @@ if (sqT >= 0.0 && sqT < ${SQUASH_S.toFixed(2)}) transformed.y *= 1.0 + 0.25 * ex
     this.settling.set(i, now);
   }
 
+  /**
+   * Survey reveal: tile indices[j] rises from the table starting at fx time now + delays[j] (shader smoothstep over
+   * REVEAL_S, with a brief rim brightening). Writes only those tiles' vertex spans. Out-of-range indices are ignored.
+   */
+  markRevealed(indices: readonly number[], now: number, delays: readonly number[]) {
+    if (!Number.isFinite(now)) return;
+    const n = this.glowQ.length, span = this.K * PER_K, a = this.geom.attributes.revealAt as THREE.BufferAttribute;
+    indices.forEach((i, j) => {
+      if (!Number.isInteger(i) || i < 0 || i >= n) return;
+      const d = delays[j];
+      const at = now + (Number.isFinite(d) && d > 0 ? d : 0);
+      this.revealed.fill(at, i * span, (i + 1) * span);
+      a.addUpdateRange(i * span, span);
+    });
+    a.needsUpdate = true;
+  }
+
   /** Per frame: advance the squash clock; motifs of settling tiles (few) follow the same curve. */
   tick(now: number, reduced: boolean) {
     this.uClock.value = reduced ? 1e9 : now;
     for (const [i, t0] of this.settling) {
-      if (now - t0 >= SQUASH_S || reduced) this.settling.delete(i);
+      if (now - t0 >= PLACE.life || reduced) this.settling.delete(i);
       const slot = this.motifSlot[i], t = this.tileType[i];
       if (slot < 0 || !t) continue;
       const im = this.motifs[t];
       if (slot >= im.count) continue;
       im.getMatrixAt(slot, this.m4);
       this.m4.decompose(this.c2, this.q, this.sc);
-      this.c2.y = this.tops[i].y * (reduced ? 1 : squash(now - t0));
+      this.c2.y = this.tops[i].y * (reduced ? 1 : placeScale(now - t0));
       this.m4.compose(this.c2, this.q, this.sc);
       im.setMatrixAt(slot, this.m4);
       im.instanceMatrix.needsUpdate = true;

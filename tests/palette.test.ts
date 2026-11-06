@@ -11,6 +11,7 @@ import {
   TILE_IDENTITIES,
   EMPTY_SLOT,
   NEXT_SLOT,
+  PLACE,
   MATERIAL,
   BLOOM,
   BOARD,
@@ -140,6 +141,42 @@ describe('empty slot', () => {
 
   it('makes the next ring darker than the empty slot', () => {
     expect(relativeLuminance(NEXT_SLOT.base)).toBeLessThan(relativeLuminance(EMPTY_SLOT.base));
+  });
+
+  it('at rest, keeps a thin bevel band (inset between the placed-tile 0.8 and a full face of 1)', () => {
+    expect(EMPTY_SLOT.restInset).toBeGreaterThan(0.8);
+    expect(EMPTY_SLOT.restInset).toBeLessThan(1);
+  });
+
+  it('at rest, mixes the border toward the face and trims with a fraction of the glow', () => {
+    expect(EMPTY_SLOT.restRimMix).toBeGreaterThanOrEqual(0);
+    expect(EMPTY_SLOT.restRimMix).toBeLessThanOrEqual(1);
+    expect(EMPTY_SLOT.restTrim).toBeGreaterThan(0);
+    expect(EMPTY_SLOT.restTrim).toBeLessThanOrEqual(1);
+  });
+
+  it('the quiet resting border is darker than the accent but still visible against the face', () => {
+    const rest = lerpHex(EMPTY_SLOT.accent, EMPTY_SLOT.base, EMPTY_SLOT.restRimMix);
+    expect(relativeLuminance(rest)).toBeLessThan(relativeLuminance(EMPTY_SLOT.accent));
+    expect(contrastRatio(rest, EMPTY_SLOT.base)).toBeGreaterThanOrEqual(1.2);
+  });
+});
+
+describe('placement curve tokens (PLACE)', () => {
+  it('orders dip before life, with a positive decay and frequency', () => {
+    expect(PLACE.dip).toBeGreaterThan(0);
+    expect(PLACE.dip).toBeLessThan(PLACE.life);
+    expect(PLACE.decay).toBeGreaterThan(0);
+    expect(PLACE.omega).toBeGreaterThan(0);
+  });
+
+  it('has a squash depth strictly between 0 and 0.5, so the tile never flattens', () => {
+    expect(PLACE.squash).toBeGreaterThan(0);
+    expect(PLACE.squash).toBeLessThan(0.5);
+  });
+
+  it('settles inside its life (the curve is exactly 1 from life on)', () => {
+    expect(PLACE.life).toBeGreaterThanOrEqual(0.45);
   });
 });
 

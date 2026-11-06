@@ -1,15 +1,21 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  ArrivalQueue,
+  CadenceCounter,
   FX_BUDGETS,
+  MOTE_ACCEL,
+  SlotArrivals,
   SlotRing,
+  Throttle,
+  VIEWPORT_REF_PX,
   accumulate,
-  arcPoint,
   budgetFor,
   loneSprings,
   motePoint,
+  mulberry32,
   streamRate,
   validLinks,
+  viewportScale,
   type V3,
 } from '../src/render/fx-model';
 import { FX, saturation } from '../src/art/palette';
@@ -142,34 +148,8 @@ describe('SlotRing', () => {
   });
 });
 
-describe('arcPoint and motePoint', () => {
-  const a: V3 = { x: 0, y: 0, z: 0 };
-  const b: V3 = { x: 1, y: 2, z: 3 };
-
-  it('arcPoint is finite for t in [-1, 2]', () => {
-    for (let t = -1; t <= 2; t += 0.1) {
-      const p = arcPoint(a, b, 0.5, t);
-      expect(Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)).toBe(true);
-    }
-  });
-
-  it('arcPoint hits the endpoints at t=0 and t=1', () => {
-    expect(arcPoint(a, b, 0.5, 0)).toEqual(a);
-    const end = arcPoint(a, b, 0.5, 1);
-    expect(end.x).toBe(b.x);
-    expect(end.z).toBe(b.z);
-    expect(end.y).toBeCloseTo(b.y, 10);
-  });
-
-  it('arcPoint lift peaks at t=0.5', () => {
-    // lift above the straight a->b baseline
-    const y = (t: number) => arcPoint(a, b, 0.5, t).y - (a.y + (b.y - a.y) * t);
-    expect(y(0.5)).toBeGreaterThan(y(0.25));
-    expect(y(0.5)).toBeGreaterThan(y(0.75));
-    expect(y(0.5)).toBeCloseTo(0.5, 10);
-  });
-
-  it('motePoint is finite for t in [-1, 2] and exact at the endpoints', () => {
+describe('motePoint', () => {
+  it('is finite for t in [-1, 2] and exact at the endpoints', () => {
     for (let t = -1; t <= 2; t += 0.1) {
       const [x, y] = motePoint([0, 0], [1, 1], 0.2, t);
       expect(Number.isFinite(x) && Number.isFinite(y)).toBe(true);
@@ -252,48 +232,57 @@ describe('streamRate', () => {
   });
 });
 
-describe('ArrivalQueue', () => {
-  it('pop sums weights with time <= now regardless of push order', () => {
-    const forward = new ArrivalQueue();
-    forward.push(3, 1);
-    forward.push(1, 2);
-    forward.push(2, 4);
-    const reverse = new ArrivalQueue();
-    reverse.push(2, 4);
-    reverse.push(1, 2);
-    reverse.push(3, 1);
-    expect(forward.pop(2)).toBe(6);
-    expect(reverse.pop(2)).toBe(6);
-    expect(forward.size).toBe(1);
-    expect(forward.pop(10)).toBe(1);
-    expect(forward.size).toBe(0);
+describe('SlotArrivals (one pending arrival per slot)', () => {
+  it('due disarms and reports only the slots whose time has come, in slot order', () => {
+    const a = new SlotArrivals(8);
+    a.arm(5, 2);
+    a.arm(1, 1);
+    a.arm(3, 9);
+    const out: number[] = [];
+    expect(a.due(2, out)).toBe(2);
+    expect(out).toEqual([1, 5]);
+    expect(a.size).toBe(1);
+    expect(a.due(10)).toBe(1);
+    expect(a.size).toBe(0);
   });
 
-  it('defaults weight to 1 and ignores non-finite input', () => {
-    const q = new ArrivalQueue();
-    q.push(NaN);
-    q.push(1, NaN);
-    expect(q.size).toBe(0);
-    q.push(1);
-    expect(q.pop(1)).toBe(1);
+  it('cancel removes a pending arrival, so an overwritten mote cannot arrive', () => {
+    const a = new SlotArrivals(4);
+    a.arm(2, 1);
+    a.cancel(2);
+    expect(a.size).toBe(0);
+    expect(a.due(5)).toBe(0);
+    a.cancel(2); // cancelling an unarmed slot is a no-op
+    expect(a.size).toBe(0);
   });
 
-  it('overflow merges its weight into the last entry', () => {
-    const q = new ArrivalQueue(2);
-    q.push(1, 1);
-    q.push(2, 1);
-    q.push(3, 5);
-    expect(q.size).toBe(2);
-    expect(q.pop(2)).toBe(7);
-    expect(q.size).toBe(0);
+  it('re-arming a slot replaces its time and never counts twice', () => {
+    const a = new SlotArrivals(4);
+    a.arm(0, 1);
+    a.arm(0, 3);
+    expect(a.size).toBe(1);
+    expect(a.due(2)).toBe(0);
+    expect(a.due(3)).toBe(1);
   });
 
-  it('clear empties the queue', () => {
-    const q = new ArrivalQueue();
-    q.push(1, 3);
-    q.clear();
-    expect(q.size).toBe(0);
-    expect(q.pop(10)).toBe(0);
+  it('rejects out-of-range slots and non-finite times without growing', () => {
+    const a = new SlotArrivals(2);
+    expect(a.arm(2, 0)).toBe(false);
+    expect(a.arm(-1, 0)).toBe(false);
+    expect(a.arm(0.5, 0)).toBe(false);
+    expect(a.arm(0, NaN)).toBe(false);
+    expect(a.size).toBe(0);
+    expect(a.arm(1, 0)).toBe(true);
+    expect(a.size).toBe(1);
+  });
+
+  it('clear empties every slot', () => {
+    const a = new SlotArrivals(3);
+    a.arm(0, 1);
+    a.arm(2, 1);
+    a.clear();
+    expect(a.size).toBe(0);
+    expect(a.due(10)).toBe(0);
   });
 });
 
@@ -345,5 +334,213 @@ describe('ambient rates at the 10 ticks/s sim step', () => {
     for (let s = 0; s < 20; s++) fx.update(TICK, ctx);
     expect(pulse.mock.calls.length).toBeGreaterThanOrEqual(3);
     fx.dispose();
+  });
+});
+
+describe('new budget fields (reveal, auraLinks, pops)', () => {
+  it('are positive integers at every quality, and bounded by the capacity', () => {
+    for (const b of FX_BUDGETS) {
+      for (const key of ['reveal', 'auraLinks', 'pops'] as const) {
+        expect(Number.isInteger(b[key]) && b[key] > 0, key).toBe(true);
+        expect(b[key], key).toBeLessThanOrEqual(b.capacity);
+      }
+    }
+  });
+
+  it('match the tier values in fx-model.ts', () => {
+    expect(FX_BUDGETS.map((b) => b.reveal)).toEqual([64, 128, 256]);
+    expect(FX_BUDGETS.map((b) => b.auraLinks)).toEqual([12, 24, 48]);
+    expect(FX_BUDGETS.map((b) => b.pops)).toEqual([4, 8, 16]);
+  });
+});
+
+describe('viewport scaling of budgets', () => {
+  it('viewportScale is 1 with no or invalid viewport, and 1 at or above the reference area', () => {
+    expect(viewportScale()).toBe(1);
+    expect(viewportScale(NaN)).toBe(1);
+    expect(viewportScale(0)).toBe(1);
+    expect(viewportScale(-5)).toBe(1);
+    expect(viewportScale(VIEWPORT_REF_PX)).toBe(1);
+    expect(viewportScale(VIEWPORT_REF_PX * 4)).toBe(1);
+  });
+
+  it('viewportScale is sqrt of the area ratio, floored at 0.55', () => {
+    expect(viewportScale(VIEWPORT_REF_PX / 4)).toBe(0.55); // sqrt(0.25) = 0.5 is clamped up to the floor
+    expect(viewportScale(VIEWPORT_REF_PX * 0.6)).toBeCloseTo(Math.sqrt(0.6), 10);
+  });
+
+  it('no viewport returns the shared FX_BUDGETS object (identity kept)', () => {
+    for (const q of [0, 1, 2]) expect(budgetFor(q)).toBe(FX_BUDGETS[q]);
+    expect(budgetFor(1, VIEWPORT_REF_PX)).toBe(FX_BUDGETS[1]);
+  });
+
+  it('a small viewport scales only the stream rates, overlay and reveal, down to the 0.55 floor', () => {
+    const base = FX_BUDGETS[2];
+    const b = budgetFor(2, 100);
+    expect(b).not.toBe(base);
+    expect(b.pulseRate).toBeCloseTo(base.pulseRate * 0.55, 10);
+    expect(b.moteRate).toBeCloseTo(base.moteRate * 0.55, 10);
+    expect(b.overlay).toBe(Math.floor(base.overlay * 0.55));
+    expect(b.reveal).toBe(Math.floor(base.reveal * 0.55));
+    // capacity, spawn limit, aura cadence and link/pop caps are never scaled
+    expect(b.capacity).toBe(base.capacity);
+    expect(b.maxSpawnPerFrame).toBe(base.maxSpawnPerFrame);
+    expect(b.auraEvery).toBe(base.auraEvery);
+    expect(b.auraLinks).toBe(base.auraLinks);
+    expect(b.pops).toBe(base.pops);
+  });
+
+  it('never gives a count below 1 and never increases a budget', () => {
+    for (const q of [0, 1, 2]) {
+      const base = FX_BUDGETS[q];
+      const b = budgetFor(q, 1);
+      expect(b.overlay).toBeGreaterThanOrEqual(1);
+      expect(b.reveal).toBeGreaterThanOrEqual(1);
+      for (const key of Object.keys(base) as (keyof typeof base)[]) {
+        expect(b[key] as number, key).toBeLessThanOrEqual(base[key] as number);
+      }
+    }
+  });
+});
+
+describe('seeded PRNG (mulberry32)', () => {
+  it('same seed gives the same sequence, and different seeds diverge', () => {
+    const a = mulberry32(12345), b = mulberry32(12345), c = mulberry32(12346);
+    const seqA = Array.from({ length: 100 }, () => a());
+    const seqB = Array.from({ length: 100 }, () => b());
+    const seqC = Array.from({ length: 100 }, () => c());
+    expect(seqA).toEqual(seqB);
+    expect(seqA).not.toEqual(seqC);
+  });
+
+  it('every value is in [0, 1)', () => {
+    const r = mulberry32(7);
+    for (let i = 0; i < 10_000; i++) {
+      const v = r();
+      expect(v >= 0 && v < 1).toBe(true);
+    }
+  });
+
+  it('a non-finite seed maps to seed 0', () => {
+    const z = mulberry32(0), n = mulberry32(NaN), inf = mulberry32(Infinity);
+    for (let i = 0; i < 20; i++) {
+      const v = z();
+      expect(n()).toBe(v);
+      expect(inf()).toBe(v);
+    }
+  });
+
+  it('spreads evenly: each decile of 10 000 draws is within 800..1200', () => {
+    const r = mulberry32(2026);
+    const bins = new Array(10).fill(0);
+    for (let i = 0; i < 10_000; i++) bins[Math.floor(r() * 10)]++;
+    for (const n of bins) expect(n).toBeGreaterThanOrEqual(800);
+    for (const n of bins) expect(n).toBeLessThanOrEqual(1200);
+  });
+});
+
+describe('CadenceCounter (deterministic per-key cadence)', () => {
+  it('fires on every n-th hit for a key, then restarts', () => {
+    const c = new CadenceCounter(2);
+    expect([c.hit(5), c.hit(5), c.hit(5), c.hit(5)]).toEqual([false, true, false, true]);
+  });
+
+  it('keeps keys independent', () => {
+    const c = new CadenceCounter(2);
+    expect(c.hit(1)).toBe(false);
+    expect(c.hit(2)).toBe(false);
+    expect(c.hit(1)).toBe(true);
+    expect(c.hit(2)).toBe(true);
+  });
+
+  it('every = 1 fires on each hit, and reset clears the counts', () => {
+    const always = new CadenceCounter(1);
+    expect([always.hit(0), always.hit(0)]).toEqual([true, true]);
+    const c = new CadenceCounter(3);
+    c.hit(4);
+    c.hit(4);
+    c.reset();
+    expect(c.hit(4)).toBe(false);
+  });
+
+  it('rejects an every below 1 or non-numeric', () => {
+    expect(() => new CadenceCounter(0)).toThrow();
+    expect(() => new CadenceCounter(NaN)).toThrow();
+  });
+});
+
+describe('Throttle (minimum gap between accepted events)', () => {
+  it('accepts the first event, rejects events inside the gap, and accepts at the gap boundary', () => {
+    const t = new Throttle(0.14);
+    expect(t.take(0)).toBe(true);
+    expect(t.take(0.1)).toBe(false);
+    expect(t.take(0.14)).toBe(true);
+  });
+
+  it('rejects non-finite time, and treats a clock that moves backwards as a fresh start', () => {
+    const t = new Throttle(0.14);
+    expect(t.take(NaN)).toBe(false);
+    expect(t.take(10)).toBe(true);
+    expect(t.take(5)).toBe(true);
+    expect(t.take(5.05)).toBe(false);
+  });
+
+  it('reset allows the next event immediately', () => {
+    const t = new Throttle(1);
+    t.take(3);
+    t.reset();
+    expect(t.take(3.1)).toBe(true);
+  });
+});
+
+describe('motePoint mirrors the GPU mote flight', () => {
+  const rise = FX.riseFrac;
+
+  it('uses the shared exponent and matches the closed form along a straight flight', () => {
+    expect(MOTE_ACCEL).toBeGreaterThan(1);
+    for (const t of [rise, rise + 0.1, 0.6, 0.95]) {
+      const u = (t - rise) / (1 - rise);
+      const [x, y] = motePoint([0, 0], [1, 2], 0, t);
+      expect(x).toBeCloseTo(Math.pow(u, MOTE_ACCEL), 12);
+      expect(y).toBeCloseTo(2 * Math.pow(u, MOTE_ACCEL), 12);
+    }
+  });
+
+  it('holds at the start until the rise ends, and lands exactly on the target', () => {
+    expect(motePoint([0.3, -0.2], [1, 1], 0.2, 0)).toEqual([0.3, -0.2]);
+    expect(motePoint([0.3, -0.2], [1, 1], 0.2, rise / 2)).toEqual([0.3, -0.2]);
+    const [x, y] = motePoint([0.3, -0.2], [1, 1], 0.2, 1);
+    expect(x).toBeCloseTo(1, 10);
+    expect(y).toBeCloseTo(1, 10);
+  });
+
+  it('accelerates: the mid-flight fraction is well below linear', () => {
+    const mid = rise + (1 - rise) / 2;
+    const [x] = motePoint([0, 0], [1, 0], 0, mid);
+    expect(x).toBeLessThan(0.5);
+    expect(x).toBeCloseTo(Math.pow(0.5, MOTE_ACCEL), 12);
+  });
+
+  it('bows perpendicular to the flight, peaking mid-flight', () => {
+    const [, y] = motePoint([0, 0], [1, 0], 0.2, rise + (1 - rise) / 2);
+    expect(Math.abs(y)).toBeGreaterThan(0.1);
+    expect(Math.abs(motePoint([0, 0], [1, 0], 0.2, 1)[1])).toBeLessThan(1e-9);
+  });
+});
+
+describe('loneSprings with kinds and feed-only links', () => {
+  it('counts Mills as lone producers when asked, and never Vaults or Bridges', () => {
+    const tiles = ['mill', 'vault', 'bridge', 'spring', 'mill'];
+    expect(loneSprings(tiles, [], ['spring', 'mill'])).toEqual([0, 3, 4]);
+    expect(loneSprings(tiles, [[3, 4]], ['spring', 'mill'])).toEqual([0]);
+  });
+});
+
+describe('fx-model module purity', () => {
+  it('imports neither Three nor the DOM', () => {
+    const src = readFileSync(new URL('../src/render/fx-model.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/from ['"]three['"]/);
+    expect(src).not.toMatch(/\bdocument\./);
+    expect(src).not.toMatch(/\bwindow\./);
   });
 });

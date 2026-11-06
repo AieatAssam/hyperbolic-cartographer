@@ -378,6 +378,57 @@ function layoutScan() {
   return failures;
 }
 
+// Runs in the page. Board band: the vertical strip between the visible overlays (top bar above, dock/palette below).
+// The board canvas behind the UI is not counted; only what is left between overlays is the usable board.
+function boardBand() {
+  const vh = window.innerHeight;
+  const TRANSIENT = /(^|\s)(tooltip|toast|flash|dev|modal-backdrop)(\s|$)/;
+  const shownEl = (el) => {
+    for (let e = el; e && e.nodeType === 1; e = e.parentElement) {
+      const cs = getComputedStyle(e);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+    }
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  const ui = document.getElementById('ui');
+  const rects = [];
+  for (const c of ui?.children ?? []) {
+    if (['CANVAS', 'SCRIPT', 'STYLE'].includes(c.tagName)) continue;
+    if (TRANSIENT.test(String(c.getAttribute('class') || '')) || !shownEl(c)) continue;
+    rects.push(c.getBoundingClientRect());
+  }
+  const above = rects.filter((r) => (r.top + r.bottom) / 2 < vh / 2);
+  const below = rects.filter((r) => (r.top + r.bottom) / 2 >= vh / 2);
+  const y0 = above.reduce((m, r) => Math.max(m, r.bottom), 0);
+  const y1 = below.reduce((m, r) => Math.min(m, r.top), vh);
+  const height = Math.max(0, y1 - y0);
+  return { vh, y0: Math.round(y0), y1: Math.round(y1), height: Math.round(height), fraction: height / vh };
+}
+
+// Runs in the page. HUD state read for the collapsed/expanded cases (no mutation).
+function hudState() {
+  const toggle = document.querySelector('[data-qa="hud-toggle"]');
+  const topbar = document.querySelector('.topbar');
+  const shownEl = (el) => !!el && el.getClientRects().length > 0 && getComputedStyle(el).display !== 'none';
+  const explain = document.querySelector('.explain');
+  return {
+    toggleShown: shownEl(toggle),
+    expanded: toggle?.getAttribute('aria-expanded') ?? null,
+    toggleBox: toggle ? toggle.getBoundingClientRect().toJSON() : null,
+    topbarHeight: topbar ? Math.round(topbar.getBoundingClientRect().height) : null,
+    explainShown: shownEl(explain) && getComputedStyle(explain).visibility !== 'hidden' && explain.textContent.trim().length > 0,
+    inkShown: shownEl(document.getElementById('ink-counter')),
+    rateShown: shownEl(document.querySelectorAll('.hud > .stat')[1] ?? null),
+    panelShown: shownEl(document.querySelector('[data-qa="panel"]')),
+  };
+}
+
+async function phonePortrait(p) {
+  const v = p.viewportSize();
+  return !!v && v.width < 700 && v.height > v.width;
+}
+
 async function rafTwice(page) {
   await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => res()))));
 }
@@ -404,12 +455,23 @@ async function focusLastActive(p) {
 const flatView = (v) => Object.values(v ?? {}).flat(Infinity).map(Number);
 const cellIn = (snap, idx) => snap.visibleCells.find((c) => c.index === idx);
 
-async function previewChecks(p, idx, snap) {
+// Confirm action on the preview card: Place <tile>, or Sell / Pin / Unpin when those tools are selected (ui.ts placeBtn).
+const CONFIRM = /^(Place |Sell$|Pin$|Unpin$)/;
+
+// `centre` is true only for the hyper board: the centre cell is hyper-only, so the Bring-to-centre control exists
+// there and nowhere else. Square previews still require the selected cell and the Place/Cancel controls.
+async function previewChecks(p, idx, snap, centre) {
   const out = [];
   if (snap.selectedCell !== idx) out.push(`selected cell ${snap.selectedCell} != focused ${idx}`);
   if (!cellIn(snap, idx)) out.push(`selected cell ${idx} not in phoneSnapshot.visibleCells (offscreen or beyond the 64-cell cap)`);
-  const bring = p.getByRole('button', { name: BRING });
-  if ((await bring.count()) === 0 || !(await bring.first().isVisible())) out.push('Bring cell to centre button not visible with preview open');
+  const required = [
+    ['Place/Sell/Pin confirm button', p.getByRole('button', { name: CONFIRM })],
+    ['Cancel button', p.getByRole('button', { name: 'Cancel', exact: true })],
+  ];
+  if (centre) required.push(['Bring cell to centre button', p.getByRole('button', { name: BRING })]);
+  for (const [label, loc] of required) {
+    if ((await loc.count()) === 0 || !(await loc.first().isVisible())) out.push(`${label} not visible with preview open`);
+  }
   return out;
 }
 
@@ -430,7 +492,7 @@ const hyperPreviewCase = (centre) => ({
   expect: async (p) => {
     const { idx, snap: before } = hyperBefore.get(p);
     const now = await qa(p, 'phoneSnapshot');
-    const out = await previewChecks(p, idx, now);
+    const out = await previewChecks(p, idx, now, true);
     if (!centre) return out;
     if (!cellIn(before, idx)) out.push(`selected cell ${idx} missing before centring: cannot compare size`);
     if (Math.abs(now.zoom - before.zoom) > 1e-6) out.push(`zoom changed ${before.zoom} -> ${now.zoom}`);
@@ -508,6 +570,11 @@ function calMutate(kind) {
     if (!shownEl(panel) || !ctl) return 'needs visible panel with a control';
     set(panel, { overflow: 'hidden' });
     set(ctl, { marginTop: '4000px' });
+  } else if (kind === 'dock-tall') {
+    // min-height beats the 36vh max-height, so the dock eats board space the band check must catch
+    const dock = ui?.querySelector('.dock');
+    if (!shownEl(dock)) return 'needs visible .dock';
+    set(dock, { minHeight: '40vh' });
   } else if (kind === 'foot-size' || kind === 'foot-offscreen') {
     const foot = document.querySelector('[data-qa="modal-foot"]');
     const btn = foot?.querySelector('button');
@@ -528,7 +595,8 @@ function calMutateRestore() {
   window.__qaCalSaved = [];
 }
 
-function calibrationCase(kind, seed, open, re) {
+// `scan` is the in-page check the fault must trip; `gate` (optional) skips viewports where that check does not apply.
+function calibrationCase(kind, seed, open, re, scan = (p) => p.evaluate(layoutScan), gate = null) {
   return {
     name: `calib-${kind}`,
     scan: false,
@@ -539,7 +607,8 @@ function calibrationCase(kind, seed, open, re) {
       else await qa(p, 'dismissTutorial');
     },
     expect: async (p) => {
-      const matching = async () => (await p.evaluate(layoutScan)).filter((f) => re.test(f));
+      if (gate && !(await gate(p))) return [];
+      const matching = async () => (await scan(p)).filter((f) => re.test(f));
       const before = await matching();
       const why = await p.evaluate(calMutate, kind);
       if (why) {
@@ -560,6 +629,91 @@ function calibrationCase(kind, seed, open, re) {
   };
 }
 
+// Board band (phone portrait only): >= 55% of the viewport stays free between the overlays, with the
+// selected-cell preview open when `preview` is set. Desktop and landscape pass as not applicable.
+const BOARD_MIN = 0.55;
+const bandFailure = (band, preview) => (band.fraction < BOARD_MIN
+  ? [`board free height ${band.height}px = ${Math.round(band.fraction * 100)}% of viewport (need >=${BOARD_MIN * 100}%) between overlays y=${band.y0}..${band.y1}${preview ? ' with cell preview' : ''}`]
+  : []);
+const boardScan = async (p) => bandFailure(await p.evaluate(boardBand), false);
+const boardFailures = async (p, preview, idx, centre) => {
+  const out = bandFailure(await p.evaluate(boardBand), preview);
+  if (await p.evaluate(() => !!document.querySelector('.panel') && getComputedStyle(document.querySelector('.panel')).display !== 'none')) {
+    out.push('board free height: menu panel is open, so the band is not the collapsed-HUD board');
+  }
+  if (preview) out.push(...(await previewChecks(p, idx, await qa(p, 'phoneSnapshot'), centre)));
+  return out;
+};
+const boardPreview = new WeakMap(); // page -> previewed cell index
+// `centre` requires the Bring-to-centre control; only the hyper board's preview has it (the centre cell is hyper-only).
+const boardCase = (name, seed, preview, centre = false) => ({
+  name,
+  setup: async (p) => {
+    await qa(p, 'seed', seed);
+    await qa(p, 'dismissTutorial');
+    if (preview) boardPreview.set(p, await focusLastActive(p));
+    await rafTwice(p);
+  },
+  expect: async (p) => {
+    if (!(await phonePortrait(p))) return [];
+    return boardFailures(p, preview, boardPreview.get(p), centre);
+  },
+});
+
+// Collapsed HUD on phones is one compact row (Ink, Ink/s, goal chip, toggle); desktop and landscape keep full detail.
+const hudCollapsedCase = {
+  name: 'hud-collapsed',
+  setup: async (p) => {
+    await qa(p, 'seed', 'midgame');
+    await qa(p, 'dismissTutorial');
+  },
+  expect: async (p) => {
+    const st = await p.evaluate(hudState);
+    if (!(await phonePortrait(p))) {
+      const out = [];
+      if (st.toggleShown) out.push('hud-toggle shown outside phone portrait (desktop must keep full detail)');
+      if (!st.explainShown) out.push('full HUD detail (.explain) missing outside phone portrait');
+      return out;
+    }
+    const out = [];
+    if (!st.toggleShown) out.push('hud-toggle not visible in collapsed phone HUD');
+    if (st.expanded !== 'false') out.push(`hud-toggle aria-expanded should be "false" when collapsed, got ${st.expanded}`);
+    if (st.explainShown) out.push('collapsed HUD still shows the explain line');
+    if (!st.inkShown) out.push('#ink-counter not visible in collapsed HUD');
+    if (!st.rateShown) out.push('Ink/s stat not visible in collapsed HUD');
+    if (st.topbarHeight === null || st.topbarHeight > 72) out.push(`collapsed HUD is not one row: top bar ${st.topbarHeight}px tall (need <=72px)`);
+    return out;
+  },
+};
+const hudExpandedCase = {
+  name: 'hud-expanded',
+  setup: async (p) => {
+    await qa(p, 'seed', 'midgame');
+    await qa(p, 'dismissTutorial');
+    await qa(p, 'hud', true);
+  },
+  expect: async (p) => {
+    const st = await p.evaluate(hudState);
+    const out = [];
+    if (st.expanded !== 'true') out.push(`hud-toggle aria-expanded should be "true" when expanded, got ${st.expanded}`);
+    if (!st.explainShown) out.push('expanded HUD does not show the goal explanation (.explain)');
+    if (!st.rateShown) out.push('expanded HUD lost the Ink/s stat');
+    if (await phonePortrait(p)) {
+      if (!st.toggleShown) out.push('hud-toggle not visible in expanded phone HUD (it must collapse by touch)');
+      const vh = (await p.viewportSize()).height;
+      if (st.topbarHeight > 0.42 * vh + 1) out.push(`expanded HUD too tall: top bar ${st.topbarHeight}px > 42% of ${vh}px`);
+      // Collapse by touch: the toggle must return the HUD to the compact row.
+      await p.locator('[data-qa="hud-toggle"]').first().click();
+      await rafTwice(p);
+      const back = await p.evaluate(hudState);
+      if (back.expanded !== 'false' || back.explainShown) out.push('touch toggle did not collapse the expanded HUD');
+    } else if (st.toggleShown) {
+      out.push('hud-toggle shown outside phone portrait');
+    }
+    return out;
+  },
+};
+
 const CASES = [
   {
     name: 'firstload',
@@ -567,7 +721,12 @@ const CASES = [
       await qa(p, 'seed', 'fresh');
       await qa(p, 'tutorial', 0);
     },
-    expect: async (p) => [await need(p, 'tutorial')].filter(Boolean),
+    expect: async (p) => {
+      const out = [await need(p, 'tutorial')].filter(Boolean);
+      // Open first tutorial must leave the board band >= 55% on phone portrait
+      if (await phonePortrait(p)) out.push(...(await boardScan(p)));
+      return out;
+    },
   },
   tutorialCase(1),
   tutorialCase(2),
@@ -688,6 +847,13 @@ const CASES = [
   },
   hyperPreviewCase(false),
   hyperPreviewCase(true),
+  hudCollapsedCase,
+  hudExpandedCase,
+  boardCase('board-free-55', 'midgame', false),
+  boardCase('board-free-55-preview', 'midgame', true),
+  boardCase('board-free-55-hyper-preview', 'hyper', true, true),
+  // Harness self-check for the board band: a tall dock must be reported on phone portrait.
+  calibrationCase('dock-tall', 'midgame', null, /^board free height/, boardScan, phonePortrait),
 ];
 
 // ---------- server ----------

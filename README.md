@@ -162,7 +162,7 @@ Changes from the original brief (all in `src/core/config.ts`; formulas unchanged
 - [Vite](https://vitejs.dev/): build and dev server.
 - [Vitest](https://vitest.dev/): tests.
 
-**Art.** All art is original and procedurally generated in code. Textures are drawn at runtime, the backdrop is a GLSL shader, and reflections come from a generated environment. No image, font, HDR or model files are loaded. See `docs/art/style-guide.md`.
+**Art.** All art is original and procedurally generated in code. Textures are drawn at runtime, the backdrop is a GLSL shader, and reflections come from a generated environment. No image, font, HDR or model files are loaded. See `docs/art/style-guide.md`, and `docs/art/particle-language.md` for the particle effects.
 
 **Related works.** These are named for context only:
 

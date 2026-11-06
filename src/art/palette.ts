@@ -87,10 +87,33 @@ export const TILE_IDENTITIES = {
 /**
  * Empty board slot: a dark recessed well with a subdued violet border (accent), never near-white.
  * emissive is a faint inner breath, well below bloom.
+ * At rest (not hovered, not a neighbour of the focus) the rim is quiet: restInset leaves a thin bevel band,
+ * the border is mixed toward the face by restRimMix, and the trim is restTrim of the slot glow.
+ * Focused or neighbour slots use the current bright rim at the placed-tile inset (board.ts INSET). These are
+ * visual tokens, not balance.
  */
-export const EMPTY_SLOT: MaterialToken = {
+export interface EmptySlotToken extends MaterialToken {
+  /** Inner face / outline ratio at rest (placed tiles use 0.8). */
+  restInset: number;
+  /** Border = lerp(accent, base, restRimMix) at rest. */
+  restRimMix: number;
+  /** Trim = emissive · restTrim at rest. */
+  restTrim: number;
+}
+export const EMPTY_SLOT: EmptySlotToken = {
   base: 0x1c1430, emissive: 0x3a2e60, emissiveIntensity: 0.12, roughness: 0.9, metalness: 0, accent: 0x54467a,
-} as const;
+  restInset: 0.9, restRimMix: 0.55, restTrim: 0.4,
+};
+
+/**
+ * Placement curve for a tile that was just placed (transition.ts placeScale, mirrored in GLSL by placeGlsl so the
+ * two cannot drift). Times are seconds from placement.
+ * - dip: anticipation. Ease-in compression to 1 − squash (0.78) over [0, dip]. Impact (FX ring and sparks) fires at dip.
+ * - squash: depth of the anticipation, and the amplitude of the damped rebound.
+ * - decay / omega: rebound e^(−decay·τ) and frequency. The peak is about 1.098 at τ ≈ 0.055 s after dip.
+ * - life: the curve is exactly 1 from here on (matches the old SQUASH_S).
+ */
+export const PLACE = { dip: 0.07, squash: 0.22, decay: 14, omega: 52, life: 0.6 } as const;
 
 /** Next-ring (not yet surveyed) slot: darker still, border barely visible. */
 export const NEXT_SLOT = { base: 0x140e22, border: 0x2e2546 } as const;
@@ -200,12 +223,22 @@ export const hoverFace = (base: number) => lerpHex(base, BOARD.hover, MATERIAL.h
  * without bloom; *Px sizes are CSS pixels (shader multiplies by DPR) so motes stay legible at phone zoom.
  * - ink: motes flying to the HUD Ink counter. ring/beacon/bridge: procedural ring and arc colours.
  * - wash/vortex: Drift ink-wash and Projection vortex overlay colours.
- * - *Life: seconds. ringWidth: annulus thickness as a fraction of radius. *Lift: world-unit arc height.
+ * - *Life: seconds. *Px: CSS px for screen-space sprites (motes, Pop, Wash, Vortex).
+ * - Graph-anchored sizes are in tile pitches at s = 1 (coreR, sparkR, ringWidth, legs) and scale with perspective.
+ *   minPx/maxPx clamp them on screen. Leg lift is in pitches too (legLift, riseR, stub).
+ * - add*: how much of a particle is additive (1) versus over-blended (0). Colour never mixes toward white.
+ * - legLife, stub, trail, waveStep: the graph timings. They match fx-graph ROUTE_TIMING and SURVEY_WAVE_STEP.
+ * These are visual tokens, not balance.
  */
 export const FX = {
   ink: 0x6cc4ff, production: 0x8fe6ff, sell: 0xc9b8e8, ring: 0x5fd4ff, beacon: 0xff7a92, bridge: 0xb07cff,
   wash: 0x2a6bd6, vortex: 0xe8c872,
-  pulsePx: 9, motePx: 11, burstPx: 10, puffPx: 14, overlayPx: 22,
-  pulseLife: 0.65, moteLife: 1.1, burstLife: 0.7, puffLife: 0.9, ringLife: 1.4, auraLife: 1.8, arcLife: 0.9, overlayLife: 2.4,
-  ringWidth: 0.12, arcLift: 0.55, pulseLift: 0.35,
+  motePx: 11, overlayPx: 22, popPx: 26,
+  moteLife: 0.85, ringLife: 1.4, auraLife: 0.9, overlayLife: 2.4, popLife: 0.25, impactLife: 0.35, sparkLife: 0.45,
+  sellLife: 0.5, relayLife: 0.3,
+  coreR: 0.13, sparkR: 0.09, ringWidth: 0.06, revealRadius: 0.48, minPx: 2.5, maxPx: 34,
+  legLife: 0.38, legLift: 0.25, stub: 0.5, trail: 0.12, riseR: 0.25, riseFrac: 0.18,
+  popGap: 0.14, waveStep: 0.07, motesPerArrivals: 2,
+  beaconAlpha: 0.6, beaconIdle: 0.3, popStrength: 1.6,
+  addLeg: 0.6, addSpark: 0.5, addRing: 0.3, addPop: 0.3, addWash: 0, addVortex: 0.4,
 } as const;
