@@ -40,6 +40,7 @@ export interface UICtx {
     recenter(): void; // reset camera / hyperbolic view
     confirmPlace(): void; // apply the current tool to the selected cell
     cancelPlace(): void; // clear the selected cell
+    centreSelected(): void; // move the selected cell to the disk centre (hyperbolic only; keeps selection and zoom)
   };
   dev: boolean;
 }
@@ -53,6 +54,11 @@ export interface UI {
   bumpInk(weight: number): void;
   /** Plain-words goal override while a prestige transition plays; null restores the normal goal. */
   setTransition(text: string | null): void;
+  /** Dev/QA hooks (main.ts exposes them only under ?dev&qa). Each one calls an existing internal. */
+  qa: {
+    tab(id: string): void; openImport(text?: string): void; checkImport(): void; showExport(): void; openReset(): void;
+    confirmDrift(): void; confirmProject(): void; closeModal(): void; modalOpen(): boolean; reloadTutorial(): void;
+  };
 }
 
 type Dec = GameState['ink'];
@@ -157,6 +163,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const goal = el('div', 'goal');
   const goalText = el('span', 'goal-text');
   goalText.setAttribute('aria-live', 'polite');
+  goalText.dataset.qa = 'hud-goal';
   const goalEta = el('span', 'goal-eta muted');
   const goalFill = el('div', 'fill');
   const goalBar = el('div', 'bar');
@@ -210,6 +217,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   // ---- Panel ----
   const panel = el('div', 'panel');
   panel.id = 'menu-panel';
+  panel.dataset.qa = 'panel';
   const toggle = help(btn('Menu', 'panel-toggle', () => setPanel(panel.classList.contains('hidden'))), 'Menu', BUTTON_HELP.menu);
   toggle.setAttribute('aria-controls', panel.id);
   const setPanel = (open: boolean) => {
@@ -232,6 +240,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   for (const [id, label] of TABS) {
     const b = help(btn(label, 'tab', () => openTab(id)), `${label} tab`, TAB_HELP[id]);
     b.setAttribute('role', 'tab');
+    b.dataset.qa = `tab-${id}`;
     tabBtns.set(id, b);
     tabBar.append(b);
   }
@@ -254,6 +263,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const dock = el('div', 'dock');
   const tutBox = el('section', 'tutorial hidden');
   tutBox.setAttribute('aria-label', 'Tutorial');
+  tutBox.dataset.qa = 'tutorial';
   const tutTitle = el('h3', 'tut-title');
   const tutProg = el('span', 'tut-progress muted');
   const tutBody = el('p', 'tut-body');
@@ -273,8 +283,10 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const infoText = el('div', 'info-text');
   const placeBtn = help(btn('Place', 'primary', () => ctx.act.confirmPlace()), 'Place', BUTTON_HELP.place);
   const cancelBtn = help(btn('Cancel', '', () => ctx.act.cancelPlace()), 'Cancel', 'Clear the previewed cell without buying anything.');
+  const centreBtn = help(btn('Centre cell', '', () => ctx.act.centreSelected()), 'Bring cell to centre', 'Slides the board so the previewed cell sits at the middle. Zoom and selection stay put.');
+  centreBtn.setAttribute('aria-label', 'Bring previewed cell to the centre of the board');
   const infoActs = el('div', 'row info-actions');
-  infoActs.append(placeBtn, cancelBtn);
+  infoActs.append(placeBtn, cancelBtn, centreBtn);
   info.append(infoText, infoActs);
   dock.append(tutBox, info);
 
@@ -310,13 +322,35 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const modal = el('div', 'modal');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
+  modal.dataset.qa = 'modal';
   backdrop.append(modal);
-  const closeModal = () => backdrop.classList.add('hidden');
+  let opener: HTMLElement | null = null; // focus to restore when the modal closes
+  const closeModal = () => {
+    if (backdrop.classList.contains('hidden')) return;
+    backdrop.classList.add('hidden');
+    opener?.focus();
+    opener = null;
+  };
   backdrop.onclick = (e) => {
     if (e.target === backdrop) closeModal();
   };
+  /** Tab stays inside the open modal (simple wrap-around trap). */
+  const trapTab = (e: KeyboardEvent) => {
+    const f = [...modal.querySelectorAll<HTMLElement>('button, input, textarea, select')].filter((x) => !(x as HTMLButtonElement).disabled);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1], a = document.activeElement;
+    if (e.shiftKey && (a === first || !modal.contains(a))) (e.preventDefault(), last.focus());
+    else if (!e.shiftKey && (a === last || !modal.contains(a))) (e.preventDefault(), first.focus());
+  };
   const openModal = (heading: string, content: HTMLElement, buttons: HTMLElement[]) => {
-    modal.replaceChildren(el('h2', '', heading), content, row(...buttons));
+    if (backdrop.classList.contains('hidden')) opener = document.activeElement as HTMLElement | null;
+    const bodyEl = el('div', 'modal-body');
+    bodyEl.dataset.qa = 'modal-body';
+    bodyEl.append(content);
+    const foot = row(...buttons);
+    foot.classList.add('modal-foot');
+    foot.dataset.qa = 'modal-foot';
+    modal.replaceChildren(el('h2', '', heading), bodyEl, foot);
     backdrop.classList.remove('hidden');
     buttons[0]?.focus();
   };
@@ -325,13 +359,17 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     const ta = el('textarea');
     ta.value = str;
     ta.readOnly = true;
+    ta.setAttribute('aria-label', 'Save string');
+    ta.dataset.qa = 'export-text';
     openModal('Save string', ta, [closeBtn()]);
   };
-  const openImport = () => {
+  const openImport = (text = '') => {
     const ta = el('textarea');
     ta.rows = 5;
+    ta.value = text;
     ta.placeholder = 'Paste a save string or .json text';
     ta.setAttribute('aria-label', 'Save string');
+    ta.dataset.qa = 'import-text';
     const file = el('input');
     file.type = 'file';
     file.accept = '.json,.txt';
@@ -341,11 +379,14 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       if (f) ta.value = await f.text();
     };
     const msg = el('div');
+    msg.dataset.qa = 'import-preview';
     const check = help(btn('Check', '', () => {
       msg.replaceChildren();
       const r = ctx.act.parseImport(ta.value);
       if (!r.ok) {
-        msg.append(el('p', 'neg', r.error));
+        const err = el('p', 'neg', r.error);
+        err.dataset.qa = 'import-error';
+        msg.append(err);
         return;
       }
       const g = r.state;
@@ -361,6 +402,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
         }), 'Overwrite', BUTTON_HELP.overwrite).box,
       );
     }), 'Check', BUTTON_HELP.check);
+    check.dataset.qa = 'import-check';
     const body2 = el('div');
     body2.append(txt(`${BUTTON_HELP.import} Check shows a preview first.`), ta, file, msg);
     openModal('Import save', body2, [check, closeBtn('Cancel')]);
@@ -384,6 +426,36 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     content.append(txt('This wipes all progress, including Charts, Curvature and milestones. Type RESET to enable Confirm reset.'), input);
     openModal('Hard reset', content, [go, closeBtn('Cancel')]);
     input.focus();
+  };
+  const resetOpen = () => openReset(() => setTut(restartTutorial()));
+  // Drift / Projection go through a confirmation first; the button only opens it.
+  const confirmDrift = () => {
+    const g = get();
+    const why = driftBlocked(g);
+    const go = help(btn('Confirm Drift', 'primary', () => {
+      closeModal();
+      ctx.act.drift();
+    }), 'Confirm Drift', BUTTON_HELP.drift);
+    go.disabled = why !== null;
+    const content = el('div');
+    content.append(txt(`Payoff: +${fmt(chartsOnDrift(g), g.notation)} Charts.`));
+    if (why) content.append(el('p', 'neg', why));
+    content.append(title('Resets'), list('reset', DRIFT_RESETS), title('Keeps'), list('keep', DRIFT_KEEPS));
+    openModal('Drift?', content, [closeBtn('Cancel'), go]);
+  };
+  const confirmProject = () => {
+    const g = get();
+    const why = projectBlocked(g);
+    const go = help(btn('Confirm Projection', 'primary', () => {
+      closeModal();
+      ctx.act.project();
+    }), 'Confirm Projection', BUTTON_HELP.project);
+    go.disabled = why !== null;
+    const content = el('div');
+    content.append(txt(`Payoff: +${fmt(curvatureOnProjection(g), g.notation)} Curvature.`));
+    if (why) content.append(el('p', 'neg', why));
+    content.append(title('Resets'), list('reset', PROJECTION_RESETS), title('Keeps'), list('keep', PROJECTION_KEEPS));
+    openModal('Projection?', content, [closeBtn('Cancel'), go]);
   };
 
   // ---- Tab bodies (each returns fresh elements; live bits register via watch) ----
@@ -454,7 +526,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
 
   const driftTab = (s: GameState): HTMLElement[] => {
     const stats = txt('');
-    const dbtn = btn('', 'primary', () => ctx.act.drift());
+    const dbtn = btn('', 'primary', confirmDrift);
     const dc = ctl(dbtn, 'Drift', BUTTON_HELP.drift);
     watch(() => {
       const g = get();
@@ -508,7 +580,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     compare.append(box('Square (now)', cmp.square.neighbours, cmp.square.millMax), box('Hyperbolic {7,3}', cmp.hyper.neighbours, cmp.hyper.millMax));
     const req = txt('');
     const curvP = txt('');
-    const pb = btn('', 'primary', () => ctx.act.project());
+    const pb = btn('', 'primary', confirmProject);
     const pc = ctl(pb, 'Project', BUTTON_HELP.project);
     watch(() => {
       const g = get();
@@ -548,6 +620,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
         showText(str);
       }
     });
+    const view = btn('View save string', '', () => showText(ctx.act.exportString()));
     const notation = el('select');
     notation.append(new Option('Suffix (1.23M)', 'suffix'), new Option('Scientific (1.23e6)', 'sci'));
     notation.value = s.notation;
@@ -561,11 +634,12 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
         title('Save'),
         txt('The game autosaves every 10 seconds and when you leave. Export a copy to move or back up progress.'),
         ctl(copy, 'Copy save string', BUTTON_HELP.copy).box,
+        ctl(view, 'View save string', 'Show the save string in a box you can select and copy by hand.').box,
         ctl(btn('Download file', '', () => ctx.act.exportFile()), 'Download file', BUTTON_HELP.download).box,
-        ctl(btn('Import…', '', openImport), 'Import', BUTTON_HELP.import).box,
+        ctl(btn('Import…', '', () => openImport()), 'Import', BUTTON_HELP.import).box,
       ),
       card(title('Display'), nl, el('p', 'help', BUTTON_HELP.notation)),
-      card(title('Hard reset'), ctl(btn('Hard reset', 'danger', () => openReset(() => setTut(restartTutorial()))), 'Hard reset', BUTTON_HELP.reset).box),
+      card(title('Hard reset'), ctl(btn('Hard reset', 'danger', resetOpen), 'Hard reset', BUTTON_HELP.reset).box),
     ];
   };
 
@@ -668,6 +742,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     const content = el('div');
     content.append(txt(`Away for ${fmtTime(r.seconds)}.`), txt(`Ink gained: ${fmt(r.ink)}`), txt(`Efficiency: ${Math.round(r.eff * 100)}%`));
     if (r.drifts > 0) content.append(txt(`Drifts: ${r.drifts}`));
+    content.dataset.qa = 'offline';
     openModal('While you were away', content, [help(btn('OK', 'primary', closeModal), 'OK', BUTTON_HELP.close)]);
   };
 
@@ -722,16 +797,19 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       setInfo(`<b>${escape(helpFor.dataset.helpName ?? '')}</b> · ${escape(helpFor.dataset.help ?? '')}${helpFor.matches(':disabled') ? ' <span class="neg">(unavailable now; see the red note)</span>' : ''}`);
       infoActs.hidden = true;
     } else if (sel >= 0) {
-      setInfo(ctx.cellInfo(sel));
+      const far = s.geometry === 'hyper' ? '<br><span class="muted">Edge cells shrink. Drag them closer or centre this cell.</span>' : '';
+      setInfo(ctx.cellInfo(sel) + far);
       const why = placeBlocked(s, sel, tl);
       placeBtn.disabled = why !== null;
       placeBtn.textContent = tl === 'sell' ? 'Sell' : tl === 'pin' ? (s.pinned.includes(sel) ? 'Unpin' : 'Pin') : `Place ${TOOL_NAME[tl]}`;
+      centreBtn.hidden = s.geometry !== 'hyper';
       infoActs.hidden = false;
     } else {
       const isTile = tl !== 'sell' && tl !== 'pin';
       const cost = isTile ? tileCost(s, tl) : null;
       const short = cost && s.ink.lt(cost) ? ` <span class="neg">Need ${fmt(cost.sub(s.ink), s.notation)} more Ink.</span>` : '';
-      setInfo(`<b>${TOOL_NAME[tl]}</b>${cost ? ` · ${fmt(cost, s.notation)} Ink` : ''} · ${escape(TOOL_HELP[tl])}${short}<br><span class="muted">Tap a cell to preview it, tap again to confirm. Mouse: click.</span>`);
+      const hyperHint = s.geometry === 'hyper' ? ' Drag the board to bring far cells closer.' : '';
+      setInfo(`<b>${TOOL_NAME[tl]}</b>${cost ? ` · ${fmt(cost, s.notation)} Ink` : ''} · ${escape(TOOL_HELP[tl])}${short}<br><span class="muted">Tap a cell to preview it, tap again to confirm. Mouse: click.${hyperHint}</span>`);
       infoActs.hidden = true;
     }
   }
@@ -791,6 +869,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
 
   // ---- Keyboard ----
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' && !backdrop.classList.contains('hidden')) return trapTab(e);
     if (e.key === 'Escape') {
       if (!backdrop.classList.contains('hidden')) closeModal();
       else if (ctx.selected() >= 0) ctx.act.cancelPlace();
@@ -818,7 +897,22 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   // ---- Mount ----
   root.append(topbar, panel, dock, palette, tip, toastEl, dev, backdrop);
   update();
-  return { update, tooltip, showOffline, toast, flash, bumpInk, setTransition };
+  return {
+    update, tooltip, showOffline, toast, flash, bumpInk, setTransition,
+    qa: {
+      tab: (id: string) => tabBtns.has(id as Tab) && openTab(id as Tab),
+      openImport: (text?: string) => openImport(text),
+      checkImport: () => modal.querySelector<HTMLButtonElement>('[data-qa="import-check"]')?.click(),
+      showExport: () => showText(ctx.act.exportString()),
+      openReset: resetOpen,
+      confirmDrift,
+      confirmProject,
+      closeModal,
+      modalOpen: () => !backdrop.classList.contains('hidden'),
+      /** Re-reads the tutorial from storage (QA fixtures write it directly). */
+      reloadTutorial: () => ((tut = parseTutorial(ctx.tutorial.load(), get())), update()),
+    },
+  };
 }
 
 const escape = (str: string) => str.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);

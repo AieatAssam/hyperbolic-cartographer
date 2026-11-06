@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import Decimal from 'break_eternity.js';
 import { config } from './core/config';
-import { initialState, graphOf, type GameState } from './core/state';
+import { initialState, graphOf, GRAPHS, type GameState } from './core/state';
 import { adjacency, buyChartUpg, buyCurvUpg, isActive, maxRing, mods, place, prod, previewDelta, sell, sellValue, survey, tileCost, togglePin } from './core/economy';
 import { canDrift, canProject, drift, project } from './core/prestige';
 import { applyOffline, simulate } from './core/tick';
 import { exportString, importSave, makeSave, toJson } from './core/save';
-import { TILE_INFO, TILE_TYPES } from './core/tiles';
-import { createScene } from './render/scene';
+import { TILE_INFO, TILE_TYPES, type TileType } from './core/tiles';
+import { createScene, type QualityLevel } from './render/scene';
 import { Board, DISK_R } from './render/board';
 import { cellCorners, circlePts, fitDistance, freeRect, shouldReframe, type Rect, type Role } from './render/framing';
 import type { SquareBoard } from './core/geometry/square';
@@ -18,13 +18,20 @@ import { createUI, type Tool } from './ui/ui';
 import { fmt } from './ui/format';
 import { placeBlocked } from './ui/help';
 import { TapController, type PointerKind } from './ui/input';
-import { TUTORIAL_KEY } from './ui/tutorial';
-
+import { TUTORIAL_KEY, dismissTutorial, freshTutorial, parseTutorial, serializeTutorial, type TutorialState } from './ui/tutorial';
 const KEY = 'hc-save', BACKUP = 'hc-save-backup';
 const dev = import.meta.env.DEV || location.search.includes('dev');
+const qa = dev && new URLSearchParams(location.search).has('qa'); // QA: deterministic, no localStorage writes
+const qaMem = new Map<string, string>(); // QA writes land here instead of localStorage
 const store = {
-  get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
-  set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* storage unavailable */ } },
+  get: (k: string) => {
+    if (qa && qaMem.has(k)) return qaMem.get(k)!;
+    try { return localStorage.getItem(k); } catch { return null; }
+  },
+  set: (k: string, v: string) => {
+    if (qa) return void qaMem.set(k, v);
+    try { localStorage.setItem(k, v); } catch { /* storage unavailable */ }
+  },
 };
 
 // ---- state + load ----
@@ -35,14 +42,14 @@ if (saved) {
   const r = importSave(saved);
   if (r.ok) {
     s = r.state;
-    offline = applyOffline(s, (Date.now() - r.save.savedAt) / 1000);
+    if (!qa) offline = applyOffline(s, (Date.now() - r.save.savedAt) / 1000);
   } else console.warn('Save not loaded:', r.error);
 }
 const persist = () => store.set(KEY, exportString(makeSave(s, Date.now())));
 
 // ---- render ----
 const canvas = document.getElementById('c') as HTMLCanvasElement;
-const { scene, camera, controls, renderFrame, getQuality } = createScene(canvas);
+const { scene, camera, controls, renderFrame, getQuality, setQuality } = createScene(canvas);
 const fx = new CartographyFX(getQuality().level as FxQuality);
 scene.add(fx.group);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
@@ -92,7 +99,19 @@ const setDistance = (d: number) => {
   const off = camera.position.clone().sub(controls.target);
   camera.position.copy(controls.target).add(off.setLength(d));
 };
-addEventListener('resize', () => (layoutDirty = true));
+// A touch preview is dropped only on a real layout change: an orientation flip, a width change (> 1px) or orientationchange.
+// Mobile URL-bar show/hide changes only innerHeight, so the selection survives it.
+let lastW = innerWidth, lastLandscape = innerWidth > innerHeight;
+const clearPreviewOnLayoutChange = (always: boolean) => {
+  const landscape = innerWidth > innerHeight;
+  const widthChanged = Math.abs(innerWidth - lastW) > 1;
+  const flipped = landscape !== lastLandscape;
+  lastW = innerWidth;
+  lastLandscape = landscape;
+  if (always || widthChanged || flipped) tap.clearSelection();
+};
+addEventListener('resize', () => ((layoutDirty = true), clearPreviewOnLayoutChange(false)));
+addEventListener('orientationchange', () => ((layoutDirty = true), clearPreviewOnLayoutChange(true)));
 // panel toggles (display:none) and dock growth show up as size changes; no per-frame DOM reads
 const ro = new ResizeObserver(() => (layoutDirty = true));
 const observeUI = () => document.querySelectorAll('#ui .hud, #ui .panel, #ui .dock').forEach((el) => ro.observe(el));
@@ -163,14 +182,7 @@ const ui = createUI(document.getElementById('ui')!, {
       URL.revokeObjectURL(a.href);
     },
     parseImport: importSave,
-    applyImport: (n) => {
-      store.set(BACKUP, exportString(makeSave(s, Date.now())));
-      s = n;
-      tap.clearSelection();
-      persist();
-      syncBoard();
-      (prevTiles = s.tiles.slice()), (prevRing = s.ring); // a loaded save is not a burst of placements
-    },
+    applyImport,
     hardReset: () => {
       store.set(BACKUP, exportString(makeSave(s, Date.now())));
       s = initialState();
@@ -189,10 +201,24 @@ const ui = createUI(document.getElementById('ui')!, {
       board.recenter();
       frameCamera();
     },
+    // keeps the preview and the camera zoom; only the disk view moves (no-op while a transition plays)
+    centreSelected: () => {
+      if (!trans && tap.selected >= 0 && s.geometry === 'hyper') board.centreOn(tap.selected);
+    },
   },
 });
 fx.onInkArrive = (w) => ui.bumpInk(w);
 if (offline) ui.showOffline(offline);
+
+/** Swaps in a loaded state (import, QA fixture): the board rebuilds and the backup keeps the old save. */
+function applyImport(n: GameState) {
+  store.set(BACKUP, exportString(makeSave(s, Date.now())));
+  s = n;
+  tap.clearSelection();
+  persist();
+  syncBoard();
+  (prevTiles = s.tiles.slice()), (prevRing = s.ring); // a loaded save is not a burst of placements
+}
 
 function startTransition(kind: Trans['kind']) {
   if (trans || !(kind === 'drift' ? canDrift(s) : canProject(s))) return;
@@ -374,15 +400,112 @@ function frame(now: number) {
 }
 requestAnimationFrame(frame);
 
-if (dev) Object.assign(window, { game: {
-  get s() { return s; }, Decimal, TILE_TYPES, renderQuality: getQuality,
-  // QA hooks for deterministic effect screenshots (dev flag only; FX only, never economy)
-  fxStats: () => fx.stats(),
-  triggerFx: (kind: string, i = 0) => {
-    if (kind === 'place') fx.placement(i, TILE_IDENTITIES[s.tiles[i] ?? 'spring'].emissive), board.markPlaced(i, fx.now);
-    else if (kind === 'sell') fx.sell(i);
-    else if (kind === 'survey') fx.survey(s.geometry === 'hyper' ? DISK_R : 2 + s.ring);
-    else if (kind === 'aura') fx.beaconAura(i);
-    else if (kind === 'drift' || kind === 'projection') fx.prestige(kind);
-  },
-} });
+// ---- QA fixtures (?dev&qa only): deterministic states, no randomness ----
+type QaSeed = 'fresh' | 'midgame' | 'drift-ready' | 'projection-ready' | 'hyper';
+/** Tiles on every `every`-th active cell, alternating Mill and Spring. */
+function sprinkle(g: GameState, every: number) {
+  g.tiles = g.tiles.map((_, i): TileType | null => (!isActive(g, i) || i % every ? null : (i / every) % 2 ? 'mill' : 'spring'));
+}
+function fixture(name: QaSeed): GameState {
+  const g = initialState();
+  const d = (n: number) => new Decimal(n);
+  if (name === 'fresh') return g;
+  if (name === 'hyper') {
+    g.geometry = 'hyper';
+    g.ring = config.hyper.startRing;
+    g.tiles = GRAPHS.hyper.ring.map(() => null);
+    sprinkle(g, 5);
+    Object.assign(g, { ink: d(3e6), runInk: d(1e6), lifetimeInk: d(1e7), charts: d(40), curvature: d(5), drifts: 2, projections: 1, runTime: 600, totalTime: 7200 });
+    return g;
+  }
+  if (name === 'drift-ready') {
+    // chartsOnDrift = floor(sqrt(2e6 / 2.5e5)) = 2
+    Object.assign(g, { ink: d(2e6), runInk: d(2e6), lifetimeInk: d(2e6), runTime: 600, totalTime: 600 });
+    sprinkle(g, 4);
+  } else if (name === 'projection-ready') {
+    Object.assign(g, { ink: d(1e6), runInk: d(1e5), lifetimeInk: d(3e6), charts: d(30), cycleCharts: d(30), drifts: 1, runTime: 300, totalTime: 3600 });
+    sprinkle(g, 4);
+  } else {
+    g.ring = 3;
+    Object.assign(g, { ink: d(4e4), runInk: d(4e4), lifetimeInk: d(2e5), runTime: 900, totalTime: 3600 });
+    sprinkle(g, 3);
+  }
+  return g;
+}
+const SAVE_FIXED_AT = 1700000000000;
+
+/** Read-only snapshot for gesture assertions: CSS-px positions of the nearest visible active cell centres. */
+function phoneSnapshot() {
+  const W = innerWidth, H = innerHeight;
+  const g = graphOf(s);
+  const v = new THREE.Vector3();
+  const px = (x: number, z: number): [number, number] => {
+    v.set(x, 0, z).project(camera);
+    return [((v.x + 1) / 2) * W, ((1 - v.y) / 2) * H];
+  };
+  const cells: { index: number; x: number; y: number; r: number; d: number; world: { x: number; z: number } }[] = [];
+  g.ring.forEach((_, i) => {
+    if (!isActive(s, i)) return;
+    const { c, corner } = board.cellWorld(i);
+    const [x, y] = px(c[0], c[1]);
+    if (x < 0 || y < 0 || x > W || y > H) return;
+    const [cx, cy] = px(corner[0], corner[1]);
+    cells.push({
+      index: i, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10,
+      r: Math.round(Math.hypot(cx - x, cy - y) * 10) / 10, d: Math.hypot(x - W / 2, y - H / 2),
+      world: { x: c[0], z: c[1] },
+    });
+  });
+  cells.sort((a, b) => a.d - b.d);
+  return {
+    view: board.viewMatrix(),
+    zoom: camera.position.distanceTo(controls.target),
+    selectedCell: tap.selected >= 0 ? tap.selected : null,
+    occupiedCount: s.tiles.filter((t) => t !== null).length,
+    visibleCells: cells.slice(0, 64).map(({ index, x, y, r, world }) => ({ index, x, y, r, world })),
+  };
+}
+
+if (dev) {
+  const game = {
+    get s() { return s; }, Decimal, TILE_TYPES, renderQuality: getQuality,
+    // QA hooks for deterministic effect screenshots (dev flag only; FX only, never economy)
+    fxStats: () => fx.stats(),
+    triggerFx: (kind: string, i = 0) => {
+      if (kind === 'place') fx.placement(i, TILE_IDENTITIES[s.tiles[i] ?? 'spring'].emissive), board.markPlaced(i, fx.now);
+      else if (kind === 'sell') fx.sell(i);
+      else if (kind === 'survey') fx.survey(s.geometry === 'hyper' ? DISK_R : 2 + s.ring);
+      else if (kind === 'aura') fx.beaconAura(i);
+      else if (kind === 'drift' || kind === 'projection') fx.prestige(kind);
+    },
+  };
+  if (qa) {
+    const setTutorial = (t: TutorialState) => (store.set(TUTORIAL_KEY, serializeTutorial(t)), ui.qa.reloadTutorial());
+    const qaApi = {
+      ...ui.qa,
+      ready: false,
+      /** Replaces the save through the import path (board rebuilds). Tutorial is hidden except for 'fresh'. */
+      seed: (name: QaSeed) => {
+        applyImport(fixture(name));
+        setTutorial(name === 'fresh' ? freshTutorial() : dismissTutorial(freshTutorial()));
+      },
+      tutorial: (step: number) => setTutorial({ step, dismissed: false, done: false }),
+      dismissTutorial: () => setTutorial(dismissTutorial(parseTutorial(store.get(TUTORIAL_KEY), s))),
+      validSaveString: () => exportString(makeSave(fixture('midgame'), SAVE_FIXED_AT)),
+      showOffline: () => ui.showOffline({ seconds: 3600, ink: new Decimal(12345), drifts: 1, eff: 0.5 }),
+      quality: (n: number) => setQuality(n as QualityLevel),
+      /** Read-only: view matrix, camera zoom (orbit distance), previewed cell, occupied count, visible cells. */
+      phoneSnapshot,
+      /** Fixture: previews an active cell the way a first touch tap does (no purchase). False if not active. */
+      focusCell: (i: number): boolean => {
+        if (!Number.isInteger(i) || i < 0 || i >= graphOf(s).ring.length || !isActive(s, i)) return false;
+        tap.selected = i;
+        ui.update();
+        return true;
+      },
+    };
+    Object.assign(game, { qa: qaApi });
+    requestAnimationFrame(() => (qaApi.ready = true)); // first frame has run and the UI exists
+  }
+  Object.assign(window, { game });
+}

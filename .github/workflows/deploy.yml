@@ -17,6 +17,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -36,8 +37,43 @@ jobs:
         with:
           path: dist
 
+  layout:
+    name: layout (${{ matrix.viewport }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        viewport: [360x640, 390x844, 430x932, 844x390, 932x430, 1280x800]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+
+      - name: Layout QA (${{ matrix.viewport }})
+        run: npm run layout
+        timeout-minutes: 8
+        env:
+          LAYOUT_VIEWPORT: ${{ matrix.viewport }}
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: layout-artifacts-${{ matrix.viewport }}
+          path: layout-artifacts/
+          if-no-files-found: ignore
+
   deploy:
-    needs: build
+    needs: [build, layout]
     runs-on: ubuntu-latest
     environment:
       name: github-pages

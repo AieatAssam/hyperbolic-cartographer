@@ -27,6 +27,12 @@ export function boost(d: number, dir = 0): Mat3 {
   return mul(rot(dir), mul(bx, rot(-dir)));
 }
 
+/** Boost that carries hyperboloid point p to the origin (0,0,1). p = boost(d, θ)·origin with d = dist(origin, p),
+ *  θ = angle of (x, y), so the answer is that boost's inverse: boost(−d, θ). */
+export function boostToOrigin(p: Vec3): Mat3 {
+  return boost(-Math.acosh(Math.max(1, p[2])), Math.atan2(p[1], p[0]));
+}
+
 /** Lorentz inverse: η Mᵀ η with η = diag(1,1,−1). */
 export function inverse(m: Mat3): Mat3 {
   const t = [m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]];

@@ -1,0 +1,912 @@
+// Layout QA: drives the built app in headless Chromium across phone/tablet/desktop
+// viewports and checks overflow, overlap, reachability and per-case expectations.
+//
+// Usage: npm run build && npm run layout
+// Env:   LAYOUT_URL=<full app URL incl. base path>  use an already-running server instead
+//        LAYOUT_SHOTS=1                             screenshot every case, not only failures
+//        LAYOUT_OUT=<dir>                           write screenshots + report.json here (default layout-artifacts/)
+//        LAYOUT_VIEWPORT=<WxH>                      run only this one viewport (exact name, e.g. 360x640); unset = all
+
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import net from 'node:net';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const OUT = process.env.LAYOUT_OUT ? resolve(process.env.LAYOUT_OUT) : join(ROOT, 'layout-artifacts');
+const BASE = '/hyperbolic-cartographer/';
+const CASE_TIMEOUT_MS = 15000;
+
+const VIEWPORTS = [
+  [360, 640], [390, 844], [430, 932], [844, 390], [932, 430], [1280, 800],
+].map(([width, height]) => ({
+  name: `${width}x${height}`,
+  width,
+  height,
+  isMobile: Math.min(width, height) <= 430,
+}));
+
+const TABS = ['map', 'drift', 'charts', 'proj', 'miles', 'save', 'guide'];
+const MODAL = ':is([data-qa="modal"], .modal)';
+
+// ---------- helpers run in Node ----------
+
+class MissingHookError extends Error {
+  constructor(hook) {
+    super(`missing QA hook ${hook}`);
+    this.hook = hook;
+  }
+}
+
+async function qa(page, hook, ...args) {
+  const out = await page.evaluate(
+    async ([h, a]) => {
+      const f = window.game?.qa?.[h];
+      if (typeof f !== 'function') return { missing: true };
+      return { missing: false, value: await f(...a) };
+    },
+    [hook, args],
+  );
+  if (out.missing) throw new MissingHookError(hook);
+  return out.value;
+}
+
+async function need(page, qaName) {
+  const loc = page.locator(`[data-qa="${qaName}"]`);
+  if ((await loc.count()) === 0) return `missing required element [data-qa=${qaName}]`;
+  if (!(await loc.first().isVisible())) return `[data-qa=${qaName}] exists but is not visible`;
+  return null;
+}
+
+async function modalButton(page, re) {
+  const loc = page.locator(`${MODAL} button, ${MODAL} [role="button"]`).filter({ hasText: re });
+  if ((await loc.count()) === 0) return `no button matching ${re} inside modal`;
+  if (!(await loc.first().isVisible())) return `button matching ${re} inside modal not visible`;
+  return null;
+}
+
+async function modalStructure(page) {
+  return [
+    await need(page, 'modal'),
+    await need(page, 'modal-body'),
+    await need(page, 'modal-foot'),
+  ].filter(Boolean);
+}
+
+// Runs in the page. Must be self-contained (serialised with toString).
+function layoutScan() {
+  const TOL = 1;
+  const failures = [];
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const CONTROL = 'button, [role="button"], input, textarea, select, a[href], [role="tab"]';
+
+  const de = document.documentElement;
+  if (de.scrollWidth > vw + 1) {
+    failures.push(`document scrolls horizontally: scrollWidth ${de.scrollWidth} > innerWidth ${vw}`);
+  }
+  if (de.scrollHeight > vh + 1) {
+    failures.push(`document scrolls vertically: scrollHeight ${de.scrollHeight} > innerHeight ${vh}`);
+  }
+
+  const shown = (el) => {
+    for (let e = el; e && e.nodeType === 1; e = e.parentElement) {
+      const cs = getComputedStyle(e);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) return false;
+    }
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  const label = (el) => {
+    const q = el.getAttribute('data-qa');
+    const cls = String(el.getAttribute('class') || '').trim();
+    return el.tagName.toLowerCase() + (q ? `[data-qa=${q}]` : '') + (el.id ? `#${el.id}` : '') +
+      (cls ? `.${cls.split(/\s+/).join('.')}` : '');
+  };
+  const rs = (r) => `{x:${Math.round(r.left)},y:${Math.round(r.top)},w:${Math.round(r.width)},h:${Math.round(r.height)}}`;
+  const inside = (r) => r.left >= -TOL && r.top >= -TOL && r.right <= vw + TOL && r.bottom <= vh + TOL;
+  const hitOk = (el, r) => {
+    const cx = (r.left + r.right) / 2;
+    const cy = (r.top + r.bottom) / 2;
+    if (cx < 0 || cy < 0 || cx > vw || cy > vh) return 'centre outside viewport';
+    const hit = document.elementFromPoint(cx, cy);
+    if (!hit) return 'nothing hit-testable at centre';
+    if (hit === el || el.contains(hit)) return null;
+    return `covered by ${label(hit)}`;
+  };
+  // True if an ancestor up to and including root clips/scrolls el (its rect may legitimately sit outside the viewport).
+  const clipped = (el, root) => {
+    for (let p = el.parentElement; p; p = p.parentElement) {
+      const cs = getComputedStyle(p);
+      if (/(auto|scroll|hidden|clip)/.test(`${cs.overflowX} ${cs.overflowY}`)) return true;
+      if (p === root) break;
+    }
+    return false;
+  };
+
+  // An intentional modal is open if any modal candidate or its backdrop is visible. Pick the visible
+  // candidate (not merely the first in DOM order); a visible backdrop alone also counts as modal-open.
+  const modalEl = [...document.querySelectorAll('[data-qa="modal"], .modal, [aria-modal="true"]')].find(shown) || null;
+  const backdropEl = [...document.querySelectorAll('.modal-backdrop')].find(shown) || null;
+  const modalOpen = !!(modalEl || backdropEl);
+  const modalRoot = modalEl || backdropEl;
+  // While a modal is open only controls inside it must be reachable; the background is intentionally covered.
+  const inModal = (el) => !modalOpen || modalRoot.contains(el);
+  // index.html mounts the UI into <div id="ui"> next to <canvas id="c">; the others are fallbacks.
+  const appRoot = document.getElementById('ui') || document.querySelector('[data-qa="app-root"]') ||
+    document.getElementById('app') || document.getElementById('root');
+  if (!appRoot) {
+    failures.push('UI root #ui not found: overlay/overlap checks cannot run');
+    return failures;
+  }
+
+  // Transient floating layers that are intentionally allowed to sit over other UI.
+  const TRANSIENT = /(^|\s)(tooltip|toast|flash|dev|modal-backdrop)(\s|$)/;
+  const isTransient = (el) => TRANSIENT.test(String(el.getAttribute('class') || '')) ||
+    getComputedStyle(el).pointerEvents === 'none';
+
+  // (b) overlay roots: the modal subtree when open (background is intentionally inert),
+  // otherwise the visible direct children of #ui (topbar, panel, dock, palette, ...).
+  const overlayRoots = [];
+  if (modalOpen) {
+    overlayRoots.push(modalRoot);
+  } else {
+    for (const c of appRoot.children) {
+      if (['CANVAS', 'SCRIPT', 'STYLE'].includes(c.tagName)) continue;
+      if (shown(c)) overlayRoots.push(c);
+    }
+  }
+  const scope = modalOpen ? [modalRoot] : overlayRoots.filter((el) => !isTransient(el));
+  const inScope = (el) => scope.some((s) => s === el || s.contains(el));
+
+  // Rect actually visible after clipping by overflow ancestors (scrolled-away content is not "there").
+  const clipAxes = (cs) => ({
+    x: /(auto|scroll|hidden|clip)/.test(cs.overflowX),
+    y: /(auto|scroll|hidden|clip)/.test(cs.overflowY),
+  });
+  const visRect = (el) => {
+    const r = el.getBoundingClientRect();
+    let { left, top, right, bottom } = r;
+    for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+      const ax = clipAxes(getComputedStyle(p));
+      if (!ax.x && !ax.y) continue;
+      const pr = p.getBoundingClientRect();
+      if (ax.x) { left = Math.max(left, pr.left); right = Math.min(right, pr.right); }
+      if (ax.y) { top = Math.max(top, pr.top); bottom = Math.min(bottom, pr.bottom); }
+    }
+    return { left, top, right, bottom, width: right - left, height: bottom - top };
+  };
+
+  for (const root of overlayRoots) {
+    for (const el of [root, ...root.querySelectorAll('*')]) {
+      if (['SCRIPT', 'STYLE', 'CANVAS'].includes(el.tagName)) continue;
+      if (!shown(el)) continue;
+      if (el !== root && clipped(el, root)) {
+        // Scrolled/clipped content: only the part the user can actually see must be on screen.
+        // Reachability of scrolled controls is asserted separately below.
+        const vr = visRect(el);
+        if (vr.width > 0 && vr.height > 0 && !inside(vr)) {
+          failures.push(`outside viewport: ${label(el)} visible rect ${rs(vr)} (viewport ${vw}x${vh})`);
+        }
+        continue;
+      }
+      const r = el.getBoundingClientRect();
+      if (!inside(r)) failures.push(`outside viewport: ${label(el)} rect ${rs(r)} (viewport ${vw}x${vh})`);
+    }
+  }
+
+  const isect = (ra, rb) => {
+    const ix = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
+    const iy = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
+    return ix > 2 && iy > 2 ? [ix, iy] : null;
+  };
+
+  // (c1) overlap between top-level overlay roots (#ui children; skipped while a modal is open).
+  if (!modalOpen) {
+    const tops = scope;
+    for (let i = 0; i < tops.length; i++) {
+      for (let j = i + 1; j < tops.length; j++) {
+        const a = tops[i];
+        const b = tops[j];
+        if (a.contains(b) || b.contains(a)) continue;
+        const ra = a.getBoundingClientRect();
+        const rb = b.getBoundingClientRect();
+        const hit = isect(ra, rb);
+        if (hit) {
+          failures.push(`overlap: ${label(a)} ${rs(ra)} and ${label(b)} ${rs(rb)} intersect ${Math.round(hit[0])}x${Math.round(hit[1])}`);
+        }
+      }
+    }
+  }
+
+  // (c2) nested overlap: visible controls / text-bearing elements inside the scope that intersect
+  // each other. Ancestor/descendant pairs (badge inside button, label around input) are not overlaps.
+  const ownText = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+  // Union of the element's own text-node glyph boxes (DOM Range), clipped like visRect. Padding/positioned
+  // siblings' boxes are not text: span.key in a corner of a tool button must not "overlap" span.name's padding.
+  const textRect = (el) => {
+    let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    const range = document.createRange();
+    for (const n of el.childNodes) {
+      if (n.nodeType !== 3 || !n.textContent.trim()) continue;
+      range.selectNodeContents(n);
+      for (const r of range.getClientRects()) {
+        if (r.width <= 0 || r.height <= 0) continue;
+        left = Math.min(left, r.left); top = Math.min(top, r.top);
+        right = Math.max(right, r.right); bottom = Math.max(bottom, r.bottom);
+      }
+    }
+    if (left === Infinity) return null;
+    const c = visRect(el);
+    left = Math.max(left, c.left); top = Math.max(top, c.top);
+    right = Math.min(right, c.right); bottom = Math.min(bottom, c.bottom);
+    return { left, top, right, bottom, width: right - left, height: bottom - top };
+  };
+  const items = [];
+  for (const s of scope) {
+    for (const el of [s, ...s.querySelectorAll('*')]) {
+      if (['SCRIPT', 'STYLE', 'CANVAS', 'OPTION', 'BR'].includes(el.tagName)) continue;
+      if (!(el.matches(CONTROL) || ownText(el))) continue;
+      if (!shown(el) || isTransient(el)) continue;
+      // Interactive controls keep their full target rect; plain text uses its glyph boxes.
+      const vr = el.matches(CONTROL) ? visRect(el) : textRect(el);
+      if (!vr) continue;
+      if (vr.width <= 0 || vr.height <= 0) continue;
+      items.push([el, vr]);
+    }
+  }
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      const [a, ra] = items[i];
+      const [b, rb] = items[j];
+      if (a.contains(b) || b.contains(a)) continue;
+      const hit = isect(ra, rb);
+      if (hit) {
+        failures.push(`nested overlap: ${label(a)} ${rs(ra)} and ${label(b)} ${rs(rb)} intersect ${Math.round(hit[0])}x${Math.round(hit[1])}`);
+      }
+    }
+  }
+
+  // Controls in scope only: with a modal open the background is inert by design and not checked.
+  const TEXT_TYPES = ['checkbox', 'radio', 'range', 'color', 'button', 'submit', 'reset', 'image', 'file'];
+  const controls = [];
+  for (const s of scope) {
+    for (const el of s.querySelectorAll(CONTROL)) {
+      if (el.tagName === 'INPUT' && el.type === 'hidden') continue;
+      if (shown(el) && inModal(el)) controls.push(el);
+    }
+  }
+  const sizeOk = (el, prefix) => {
+    const type = el.tagName === 'INPUT' ? el.type : '';
+    if (type === 'file') return;
+    const textField = el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !TEXT_TYPES.includes(type));
+    const r = el.getBoundingClientRect();
+    if (r.height < 44 || r.width < (textField ? 0 : 44)) {
+      failures.push(`${prefix}control too small: ${label(el)} ${rs(r)} (need >=44x44 CSS px)`);
+    }
+  };
+
+  // (d) modal footer: fully inside viewport, controls >=44px and reachable without scrolling.
+  const footChecked = new Set();
+  const foot = modalOpen ? modalRoot.querySelector('[data-qa="modal-foot"], .modal-foot') : null;
+  if (modalOpen && !foot) failures.push('modal open but has no modal-foot');
+  if (foot) {
+    if (!shown(foot)) {
+      failures.push('modal-foot is present but not visible');
+    } else {
+      const rf = foot.getBoundingClientRect();
+      if (!inside(rf)) failures.push(`modal-foot not fully inside viewport: ${rs(rf)}`);
+      for (const c of foot.querySelectorAll(CONTROL)) {
+        if (!shown(c)) continue;
+        footChecked.add(c);
+        sizeOk(c, 'modal-foot ');
+        const rc = c.getBoundingClientRect();
+        if (!inside(rc)) failures.push(`modal-foot control ${label(c)} outside viewport ${rs(rc)}`);
+        const h = hitOk(c, rc);
+        if (h) failures.push(`modal-foot control ${label(c)} not reachable without scrolling: ${h}`);
+      }
+    }
+  }
+
+  // (d) every other visible control in scope: size, and reachable — directly or by scrolling a
+  // user-scrollable ancestor (palette/tab bar horizontally, panel/dock/modal body vertically).
+  // Being clipped by overflow:hidden/clip is NOT reachable, even though scrollIntoView would move it.
+  const scrolled = new Map();
+  const remember = (p) => { if (!scrolled.has(p)) scrolled.set(p, [p.scrollLeft, p.scrollTop]); };
+  const winScroll = [window.scrollX, window.scrollY];
+  for (const el of controls) {
+    if (footChecked.has(el) || !inModal(el)) continue;
+    sizeOk(el, '');
+    const r0 = el.getBoundingClientRect();
+    let blocked = null;
+    for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+      const cs = getComputedStyle(p);
+      const pr = p.getBoundingClientRect();
+      const outX = r0.left < pr.left - TOL || r0.right > pr.right + TOL;
+      const outY = r0.top < pr.top - TOL || r0.bottom > pr.bottom + TOL;
+      if (outX && /(hidden|clip)/.test(cs.overflowX)) blocked = `clipped horizontally by non-scrollable ${label(p)}`;
+      if (outY && /(hidden|clip)/.test(cs.overflowY)) blocked = `clipped vertically by non-scrollable ${label(p)}`;
+      if (blocked) break;
+      if (/(auto|scroll|hidden|clip)/.test(`${cs.overflowX} ${cs.overflowY}`)) remember(p);
+    }
+    if (blocked) {
+      failures.push(`control not reachable: ${label(el)} ${rs(r0)}: ${blocked}`);
+      continue;
+    }
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const vr = visRect(el);
+    const r = el.getBoundingClientRect();
+    if (vr.width < Math.min(r.width, 44) - TOL || vr.height < Math.min(r.height, 44) - TOL) {
+      failures.push(`control not reachable: ${label(el)} ${rs(r)}: still clipped after scrolling (visible ${rs(vr)})`);
+      continue;
+    }
+    const h = hitOk(el, vr);
+    // Defensive: a background control covered by an intentional modal backdrop is not a failure.
+    if (h && /^covered by div[^ ]*\.modal-backdrop/.test(h) && !(modalEl && modalEl.contains(el))) continue;
+    if (h) failures.push(`control not reachable: ${label(el)} ${rs(r)}: ${h}`);
+  }
+  for (const [p, [x, y]] of scrolled) { p.scrollLeft = x; p.scrollTop = y; }
+  window.scrollTo(winScroll[0], winScroll[1]);
+
+  // (e) HUD goal: visible with text, inside viewport and uncovered (skipped while a modal is open).
+  if (!modalOpen) {
+    const huds = [...document.querySelectorAll('[data-qa="hud-goal"]')]
+      .filter((el) => shown(el) && el.textContent.trim().length > 0);
+    if (huds.length === 0) {
+      failures.push('no visible [data-qa=hud-goal] with non-empty text');
+    } else {
+      const problems = [];
+      const ok = huds.some((el) => {
+        const r = el.getBoundingClientRect();
+        if (!inside(r)) {
+          problems.push(`${label(el)} outside viewport ${rs(r)}`);
+          return false;
+        }
+        const h = hitOk(el, r);
+        if (h) {
+          problems.push(`${label(el)} ${h}`);
+          return false;
+        }
+        return true;
+      });
+      if (!ok) failures.push(`no HUD goal visible, inside viewport and uncovered: ${problems.join('; ')}`);
+    }
+  }
+
+  return failures;
+}
+
+async function rafTwice(page) {
+  await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => res()))));
+}
+
+// ---------- cases ----------
+
+const BRING = 'Bring previewed cell to the centre of the board';
+const hyperBefore = new WeakMap(); // page -> { idx, snap } captured during setup
+
+// Previews the highest-index active cell (ring 2 on the 'hyper' fixture: index 28 of 29 active cells, well inside
+// phoneSnapshot's 64-cell cap) through the real focusCell hook.
+async function focusLastActive(p) {
+  const idx = await p.evaluate(() => {
+    const q = window.game?.qa;
+    if (typeof q?.focusCell !== 'function') return null;
+    for (let i = window.game.s.tiles.length - 1; i >= 0; i--) if (q.focusCell(i)) return i;
+    return -1;
+  });
+  if (idx === null) throw new MissingHookError('focusCell');
+  if (idx < 0) throw new Error('no active cell to focus');
+  return idx;
+}
+
+const flatView = (v) => Object.values(v ?? {}).flat(Infinity).map(Number);
+const cellIn = (snap, idx) => snap.visibleCells.find((c) => c.index === idx);
+
+async function previewChecks(p, idx, snap) {
+  const out = [];
+  if (snap.selectedCell !== idx) out.push(`selected cell ${snap.selectedCell} != focused ${idx}`);
+  if (!cellIn(snap, idx)) out.push(`selected cell ${idx} not in phoneSnapshot.visibleCells (offscreen or beyond the 64-cell cap)`);
+  const bring = p.getByRole('button', { name: BRING });
+  if ((await bring.count()) === 0 || !(await bring.first().isVisible())) out.push('Bring cell to centre button not visible with preview open');
+  return out;
+}
+
+const hyperPreviewCase = (centre) => ({
+  name: centre ? 'hyper-rim-centred' : 'hyper-rim-preview',
+  setup: async (p) => {
+    await qa(p, 'seed', 'hyper');
+    await qa(p, 'dismissTutorial');
+    const idx = await focusLastActive(p);
+    await rafTwice(p);
+    const snap = await qa(p, 'phoneSnapshot');
+    hyperBefore.set(p, { idx, snap });
+    if (centre) {
+      await p.getByRole('button', { name: BRING }).first().click(); // real click on the dock button
+      await rafTwice(p);
+    }
+  },
+  expect: async (p) => {
+    const { idx, snap: before } = hyperBefore.get(p);
+    const now = await qa(p, 'phoneSnapshot');
+    const out = await previewChecks(p, idx, now);
+    if (!centre) return out;
+    if (!cellIn(before, idx)) out.push(`selected cell ${idx} missing before centring: cannot compare size`);
+    if (Math.abs(now.zoom - before.zoom) > 1e-6) out.push(`zoom changed ${before.zoom} -> ${now.zoom}`);
+    const v0 = flatView(before.view);
+    const v1 = flatView(now.view);
+    if (v0.length === 0 || v0.every((x, i) => Math.abs(x - v1[i]) < 1e-6)) out.push('view matrix did not move after Bring cell to centre');
+    const a = cellIn(before, idx);
+    const b = cellIn(now, idx);
+    if (a && b) {
+      if (!(b.r > a.r + 0.5)) out.push(`selected cell not enlarged after centring: r ${a.r} -> ${b.r}`);
+      // Board-space check: setViewOffset puts the optical centre at the free-rect centre, not the viewport centre,
+      // so CSS distance to (W/2, H/2) is not a valid measure. The disk origin (world 0,0) is the board centre.
+      const wd = (c) => (c.world ? Math.hypot(c.world.x, c.world.z) : NaN);
+      const w0 = wd(a);
+      const w1 = wd(b);
+      if (!Number.isFinite(w0) || !Number.isFinite(w1)) out.push('phoneSnapshot.visibleCells lacks world {x,z}');
+      else if (!(w0 > 0 && w1 < w0 && w1 < 0.05 * w0)) out.push(`selected cell not at disk origin after centring: world |c| ${w0.toFixed(4)} -> ${w1.toFixed(4)}`);
+    }
+    return out;
+  },
+});
+
+const tutorialCase = (step) => ({
+  name: `tutorial-${step}`,
+  setup: async (p) => {
+    await qa(p, 'seed', 'fresh');
+    await qa(p, 'tutorial', step);
+  },
+  expect: async (p) => [await need(p, 'tutorial')].filter(Boolean),
+});
+
+const tabCase = (id) => ({
+  name: `tab-${id}`,
+  setup: async (p) => {
+    await qa(p, 'seed', 'projection-ready');
+    await qa(p, 'tab', id);
+  },
+  expect: async (p) => [
+    await need(p, `tab-${id}`),
+    await need(p, 'panel'),
+  ].filter(Boolean),
+});
+
+// Runs in the page. Applies one perturbation to the actual UI (inline styles only, no new
+// markup) and records the previous style attribute so calMutateRestore can undo it.
+function calMutate(kind) {
+  const ui = document.getElementById('ui');
+  const saved = [];
+  // Registered up front so calMutateRestore also undoes partial mutations when a kind bails out.
+  window.__qaCalSaved = saved;
+  const set = (el, css) => {
+    saved.push([el, el.getAttribute('style')]);
+    Object.assign(el.style, css);
+  };
+  const shownEl = (el) => el && el.getClientRects().length > 0;
+  const palette = ui?.querySelector('.palette');
+  if (kind === 'overlap') {
+    const top = ui?.querySelector('.topbar');
+    if (!shownEl(top) || !shownEl(palette)) return 'needs visible .topbar and .palette';
+    const a = top.getBoundingClientRect();
+    const b = palette.getBoundingClientRect();
+    set(palette, { translate: `${a.left - b.left}px ${a.top - b.top}px` });
+  } else if (kind === 'overflow') {
+    if (!shownEl(palette)) return 'needs visible .palette';
+    set(palette, { translate: `${window.innerWidth}px 0px` });
+  } else if (kind === 'nested') {
+    const tools = [...(palette?.querySelectorAll('button') ?? [])].filter(shownEl);
+    if (tools.length < 2) return 'needs two visible palette buttons';
+    const a = tools[0].getBoundingClientRect();
+    const b = tools[1].getBoundingClientRect();
+    set(tools[1], { translate: `${a.left - b.left}px ${a.top - b.top}px` });
+  } else if (kind === 'scroll-clip') {
+    const panel = ui?.querySelector('[data-qa="panel"]');
+    const ctl = [...(panel?.querySelectorAll('button, input, select, textarea') ?? [])].filter(shownEl).pop();
+    if (!shownEl(panel) || !ctl) return 'needs visible panel with a control';
+    set(panel, { overflow: 'hidden' });
+    set(ctl, { marginTop: '4000px' });
+  } else if (kind === 'foot-size' || kind === 'foot-offscreen') {
+    const foot = document.querySelector('[data-qa="modal-foot"]');
+    const btn = foot?.querySelector('button');
+    if (!shownEl(foot) || !btn) return 'needs visible modal-foot button';
+    if (kind === 'foot-size') set(btn, { minHeight: '0px', height: '30px' });
+    else set(foot, { translate: `0px ${window.innerHeight}px` });
+  } else {
+    return `unknown calibration ${kind}`;
+  }
+  return null;
+}
+
+function calMutateRestore() {
+  for (const [el, style] of (window.__qaCalSaved ?? []).reverse()) {
+    if (style === null) el.removeAttribute('style');
+    else el.setAttribute('style', style);
+  }
+  window.__qaCalSaved = [];
+}
+
+function calibrationCase(kind, seed, open, re) {
+  return {
+    name: `calib-${kind}`,
+    scan: false,
+    setup: async (p) => {
+      await qa(p, 'seed', seed);
+      if (open === 'tab') await qa(p, 'tab', 'guide');
+      else if (open) await qa(p, open);
+      else await qa(p, 'dismissTutorial');
+    },
+    expect: async (p) => {
+      const matching = async () => (await p.evaluate(layoutScan)).filter((f) => re.test(f));
+      const before = await matching();
+      const why = await p.evaluate(calMutate, kind);
+      if (why) {
+        await p.evaluate(calMutateRestore);
+        return [`calibration ${kind} not applicable (${why}): scanner unverified`];
+      }
+      await rafTwice(p);
+      const during = (await matching()).filter((f) => !before.includes(f));
+      await p.evaluate(calMutateRestore);
+      await rafTwice(p);
+      const after = await matching();
+      const out = [];
+      if (during.length === 0) out.push(`calibration ${kind}: scanner did NOT detect injected fault (${re})`);
+      const leaked = after.filter((f) => !before.includes(f));
+      if (leaked.length) out.push(`calibration ${kind}: fault still reported after restore: ${leaked[0]}`);
+      return out;
+    },
+  };
+}
+
+const CASES = [
+  {
+    name: 'firstload',
+    setup: async (p) => {
+      await qa(p, 'seed', 'fresh');
+      await qa(p, 'tutorial', 0);
+    },
+    expect: async (p) => [await need(p, 'tutorial')].filter(Boolean),
+  },
+  tutorialCase(1),
+  tutorialCase(2),
+  tutorialCase(3),
+  tutorialCase(4),
+  {
+    name: 'board-dismissed',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'dismissTutorial');
+    },
+    expect: async () => [],
+  },
+  ...TABS.map(tabCase),
+  {
+    name: 'drift-confirm',
+    setup: async (p) => {
+      await qa(p, 'seed', 'drift-ready');
+      await qa(p, 'confirmDrift');
+    },
+    expect: async (p) => [
+      ...(await modalStructure(p)),
+      await modalButton(p, /Confirm Drift/),
+      await modalButton(p, /Cancel/i),
+    ].filter(Boolean),
+  },
+  {
+    name: 'projection-confirm',
+    setup: async (p) => {
+      await qa(p, 'seed', 'projection-ready');
+      await qa(p, 'confirmProject');
+    },
+    expect: async (p) => [
+      ...(await modalStructure(p)),
+      await modalButton(p, /Confirm Projection/),
+    ].filter(Boolean),
+  },
+  {
+    name: 'import-entry',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'openImport');
+    },
+    expect: async (p) => [
+      ...(await modalStructure(p)),
+      await need(p, 'import-text'),
+    ].filter(Boolean),
+  },
+  {
+    name: 'import-error',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'openImport', 'garbage!!');
+      await qa(p, 'checkImport');
+    },
+    expect: async (p) => [await need(p, 'import-error')].filter(Boolean),
+  },
+  {
+    name: 'import-preview',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      const s = await qa(p, 'validSaveString');
+      await qa(p, 'openImport', s);
+      await qa(p, 'checkImport');
+    },
+    expect: async (p) => [
+      await need(p, 'import-preview'),
+      await modalButton(p, /Overwrite/i),
+    ].filter(Boolean),
+  },
+  {
+    name: 'export-string',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'showExport');
+    },
+    expect: async (p) => {
+      const missing = await need(p, 'export-text');
+      if (missing) return [missing];
+      const v = await p.locator('[data-qa="export-text"]').first()
+        .evaluate((el) => String(el.value ?? el.textContent ?? '').trim());
+      return v ? [] : ['[data-qa=export-text] is empty'];
+    },
+  },
+  {
+    name: 'hard-reset',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'openReset');
+    },
+    expect: async (p) => [
+      ...(await modalStructure(p)),
+      await modalButton(p, /Confirm reset/i),
+    ].filter(Boolean),
+  },
+  {
+    name: 'offline',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'showOffline');
+    },
+    expect: async (p) => [await need(p, 'offline')].filter(Boolean),
+  },
+  // Harness self-checks: perturb the real UI, assert the scanner notices, then restore.
+  calibrationCase('overlap', 'midgame', null, /^overlap: .*palette/),
+  calibrationCase('overflow', 'midgame', null, /^outside viewport: .*palette/),
+  calibrationCase('nested', 'midgame', null, /^nested overlap: .*tool/),
+  calibrationCase('scroll-clip', 'projection-ready', 'tab', /^control not reachable: .*clipped/),
+  calibrationCase('foot-size', 'midgame', 'openReset', /^modal-foot control too small/),
+  calibrationCase('foot-offscreen', 'midgame', 'openReset', /^modal-foot (not fully inside|control .*outside)/),
+  {
+    name: 'hyperboard',
+    setup: async (p) => {
+      await qa(p, 'seed', 'hyper');
+      await qa(p, 'dismissTutorial');
+    },
+    expect: async (p) => ((await p.locator('canvas').count()) === 0 ? ['no canvas rendered'] : []),
+  },
+  hyperPreviewCase(false),
+  hyperPreviewCase(true),
+];
+
+// ---------- server ----------
+
+const children = new Set();
+
+function killChild(child) {
+  return new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) return resolve();
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch { /* already gone */ }
+      resolve();
+    }, 3000);
+    child.once('exit', () => { clearTimeout(timer); resolve(); });
+    child.kill('SIGTERM');
+  });
+}
+
+async function stopAll() {
+  await Promise.all([...children].map(killChild));
+}
+
+// Last-resort synchronous cleanup so no preview server outlives this script.
+process.on('exit', () => {
+  for (const c of children) {
+    if (c.exitCode === null && c.signalCode === null) {
+      try { c.kill('SIGKILL'); } catch { /* ignore */ }
+    }
+  }
+});
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    stopAll().finally(() => process.exit(sig === 'SIGINT' ? 130 : 143));
+  });
+}
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.unref();
+    srv.on('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+function startPreview(port) {
+  const viteBin = join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
+  const child = spawn(
+    process.execPath,
+    [viteBin, 'preview', '--port', String(port), '--strictPort', '--host', '127.0.0.1'],
+    { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: false },
+  );
+  child.output = '';
+  const keep = (d) => { child.output = (child.output + d.toString()).slice(-4000); };
+  child.stdout.on('data', keep);
+  child.stderr.on('data', keep);
+  children.add(child);
+  child.on('exit', () => children.delete(child));
+  return child;
+}
+
+async function waitForHttp200(url, child, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(`vite preview exited early (code ${child.exitCode}):\n${child.output}`);
+    }
+    try {
+      const res = await fetch(url);
+      if (res.status === 200) return;
+    } catch { /* not up yet */ }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  throw new Error(`timed out waiting for HTTP 200 from ${url}\n${child.output}`);
+}
+
+// ---------- run ----------
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const t = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, t]).finally(() => clearTimeout(timer));
+}
+
+async function runCase(context, vp, c, appUrl, localHosts, shotsDir) {
+  const page = await context.newPage();
+  page.setDefaultTimeout(5000);
+  const failures = [];
+  const state = { blocked: 0 };
+
+  await page.route('**/*', (route) => {
+    const u = new URL(route.request().url());
+    if (u.protocol === 'data:' || u.protocol === 'blob:' || localHosts.has(u.hostname)) {
+      return route.continue();
+    }
+    state.blocked++;
+    return route.abort();
+  });
+  page.on('pageerror', (e) => failures.push(`pageerror: ${e.message}`));
+  page.on('console', (m) => {
+    if (m.type() !== 'error') return;
+    const url = m.location()?.url ?? '';
+    if (url && !localHosts.has(new URL(url).hostname)) return; // blocked third-party request
+    if (!url && state.blocked > 0 && /ERR_FAILED|ERR_BLOCKED/.test(m.text())) return;
+    failures.push(`console.error: ${m.text()}`);
+  });
+
+  const body = async () => {
+    await page.goto(appUrl, { waitUntil: 'load', timeout: 10000 });
+    await page.waitForFunction(() => !!window.game?.qa?.ready, undefined, { timeout: 10000 })
+      .catch(() => { throw new Error('window.game.qa.ready never became true (missing QA hook ready)'); });
+    try {
+      await qa(page, 'quality', 0);
+      await c.setup(page);
+    } catch (e) {
+      failures.push(e instanceof MissingHookError ? e.message : `setup failed: ${e.message}`);
+      return;
+    }
+    await rafTwice(page);
+    if (c.scan !== false) failures.push(...(await page.evaluate(layoutScan)));
+    failures.push(...(await c.expect(page)));
+  };
+
+  try {
+    await withTimeout(body(), CASE_TIMEOUT_MS, `${vp.name} ${c.name}`);
+  } catch (e) {
+    failures.push(`case error: ${e.message}`);
+  }
+
+  const ok = failures.length === 0;
+  if (!ok || process.env.LAYOUT_SHOTS === '1') {
+    await page.screenshot({ path: join(shotsDir, `${vp.name}-${c.name}.png`) }).catch(() => {});
+  }
+  await page.close().catch(() => {});
+  return failures;
+}
+
+async function main() {
+  const fullScope = process.env.LAYOUT_VIEWPORT === undefined;
+  const selected = fullScope
+    ? VIEWPORTS
+    : VIEWPORTS.filter((v) => v.name === process.env.LAYOUT_VIEWPORT);
+  if (selected.length === 0) {
+    throw new Error(`LAYOUT_VIEWPORT="${process.env.LAYOUT_VIEWPORT}" does not match a viewport; valid: ${VIEWPORTS.map((v) => v.name).join(', ')}`);
+  }
+  let server = null;
+  let appBase;
+  if (process.env.LAYOUT_URL) {
+    appBase = process.env.LAYOUT_URL.endsWith('/') ? process.env.LAYOUT_URL : `${process.env.LAYOUT_URL}/`;
+  } else {
+    const dist = join(ROOT, 'dist', 'index.html');
+    if (!existsSync(dist)) {
+      throw new Error('dist/index.html not found: run `npm run build` first (or set LAYOUT_URL).');
+    }
+    const port = await freePort();
+    server = startPreview(port);
+    appBase = `http://127.0.0.1:${port}${BASE}`;
+    await waitForHttp200(appBase, server);
+  }
+  const appUrl = `${appBase}?dev&qa`;
+  const localHosts = new Set(['127.0.0.1', 'localhost', '[::1]', '::1', new URL(appBase).hostname]);
+  const shotsDir = OUT;
+  mkdirSync(shotsDir, { recursive: true });
+
+  const expected = selected.length * CASES.length;
+  const results = [];
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true }).catch((e) => {
+      throw new Error(`could not launch Chromium (run \`npx playwright install chromium\`): ${e.message}`);
+    });
+    for (const vp of selected) {
+      const context = await browser.newContext({
+        viewport: { width: vp.width, height: vp.height },
+        deviceScaleFactor: 1,
+        isMobile: vp.isMobile,
+        hasTouch: vp.isMobile,
+      });
+      try {
+        for (const c of CASES) {
+          const failures = await runCase(context, vp, c, appUrl, localHosts, shotsDir);
+          const status = failures.length ? 'FAIL' : 'PASS';
+          console.log(`${status} ${vp.name} ${c.name}`);
+          for (const f of failures) console.log(`    - ${f}`);
+          results.push({ viewport: vp.name, case: c.name, status, failures });
+        }
+      } finally {
+        await context.close().catch(() => {});
+      }
+    }
+  } finally {
+    await browser?.close().catch(() => {});
+    await stopAll();
+  }
+
+  const total = results.length;
+  const passed = results.filter((r) => r.status === 'PASS').length;
+  const failed = total - passed;
+  writeFileSync(
+    join(OUT, 'report.json'),
+    JSON.stringify({ expected, total, passed, failed, viewports: selected.map((v) => v.name), fullScope, results }, null, 2),
+  );
+  console.log(`${total} cases, ${passed} passed, ${failed} failed (${fullScope ? 'full' : 'filtered'}: ${selected.map((v) => v.name).join(', ')})`);
+  if (total !== expected) {
+    console.log(`case count mismatch: ran ${total}, expected ${expected}`);
+    return 1;
+  }
+  return failed > 0 ? 1 : 0;
+}
+
+main()
+  .then((code) => process.exit(code))
+  .catch(async (err) => {
+    console.error(err.message ?? err);
+    await stopAll();
+    process.exit(1);
+  });

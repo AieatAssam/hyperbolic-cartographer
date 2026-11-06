@@ -1,4 +1,5 @@
 node_modules
 dist
+layout-artifacts/
 .DS_Store
 .claude/

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GRAPHS, type GameState, type Geometry } from '../core/state';
 import type { SquareBoard } from '../core/geometry/square';
-import { apply, boost, dist, geodesic, identity, inverse, mul, normalize, orthonormalize, toDisk, type HyperBoard, type Mat3, type Vec3 } from '../core/geometry/hyperbolic';
+import { apply, boost, boostToOrigin, dist, geodesic, identity, inverse, mul, normalize, orthonormalize, toDisk, type HyperBoard, type Mat3, type Vec3 } from '../core/geometry/hyperbolic';
 import { TILE_TYPES, type TileType } from '../core/tiles';
 import {
   BLOOM, BOARD, EMPTY_SLOT, MATERIAL, NEXT_SLOT, TILE_IDENTITIES, bevelColour, hoverFace, motifScale, sideColour, tileHeight, trimGlow,
@@ -384,6 +384,34 @@ if (sqT >= 0.0 && sqT < ${SQUASH_S.toFixed(2)}) transformed.y *= 1.0 + 0.25 * ex
   recenter() {
     this.view = identity();
     this.viewRev++;
+  }
+
+  /** Brings tile i to the disk centre: left-multiplies the view by the boost that sends its current display point to the
+   *  origin. Zoom (camera) is untouched, no Poincare clamp, tile indices unchanged. */
+  centreOn(i: number) {
+    if (!this.hyper) return;
+    const p = apply(this.view, this.hyper.centers[i]);
+    this.view = orthonormalize(mul(boostToOrigin(p), this.view));
+    this.viewRev++;
+  }
+
+  /** Copy of the current view (row-major Lorentz matrix). */
+  viewMatrix(): Mat3 {
+    return this.view.slice();
+  }
+
+  /** World-plane (x, z) centre of tile i and of its first corner under the current view (QA projection input). */
+  cellWorld(i: number): { c: [number, number]; corner: [number, number] } {
+    if (this.square) {
+      const [x, y] = this.square.xy[i], h = GAP / 2;
+      return { c: [x, y], corner: [x + h, y + h] };
+    }
+    const hb = this.hyper!;
+    const toWorld = (v: Vec3): [number, number] => {
+      const [u, w] = toDisk(apply(this.view, v));
+      return [u * DISK_R, w * DISK_R];
+    };
+    return { c: toWorld(hb.centers[i]), corner: toWorld(hb.verts[i][0]) };
   }
 
   dispose() {
