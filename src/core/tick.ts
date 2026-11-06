@@ -1,0 +1,46 @@
+import Decimal from 'break_eternity.js';
+import { config } from './config';
+import { graphOf, type GameState } from './state';
+import { isActive, offlineCapSec, offlineEff, place, prod, survey } from './economy';
+import { chartsOnDrift, drift } from './prestige';
+import { has } from './milestones';
+
+export const autoSurveyOn = (s: GameState) => s.chartUpg.autoSurvey > 0 || has(s, 'autoSurvey');
+export const autoSpringsOn = (s: GameState) => s.chartUpg.autoSprings > 0 || has(s, 'autoSprings');
+
+/** Advance the simulation by dt seconds. Mutates and returns state. */
+export function simulate(s: GameState, dt: number, eff = 1, offline = false): GameState {
+  const gain = new Decimal(prod(s).total * dt * eff);
+  s.ink = s.ink.add(gain);
+  s.runInk = s.runInk.add(gain);
+  s.lifetimeInk = s.lifetimeInk.add(gain);
+  s.runTime += dt;
+  s.totalTime += dt;
+
+  if (autoSurveyOn(s)) survey(s);
+  // Board is static offline: auto-Springs only run live.
+  if (!offline && autoSpringsOn(s) && (s.autoSpringTimer += dt) >= config.autoSpringInterval) {
+    s.autoSpringTimer = 0;
+    const empty = graphOf(s).ring.findIndex((_, i) => isActive(s, i) && !s.tiles[i]);
+    if (empty >= 0) place(s, empty, 'spring');
+  }
+  if (has(s, 'autoDrift') && s.autoDrift.on && chartsOnDrift(s).gte(Math.max(1, s.autoDrift.at))) drift(s);
+  return s;
+}
+
+export interface OfflineReport {
+  seconds: number;
+  ink: Decimal;
+  drifts: number;
+  eff: number;
+}
+
+/** Offline progress: closed-form rate * dt * eff, in coarse steps so auto-Survey/auto-Drift still fire. */
+export function applyOffline(s: GameState, seconds: number, step = 60): OfflineReport {
+  const dt = Math.max(0, Math.min(seconds, offlineCapSec(s)));
+  const eff = offlineEff(s);
+  const ink0 = s.lifetimeInk;
+  const d0 = s.drifts;
+  for (let t = 0; t < dt; t += step) simulate(s, Math.min(step, dt - t), eff, true);
+  return { seconds: dt, ink: s.lifetimeInk.sub(ink0), drifts: s.drifts - d0, eff };
+}
