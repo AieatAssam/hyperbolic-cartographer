@@ -3,26 +3,32 @@ import { GRAPHS, type GameState, type Geometry } from '../core/state';
 import type { SquareBoard } from '../core/geometry/square';
 import { apply, boost, dist, geodesic, identity, inverse, mul, normalize, orthonormalize, toDisk, type HyperBoard, type Mat3, type Vec3 } from '../core/geometry/hyperbolic';
 import { TILE_TYPES, type TileType } from '../core/tiles';
-import { BLOOM, BOARD, EMPTY_SLOT, TILE_IDENTITIES } from '../art/palette';
+import {
+  BLOOM, BOARD, EMPTY_SLOT, MATERIAL, NEXT_SLOT, TILE_IDENTITIES, bevelColour, hoverFace, motifScale, sideColour, tileHeight, trimGlow,
+} from '../art/palette';
+import { SQUASH_S, squash } from './transition';
 
 export const DISK_R = 9;
 const SEG = 8; // geodesic segments per heptagon edge
 const GAP = 0.9;
 const INSET = 0.8; // inner face / outline ratio; the ring between is the bevel or empty-slot border
 const PER_K = 15; // verts per outline segment: top fan 3 + bevel quad 6 + side quad 6
-/** Placed-tile glow at log10(1 + output) = GLOW_LOG_FULL. Above BLOOM.threshold: busy tiles bloom on purpose. */
-const GLOW_MAX = 1.25;
-const GLOW_LOG_FULL = 6;
 const GLOW_STEPS = 8; // output quantisation per decade, so the cache key only changes on visible steps
-const PARCHMENT = 0xe8d8b0, SLOT_TEAL = 0x6fe3d0;
 
 const col = (hex: number) => new THREE.Color(hex);
-const TOK = Object.fromEntries(TILE_TYPES.map((t) => [t, {
-  base: col(TILE_IDENTITIES[t].base), emissive: col(TILE_IDENTITIES[t].emissive), rest: TILE_IDENTITIES[t].emissiveIntensity, accent: col(TILE_IDENTITIES[t].accent),
-}])) as Record<TileType, { base: THREE.Color; emissive: THREE.Color; rest: number; accent: THREE.Color }>;
+/** Precomputed face / side / bevel colours per type; tokens and coefficients live in palette.ts. */
+const TOK = Object.fromEntries(TILE_TYPES.map((t) => {
+  const tk = TILE_IDENTITIES[t];
+  return [t, {
+    face: col(tk.base), hover: col(hoverFace(tk.base)), side: col(sideColour(tk.base)),
+    bevel: col(bevelColour(tk)), bevelPin: col(bevelColour(tk, true)),
+    faceGlow: col(tk.base).multiplyScalar(MATERIAL.faceGlow), emissive: col(tk.emissive),
+  }];
+})) as Record<TileType, Record<'face' | 'hover' | 'side' | 'bevel' | 'bevelPin' | 'faceGlow' | 'emissive', THREE.Color>>;
 const C = {
-  slot: col(EMPTY_SLOT.base).lerp(col(PARCHMENT), 0.18), slotGlow: col(EMPTY_SLOT.emissive).multiplyScalar(EMPTY_SLOT.emissiveIntensity),
-  slotBorder: col(PARCHMENT).lerp(col(SLOT_TEAL), 0.35), next: col(EMPTY_SLOT.base).multiplyScalar(0.7), nextBorder: col(EMPTY_SLOT.accent).multiplyScalar(0.45),
+  slot: col(EMPTY_SLOT.base), slotGlow: col(EMPTY_SLOT.emissive).multiplyScalar(EMPTY_SLOT.emissiveIntensity),
+  slotBorder: col(EMPTY_SLOT.accent), slotSide: col(sideColour(EMPTY_SLOT.base)),
+  next: col(NEXT_SLOT.base), nextBorder: col(NEXT_SLOT.border),
   white: col(BOARD.hover), adj: col(BOARD.adjacency), gold: col(BOARD.gold), black: col(0),
 };
 
@@ -117,21 +123,45 @@ export class Board {
   private side = new THREE.Color();
   private border = new THREE.Color();
   private glow = new THREE.Color();
+  private trim = new THREE.Color();
+  private c2 = new THREE.Vector3();
+  /** Squash-settle: per-vertex birth time (fx clock) read by the shader against uFxClock; no per-frame rebuild. */
+  private born: Float32Array;
+  private uClock = { value: 0 };
+  private motifSlot: Int32Array;
+  private settling = new Map<number, number>();
+  private mats: THREE.Material[] = [];
+  private tileType: GameState['tiles'] = [];
 
-  constructor(readonly geometry: Geometry) {
+  constructor(readonly geometry: Geometry, env: THREE.Texture | null = null) {
     const g = GRAPHS[geometry];
     this.hyper = geometry === 'hyper' ? (g as HyperBoard) : null;
     this.square = geometry === 'square' ? (g as SquareBoard) : null;
     this.K = this.hyper ? 7 * SEG : 4;
     const n = g.ring.length, verts = n * this.K * PER_K;
     this.glowQ = new Int16Array(n);
+    this.motifSlot = new Int32Array(n).fill(-1);
+    this.born = new Float32Array(verts).fill(-1e4);
+    this.geom.setAttribute('born', new THREE.BufferAttribute(this.born, 1).setUsage(THREE.DynamicDrawUsage));
     for (const name of ['position', 'normal', 'color', 'glow'])
       this.geom.setAttribute(name, new THREE.BufferAttribute(new Float32Array(verts * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.12 });
+    // one merged draw call, so roughness/metalness are shared: the mean of the tile tokens
+    const toks = TILE_TYPES.map((t) => TILE_IDENTITIES[t]);
+    // explicit envMap: three ignores envMapIntensity when envMap is null and scene.environment is used
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: toks.reduce((a, t) => a + t.roughness, 0) / toks.length,
+      metalness: toks.reduce((a, t) => a + t.metalness, 0) / toks.length,
+      envMap: env, envMapIntensity: MATERIAL.bodyEnv,
+    });
     mat.onBeforeCompile = (sh) => {
       sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute vec3 glow;\nvarying vec3 vGlow;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGlow = glow;');
+        .replace('#include <common>', '#include <common>\nattribute vec3 glow;\nattribute float born;\nuniform float uFxClock;\nvarying vec3 vGlow;')
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+vGlow = glow;
+float sqT = uFxClock - born;
+if (sqT >= 0.0 && sqT < ${SQUASH_S.toFixed(2)}) transformed.y *= 1.0 + 0.25 * exp(-8.0 * sqT) * cos(18.0 * sqT);`);
+      sh.uniforms.uFxClock = this.uClock;
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vGlow;')
         .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vGlow;');
@@ -145,8 +175,9 @@ export class Board {
     this.motifs = {} as Record<TileType, THREE.InstancedMesh>;
     for (const t of TILE_TYPES) {
       const tk = TILE_IDENTITIES[t];
+      // motif = the tile's emissive core: the only per-tile surface meant to cross BLOOM.threshold
       const im = new THREE.InstancedMesh(motif(t), new THREE.MeshStandardMaterial({
-        color: tk.accent, emissive: tk.accent, emissiveIntensity: 0.6, roughness: 0.35, metalness: 0.4,
+        color: tk.emissive, emissive: tk.emissive, emissiveIntensity: tk.emissiveIntensity, roughness: 0.25, metalness: 0,
       }), n);
       im.count = 0;
       im.frustumCulled = false;
@@ -213,43 +244,45 @@ export class Board {
     const key = `${s.tiles.join()}|${s.ring}|${s.pinned}|${hover}|${hoverAdj}|${this.viewRev}|${glowSig}`;
     if (key === this.key) return;
     this.key = key;
+    this.tileType = s.tiles;
     const pos = this.geom.attributes.position.array as Float32Array;
     const colA = this.geom.attributes.color.array as Float32Array;
     const glowA = this.geom.attributes.glow.array as Float32Array;
-    const g = GRAPHS[this.geometry], K = this.K, { c, side, border, glow } = this;
+    const g = GRAPHS[this.geometry], K = this.K, { c, side, border, glow, trim } = this;
     for (const t of TILE_TYPES) this.motifs[t].count = 0;
     for (let i = 0; i < n; i++) {
       const o = this.outline(i), t = s.tiles[i], r = g.ring[i];
       const active = r <= s.ring, next = r === s.ring + 1;
-      const L = this.glowQ[i] / GLOW_STEPS;
+      // output level 0..1 (log decades / heightLogFull), quantised by glowQ
+      const L = Math.min(1, this.glowQ[i] / GLOW_STEPS / MATERIAL.heightLogFull);
+      const pinned = s.pinned.includes(i);
       let h = 0;
+      // face: lit albedo + tiny glow. trim (bevel): glassy edge glow, scaled by output, below bloom.
       if (t) {
         const tk = TOK[t];
-        h = 0.25 + 0.22 * L;
-        c.copy(tk.base);
-        border.copy(tk.base).lerp(tk.accent, 0.25).multiplyScalar(1.15);
-        glow.copy(tk.emissive).multiplyScalar(tk.rest + (GLOW_MAX - tk.rest) * Math.min(1, L / GLOW_LOG_FULL));
-      } else if (active) {
-        h = 0.06;
-        c.copy(C.slot); border.copy(C.slotBorder); glow.copy(C.slotGlow);
-      } else if (next) {
-        h = 0.02;
-        c.copy(C.next); border.copy(C.nextBorder); glow.copy(C.black);
+        h = tileHeight(L);
+        c.copy(i === hover ? tk.hover : tk.face);
+        side.copy(tk.side);
+        border.copy(pinned ? tk.bevelPin : tk.bevel);
+        glow.copy(tk.faceGlow);
+        trim.copy(tk.emissive).multiplyScalar(i === hover ? MATERIAL.hoverTrim : trimGlow(L));
+      } else if (active || next) {
+        h = active ? MATERIAL.slotHeight : MATERIAL.nextHeight;
+        c.copy(active ? C.slot : C.next); border.copy(active ? C.slotBorder : C.nextBorder);
+        side.copy(C.slotSide);
+        glow.copy(active ? C.slotGlow : C.black); trim.copy(glow);
+        if (i === hover) c.lerp(C.white, MATERIAL.hoverLerp), border.copy(C.adj), trim.copy(C.adj).multiplyScalar(0.25);
       } else o.scale = 0;
-      if (i === hover) {
-        c.lerp(C.white, 0.35); border.lerp(C.white, 0.5);
-        glow.copy(t ? TOK[t].emissive : C.slotBorder).multiplyScalar(t ? BOARD.glowAccentIntensity : 0.6);
-      } else if (hoverAdj.includes(i)) border.lerp(C.adj, 0.6), glow.lerp(C.adj, 0.25);
+      if (i !== hover && hoverAdj.includes(i)) border.lerp(C.adj, 0.6), trim.lerp(C.adj, 0.25);
       h *= o.scale;
-      if (s.pinned.includes(i)) side.copy(C.gold);
-      else side.copy(c).multiplyScalar(0.5);
       const [cx, cz] = o.c;
       this.tops[i].set(cx, h, cz);
       if (t && o.scale > 0.02) {
-        const im = this.motifs[t], sc = Math.sqrt(o.scale) * (this.hyper ? 1.3 : 1);
+        const im = this.motifs[t], sc = Math.sqrt(o.scale) * (this.hyper ? 1.3 : 1) * motifScale(L);
         this.m4.compose(this.tops[i], this.q, this.sc.setScalar(sc));
+        this.motifSlot[i] = im.count;
         im.setMatrixAt(im.count++, this.m4);
-      }
+      } else this.motifSlot[i] = -1;
       const hidden = o.scale <= 0, hb = h * 0.82;
       let v = i * K * PER_K;
       const put = (x: number, y: number, z: number, cc: THREE.Color, gl: THREE.Color) => {
@@ -264,8 +297,8 @@ export class Board {
         const [px, pz] = hidden ? o.c : o.pts[k], [qx, qz] = hidden ? o.c : o.pts[(k + 1) % K];
         const ax = cx + (px - cx) * INSET, az = cz + (pz - cz) * INSET, bx = cx + (qx - cx) * INSET, bz = cz + (qz - cz) * INSET;
         put(cx, h, cz, c, glow); put(bx, h, bz, c, glow); put(ax, h, az, c, glow); // inner face (CCW from above)
-        put(ax, h, az, border, glow); put(bx, h, bz, border, glow); put(qx, hb, qz, border, glow); // bevel / slot border
-        put(ax, h, az, border, glow); put(qx, hb, qz, border, glow); put(px, hb, pz, border, glow);
+        put(ax, h, az, border, trim); put(bx, h, bz, border, trim); put(qx, hb, qz, border, trim); // bevel / slot border
+        put(ax, h, az, border, trim); put(qx, hb, qz, border, trim); put(px, hb, pz, border, trim);
         put(px, hb, pz, side, C.black); put(qx, hb, qz, side, C.black); put(qx, 0, qz, side, C.black); // side
         put(px, hb, pz, side, C.black); put(qx, 0, qz, side, C.black); put(px, 0, pz, side, C.black);
       }
@@ -273,6 +306,48 @@ export class Board {
     this.geom.computeVertexNormals(); // non-indexed: face normals, written in place
     for (const name of ['position', 'normal', 'color', 'glow']) this.geom.attributes[name].needsUpdate = true;
     for (const t of TILE_TYPES) this.motifs[t].instanceMatrix.needsUpdate = true;
+  }
+
+  /** Starts a squash-settle on tile i at fx time `now` (writes only that tile's vertex span). */
+  markPlaced(i: number, now: number) {
+    if (!(i >= 0 && i < this.glowQ.length)) return;
+    const span = this.K * PER_K, a = this.geom.attributes.born as THREE.BufferAttribute;
+    this.born.fill(now, i * span, (i + 1) * span);
+    a.addUpdateRange(i * span, span);
+    a.needsUpdate = true;
+    this.settling.set(i, now);
+  }
+
+  /** Per frame: advance the squash clock; motifs of settling tiles (few) follow the same curve. */
+  tick(now: number, reduced: boolean) {
+    this.uClock.value = reduced ? 1e9 : now;
+    for (const [i, t0] of this.settling) {
+      if (now - t0 >= SQUASH_S || reduced) this.settling.delete(i);
+      const slot = this.motifSlot[i], t = this.tileType[i];
+      if (slot < 0 || !t) continue;
+      const im = this.motifs[t];
+      if (slot >= im.count) continue;
+      im.getMatrixAt(slot, this.m4);
+      this.m4.decompose(this.c2, this.q, this.sc);
+      this.c2.y = this.tops[i].y * (reduced ? 1 : squash(now - t0));
+      this.m4.compose(this.c2, this.q, this.sc);
+      im.setMatrixAt(slot, this.m4);
+      im.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  /** Whole-board fade/warp for prestige transitions: a = opacity 0..1, warp = 0..1 swirl + shrink. */
+  setFade(a: number, warp = 0) {
+    if (!this.mats.length) this.group.traverse((o) => {
+      if (o instanceof THREE.Mesh) for (const m of Array.isArray(o.material) ? o.material : [o.material]) this.mats.push(m);
+    });
+    const op = Math.max(0, Math.min(1, a)), tr = op < 0.999;
+    for (const m of this.mats) {
+      if (m.transparent !== tr) (m.transparent = tr), (m.needsUpdate = true);
+      m.opacity = op;
+    }
+    this.group.rotation.y = warp * warp * 2.4;
+    this.group.scale.setScalar(1 - 0.35 * warp);
   }
 
   /** World point on the table (y=0) → tile index, or −1. */

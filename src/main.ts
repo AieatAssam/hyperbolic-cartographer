@@ -3,7 +3,7 @@ import Decimal from 'break_eternity.js';
 import { config } from './core/config';
 import { initialState, graphOf, type GameState } from './core/state';
 import { adjacency, buyChartUpg, buyCurvUpg, isActive, maxRing, mods, place, prod, previewDelta, sell, sellValue, survey, tileCost, togglePin } from './core/economy';
-import { drift, project } from './core/prestige';
+import { canDrift, canProject, drift, project } from './core/prestige';
 import { applyOffline, simulate } from './core/tick';
 import { exportString, importSave, makeSave, toJson } from './core/save';
 import { TILE_INFO, TILE_TYPES } from './core/tiles';
@@ -11,7 +11,9 @@ import { createScene } from './render/scene';
 import { Board, DISK_R } from './render/board';
 import { cellCorners, circlePts, fitDistance, freeRect, shouldReframe, type Rect, type Role } from './render/framing';
 import type { SquareBoard } from './core/geometry/square';
-import { Pulses } from './render/fx';
+import { CartographyFX, type FxQuality } from './render/fx';
+import { TRANSITION_S, transitionPhase } from './render/transition';
+import { TILE_IDENTITIES } from './art/palette';
 import { createUI, type Tool } from './ui/ui';
 import { fmt } from './ui/format';
 import { placeBlocked } from './ui/help';
@@ -41,9 +43,16 @@ const persist = () => store.set(KEY, exportString(makeSave(s, Date.now())));
 // ---- render ----
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const { scene, camera, controls, renderFrame, getQuality } = createScene(canvas);
-const pulses = new Pulses();
-scene.add(pulses.points);
+const fx = new CartographyFX(getQuality().level as FxQuality);
+scene.add(fx.group);
+const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+let inkTarget: [number, number] = [0, 0.92]; // HUD Ink counter centre in NDC, cached in layoutView
 let board: Board;
+let prevTiles: GameState['tiles'] = [], prevRing = s.ring; // FX diff: covers manual and automated changes once
+/** Prestige transition, driven by frame dt (no timers). The economy reset runs once, at the midpoint. */
+type Trans = { kind: 'drift' | 'projection'; t: number; swapped: boolean };
+let trans: Trans | null = null;
+const MAX_FX_EVENTS = 6; // per frame, so autoBuy bursts cannot flood the pool
 const tap = new TapController(); // tap/drag/pinch classification; holds the touch-previewed cell
 
 // ---- UI-aware framing: centre the board in the screen area not covered by HUD/panels/dock ----
@@ -70,6 +79,8 @@ function layoutView() {
     rect: el.getBoundingClientRect(),
   }));
   free = freeRect(overlays, W, H);
+  const ink = document.querySelector<HTMLElement>('[data-fx-target="ink"]')?.getBoundingClientRect();
+  if (ink && ink.width > 0) inkTarget = [((ink.left + ink.width / 2) / W) * 2 - 1, 1 - ((ink.top + ink.height / 2) / H) * 2];
   camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);
   camera.updateProjectionMatrix();
   const d = solveFit();
@@ -101,9 +112,10 @@ function syncBoard() {
     scene.remove(board.group);
     board.dispose();
   }
-  board = new Board(s.geometry);
+  board = new Board(s.geometry, scene.environment);
   tap.clearSelection(); // cell indices belong to the old graph
-  pulses.clear();
+  fx.clear(); // stale particles/endpoints belong to the old graph
+  prevTiles = s.tiles.slice();
   scene.add(board.group);
   controls.enablePan = s.geometry === 'square';
   frameCamera();
@@ -115,6 +127,7 @@ let speed = 1;
 const tool: { current: Tool } = { current: 'spring' };
 /** Applies the current tool to cell i; toasts the reason and returns false when it can't. */
 function applyTool(i: number): boolean {
+  if (trans) return false; // board actions are locked while a prestige transition plays
   const tl = tool.current;
   const why = placeBlocked(s, i, tl);
   if (why) return ui.toast(why), false;
@@ -135,21 +148,12 @@ const ui = createUI(document.getElementById('ui')!, {
       if (c >= 0 && applyTool(c)) tap.clearSelection();
     },
     cancelPlace: () => tap.clearSelection(),
-    survey: () => void survey(s),
-    drift: () => {
-      persist();
-      const g = drift(s);
-      if (g.gte(1)) ui.flash(), ui.toast(`Drifted for ${fmt(g)} Charts`);
-    },
-    project: () => {
-      persist();
-      const g = project(s);
-      ui.flash();
-      setTimeout(syncBoard, 350); // swap boards under the flash
-      ui.toast(`Projected! +${fmt(g)} Curvature. The map is now hyperbolic.`);
-    },
-    buyChart: (id) => void buyChartUpg(s, id),
-    buyCurv: (id) => void buyCurvUpg(s, id),
+    // economy mutations are locked while a prestige transition plays, same as board taps
+    survey: () => void (trans || survey(s)),
+    drift: () => startTransition('drift'),
+    project: () => startTransition('projection'),
+    buyChart: (id) => void (trans || buyChartUpg(s, id)),
+    buyCurv: (id) => void (trans || buyCurvUpg(s, id)),
     exportString: () => exportString(makeSave(s, Date.now())),
     exportFile: () => {
       const a = document.createElement('a');
@@ -165,6 +169,7 @@ const ui = createUI(document.getElementById('ui')!, {
       tap.clearSelection();
       persist();
       syncBoard();
+      (prevTiles = s.tiles.slice()), (prevRing = s.ring); // a loaded save is not a burst of placements
     },
     hardReset: () => {
       store.set(BACKUP, exportString(makeSave(s, Date.now())));
@@ -172,6 +177,7 @@ const ui = createUI(document.getElementById('ui')!, {
       tap.clearSelection();
       persist();
       syncBoard();
+      (prevTiles = s.tiles.slice()), (prevRing = s.ring);
     },
     setSpeed: (x) => (speed = x),
     grant: (kind, n) => {
@@ -185,7 +191,63 @@ const ui = createUI(document.getElementById('ui')!, {
     },
   },
 });
+fx.onInkArrive = (w) => ui.bumpInk(w);
 if (offline) ui.showOffline(offline);
+
+function startTransition(kind: Trans['kind']) {
+  if (trans || !(kind === 'drift' ? canDrift(s) : canProject(s))) return;
+  persist();
+  trans = { kind, t: 0, swapped: false };
+  tap.clearSelection();
+  document.body.classList.add('transitioning');
+  ui.setTransition(kind === 'drift' ? 'Drifting: the ink washes the old map away…' : 'Projecting: the square map folds into the hyperbolic disk…');
+  fx.prestige(kind);
+}
+/** Advances the transition; returns true while board input/actions must stay blocked. */
+function stepTransition(dt: number) {
+  if (!trans) return false;
+  trans.t += dt;
+  const total = reduced.matches ? TRANSITION_S * 0.5 : TRANSITION_S;
+  const { phase, k } = transitionPhase(trans.t, total);
+  if (phase !== 'out' && !trans.swapped) {
+    trans.swapped = true;
+    const g = trans.kind === 'drift' ? drift(s) : project(s); // the only economy reset
+    persist();
+    syncBoard(); // projection: new disk board (fx.clear inside); drift: same board
+    if (trans.kind === 'drift') fx.clear(), (prevTiles = s.tiles.slice());
+    prevRing = s.ring;
+    fx.prestige(trans.kind); // fresh burst over the reveal, after any clear
+    ui.toast(trans.kind === 'drift' ? `Drifted for ${fmt(g)} Charts` : `Projected! +${fmt(g)} Curvature. The map is now hyperbolic.`);
+  }
+  const warp = trans.kind === 'projection' && !reduced.matches;
+  if (phase === 'out') board.setFade(1 - k, warp ? k : 0);
+  else if (phase === 'in') board.setFade(k, warp ? 1 - k : 0);
+  else {
+    board.setFade(1);
+    trans = null;
+    document.body.classList.remove('transitioning');
+    ui.setTransition(null);
+    layoutDirty = true;
+  }
+  return true;
+}
+/** One-shot FX from state diffs (manual taps and automation alike, so nothing fires twice). */
+function diffFx() {
+  let n = 0;
+  if (s.ring > prevRing && s.geometry === board.geometry) fx.survey(s.geometry === 'hyper' ? DISK_R : 2 + s.ring), n++;
+  prevRing = s.ring;
+  const now = fx.now;
+  for (let i = 0; i < s.tiles.length; i++) {
+    const a = prevTiles[i], b = s.tiles[i];
+    if (a === b) continue;
+    if (n < MAX_FX_EVENTS) {
+      if (b) fx.placement(i, TILE_IDENTITIES[b].emissive), board.markPlaced(i, now);
+      else fx.sell(i);
+      n++;
+    } else if (b) board.markPlaced(i, now); // squash is free; particles are capped
+  }
+  prevTiles = s.tiles.slice();
+}
 observeUI();
 layoutDirty = true;
 frameCamera(); // re-fit now that the UI exists
@@ -279,7 +341,8 @@ function frame(now: number) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.25, (now - last) / 1000);
   last = now;
-  acc += dt * speed;
+  const locked = stepTransition(dt);
+  acc = locked ? 0 : acc + dt * speed; // economy pauses for the ~1.5 s transition
   let steps = 0;
   while (acc >= STEP && steps++ < 1000) simulate(s, STEP), (acc -= STEP);
   if (steps >= 1000) acc = 0;
@@ -302,11 +365,24 @@ function frame(now: number) {
   const focus = hover >= 0 ? hover : tap.selected;
   const hoverAdj = focus >= 0 ? (s.tiles[focus] ? adjacency(g, s.tiles, focus, mods(s).reach) : g.neighbours[focus]) : [];
   board.update(s, p.perTile, focus, hoverAdj);
-  pulses.update(dt, board.tops, links, Math.min(40, 2 + links.length * 0.4));
+  if (!locked) diffFx();
+  fx.update(dt, { tops: board.tops, links, tiles: s.tiles, perTile: p.perTile, neighbours: g.neighbours, quality: getQuality().level as FxQuality, inkTargetNdc: inkTarget });
+  board.tick(fx.now, reduced.matches);
   controls.update();
   renderFrame(dt);
   if ((uiAcc += dt) > 0.1) (uiAcc = 0), ui.update();
 }
 requestAnimationFrame(frame);
 
-if (dev) Object.assign(window, { game: { get s() { return s; }, Decimal, TILE_TYPES, renderQuality: getQuality } });
+if (dev) Object.assign(window, { game: {
+  get s() { return s; }, Decimal, TILE_TYPES, renderQuality: getQuality,
+  // QA hooks for deterministic effect screenshots (dev flag only; FX only, never economy)
+  fxStats: () => fx.stats(),
+  triggerFx: (kind: string, i = 0) => {
+    if (kind === 'place') fx.placement(i, TILE_IDENTITIES[s.tiles[i] ?? 'spring'].emissive), board.markPlaced(i, fx.now);
+    else if (kind === 'sell') fx.sell(i);
+    else if (kind === 'survey') fx.survey(s.geometry === 'hyper' ? DISK_R : 2 + s.ring);
+    else if (kind === 'aura') fx.beaconAura(i);
+    else if (kind === 'drift' || kind === 'projection') fx.prestige(kind);
+  },
+} });

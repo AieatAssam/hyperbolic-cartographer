@@ -13,9 +13,9 @@
 /** Scene lights. Consumed by scene.ts: hemisphere + three directional lights + environment. */
 export const LIGHTS = {
   /** Hemisphere sky colour (warm-violet ambient from above). */
-  hemiSky: 0xd9c4ff, hemiGround: 0x1f4a52, hemiIntensity: 0.85,
+  hemiSky: 0xd9c4ff, hemiGround: 0x1f4a52, hemiIntensity: 0.6,
   /** Warm key light, main shadow-less directional. */
-  key: 0xffd9a8, keyIntensity: 2.4, keyPos: [6, 12, 5] as [number, number, number],
+  key: 0xffd9a8, keyIntensity: 2.0, keyPos: [6, 12, 5] as [number, number, number],
   /** Cool fill light from the left, softens key shadows (no shadow maps are used). */
   fill: 0x7fc8ff, fillIntensity: 0.7, fillPos: [-9, 6, -2] as [number, number, number],
   /** Magenta rim light from behind, separates tiles from the backdrop. */
@@ -47,13 +47,15 @@ export const FOG = { color: 0x3a2350, density: 0.012 } as const;
  * UnrealBloomPass parameters: new UnrealBloomPass(res, strength, radius, threshold).
  * threshold is the luminance cut-off; only emissive surfaces above it bloom.
  */
-export const BLOOM = { strength: 0.65, radius: 0.55, threshold: 0.85 } as const;
+export const BLOOM = { strength: 0.22, radius: 0.4, threshold: 1.4 } as const;
 
 /**
- * A material token for a tile or slot. Expected use: the tile mesh is a
- * MeshStandardMaterial built from the token: color = base, emissive = emissive,
- * emissiveIntensity, roughness, metalness. `accent` is the highlight colour used for
- * selection rings, pips and hover edges. It is a complement or gold hue of the base.
+ * A material token for a tile or slot. Face colour and emissive glow are separate on purpose:
+ * - base: lit face albedo (vertex colour). Saturated and mid-dark so key light can't push it past
+ *   BLOOM.threshold. This is the colour the palette chip shows.
+ * - emissive / emissiveIntensity: the motif core glow. The face itself gets only MATERIAL.faceGlow.
+ * - roughness / metalness: face material response.
+ * - accent: motif, selection ring and pip highlight. A complement or gold of the base.
  */
 export interface MaterialToken {
   base: number;
@@ -65,46 +67,145 @@ export interface MaterialToken {
 }
 
 /**
- * Tile identity tokens, keyed by TileType from core/tiles.ts (spring, mill, beacon,
- * bridge, vault). tiles.ts defines exactly these 5 kinds, so the keys are the real ids.
- * Each token is a mid-luminance hue with a brighter emissive of the same hue and a resting
- * emissiveIntensity of 0.25 to 0.4. Hover and affordable highlights go up to BOARD.glowAccentIntensity.
- * Hues: spring = celestial blue, mill = warm amber, beacon = coral rose,
- * bridge = ink-violet, vault = verdigris teal.
+ * Tile identity tokens, keyed by TileType from core/tiles.ts. Same hue angles as the pass-1 chips,
+ * saturation restored and value lowered so faces stay coloured under ACES.
+ * emissiveIntensity is the motif core intensity: above BLOOM.threshold so only the small core blooms.
  */
 export const TILE_IDENTITIES = {
   /** spring: celestial blue. Produces Ink. */
-  spring: { base: 0x4a9be8, emissive: 0x8fd0ff, emissiveIntensity: 0.3, roughness: 0.5, metalness: 0.2, accent: 0xffd27a },
+  spring: { base: 0x1f6fd6, emissive: 0x6cc4ff, emissiveIntensity: 2.2, roughness: 0.62, metalness: 0, accent: 0xffd27a },
   /** mill: warm amber. Produces Ink, boosted by adjacent Springs. */
-  mill: { base: 0xe0a040, emissive: 0xffc870, emissiveIntensity: 0.3, roughness: 0.5, metalness: 0.2, accent: 0x5fd4ff },
+  mill: { base: 0xd9820f, emissive: 0xffbe55, emissiveIntensity: 2.0, roughness: 0.68, metalness: 0, accent: 0x5fd4ff },
   /** beacon: coral rose. Multiplies adjacent tiles. */
-  beacon: { base: 0xe0607a, emissive: 0xff8fa6, emissiveIntensity: 0.35, roughness: 0.45, metalness: 0.15, accent: 0x6fe3d0 },
+  beacon: { base: 0xd8344f, emissive: 0xff7a92, emissiveIntensity: 2.3, roughness: 0.6, metalness: 0, accent: 0x6fe3d0 },
   /** bridge: ink-violet. Links its neighbours. */
-  bridge: { base: 0x8a5cd6, emissive: 0xb88cff, emissiveIntensity: 0.35, roughness: 0.55, metalness: 0.15, accent: 0xe8c872 },
-  /** vault: verdigris teal. Offline and global bonuses. */
-  vault: { base: 0x2fb59c, emissive: 0x6fe3c8, emissiveIntensity: 0.3, roughness: 0.6, metalness: 0.1, accent: 0xff9ab0 },
+  bridge: { base: 0x6a2fd0, emissive: 0xb07cff, emissiveIntensity: 2.3, roughness: 0.65, metalness: 0, accent: 0xe8c872 },
+  /** vault: verdigris green. Offline and global bonuses. */
+  vault: { base: 0x0f9a6e, emissive: 0x4fe8b0, emissiveIntensity: 2.0, roughness: 0.7, metalness: 0, accent: 0xff9ab0 },
 } as const satisfies Record<'spring' | 'mill' | 'beacon' | 'bridge' | 'vault', MaterialToken>;
 
 /**
- * Empty board slot. Dusky parchment-violet, matte, barely emissive so it reads as "unused"
- * without competing with placed tiles. Used for unoccupied hex cells.
+ * Empty board slot: a dark recessed well with a subdued violet border (accent), never near-white.
+ * emissive is a faint inner breath, well below bloom.
  */
 export const EMPTY_SLOT: MaterialToken = {
-  base: 0x4a3a66, emissive: 0x6a5a9a, emissiveIntensity: 0.15, roughness: 0.85, metalness: 0, accent: 0xe8c872,
+  base: 0x1c1430, emissive: 0x3a2e60, emissiveIntensity: 0.12, roughness: 0.9, metalness: 0, accent: 0x54467a,
+} as const;
+
+/** Next-ring (not yet surveyed) slot: darker still, border barely visible. */
+export const NEXT_SLOT = { base: 0x140e22, border: 0x2e2546 } as const;
+
+/**
+ * Material response coefficients for board.ts (multipliers on the tokens above).
+ * - sideShade: side faces = base * sideShade. Darker extrusion walls, pinned tiles included.
+ * - bevelAccent / bevelLift: glassy edge = base lerped toward accent, then lifted.
+ * - faceGlow: emissive on the face as a fraction of base. Small: faces are lit, not lamps.
+ * - trimGlowRest..trimGlowMax: token.emissive on the bevel, by output level. Max < BLOOM.threshold.
+ * - heightBase + heightPerLevel * L: extrusion, L = outputLevel(output) in 0..1 over heightLogFull decades.
+ * - hoverLerp: face lerp toward white on hover, low so the hue survives. hoverTrim: bevel glow on hover.
+ * - pinBorder: bevel lerp toward BOARD.gold on pinned tiles (outline only).
+ * - motifScaleMin..Max: motif core scale by output level.
+ * - bodyEnv: envMapIntensity on the merged tile body. Low so room reflections don't wash faces pastel; scene env/table unaffected.
+ */
+export const MATERIAL = {
+  sideShade: 0.32, bevelAccent: 0.18, bevelLift: 1.15,
+  faceGlow: 0.06, trimGlowRest: 0.12, trimGlowMax: 0.55,
+  heightBase: 0.34, heightPerLevel: 1.0, heightLogFull: 6,
+  slotHeight: 0.015, nextHeight: 0.008,
+  hoverLerp: 0.12, hoverTrim: 0.8, pinBorder: 0.75,
+  motifScaleMin: 0.85, motifScaleMax: 1.35,
+  bodyEnv: 0.15,
 } as const;
 
 /**
  * Board chrome and interaction colours.
  * - table / tableEdge: the board base and its rim, MeshStandardMaterial colours.
  * - rim: thin cyan ring around the playable area.
- * - gold: selection and reward highlights.
- * - hover: the target colour the hovered tile's material lerps toward (white).
+ * - gold: selection, pin outline and reward highlights.
+ * - hover: the colour a hovered face lerps toward, by MATERIAL.hoverLerp.
  * - adjacency: outline colour for tiles adjacent to the current selection.
- * - glowAccentIntensity: emissiveIntensity for affordable or active highlights. Values up to
- *   this bloom past BLOOM.threshold. Keep it at or below this value.
+ * - glowAccentIntensity: cap for deliberate bloom accents (rim). Motif cores sit just under it.
  */
 export const BOARD = {
   table: 0x3b2a4f, tableEdge: 0x7a5a3a,
   rim: 0x5fd4ff, gold: 0xe8c872, hover: 0xffffff, adjacency: 0x5fd4ff,
-  glowAccentIntensity: 1.8,
+  glowAccentIntensity: 2.4,
+} as const;
+
+// ---- Pure colour math on sRGB hex. Used by tests; mirrors what board.ts does with THREE.Color. ----
+
+export type RGB = [number, number, number];
+export const hexToRgb = (h: number): RGB => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255];
+export const srgbToLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+/** WCAG relative luminance of an sRGB hex colour. */
+export function relativeLuminance(h: number): number {
+  const [r, g, b] = hexToRgb(h).map(srgbToLinear);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+/** Luminance ratio (Lhi + 0.05) / (Llo + 0.05). */
+export function contrastRatio(a: number, b: number): number {
+  const la = relativeLuminance(a), lb = relativeLuminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+/** CIE L*a*b* (D65) of an sRGB hex colour. */
+export function toLab(h: number): RGB {
+  const [r, g, b] = hexToRgb(h).map(srgbToLinear);
+  const x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047, y = 0.2126 * r + 0.7152 * g + 0.0722 * b, z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
+  const f = (t: number) => (t > 216 / 24389 ? Math.cbrt(t) : ((24389 / 27) * t + 16) / 116);
+  return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
+}
+export function deltaE76(a: number, b: number): number {
+  const [l1, a1, b1] = toLab(a), [l2, a2, b2] = toLab(b);
+  return Math.hypot(l1 - l2, a1 - a2, b1 - b2);
+}
+/** HSV saturation (0..1). */
+export function saturation(h: number): number {
+  const c = hexToRgb(h), mx = Math.max(...c), mn = Math.min(...c);
+  return mx === 0 ? 0 : (mx - mn) / mx;
+}
+/** HSV hue in degrees. */
+export function hue(h: number): number {
+  const [r, g, b] = hexToRgb(h), mx = Math.max(r, g, b), d = mx - Math.min(r, g, b);
+  if (d === 0) return 0;
+  const k = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (k * 60 + 360) % 360;
+}
+const pack = (c: number[]) => c.reduce((acc, v) => (acc << 8) | Math.round(Math.min(1, Math.max(0, v)) * 255), 0);
+/** Per-channel lerp in sRGB (as THREE.Color.lerp on sRGB-authored values). */
+export const lerpHex = (a: number, b: number, t: number) => pack(hexToRgb(a).map((v, i) => v + (hexToRgb(b)[i] - v) * t));
+export const scaleHex = (a: number, k: number) => pack(hexToRgb(a).map((v) => v * k));
+
+// ---- Material response helpers (consumed by board.ts, checked by tests). ----
+
+/** Output level 0..1: log10(1 + output) over MATERIAL.heightLogFull decades. */
+export const outputLevel = (output: number) => Math.min(1, Math.log10(1 + Math.max(0, output)) / MATERIAL.heightLogFull);
+/** Placed-tile extrusion height at level L. */
+export const tileHeight = (L: number) => MATERIAL.heightBase + MATERIAL.heightPerLevel * L;
+/** Bevel trim emissive multiplier on token.emissive at level L. */
+export const trimGlow = (L: number) => MATERIAL.trimGlowRest + (MATERIAL.trimGlowMax - MATERIAL.trimGlowRest) * L;
+/** Motif core scale at level L. */
+export const motifScale = (L: number) => MATERIAL.motifScaleMin + (MATERIAL.motifScaleMax - MATERIAL.motifScaleMin) * L;
+/** Side wall colour: darker than the face for every type, pinned or not. */
+export const sideColour = (base: number) => scaleHex(base, MATERIAL.sideShade);
+/** Glassy bevel colour, and its pinned (gold outline) variant. */
+export const bevelColour = (t: MaterialToken, pinned = false) => {
+  const b = scaleHex(lerpHex(t.base, t.accent, MATERIAL.bevelAccent), MATERIAL.bevelLift);
+  return pinned ? lerpHex(b, BOARD.gold, MATERIAL.pinBorder) : b;
+};
+/** Hovered face colour. */
+export const hoverFace = (base: number) => lerpHex(base, BOARD.hover, MATERIAL.hoverLerp);
+
+/**
+ * Cartography FX tokens (render/fx.ts). Particle colours are saturated tile emissives so they read
+ * without bloom; *Px sizes are CSS pixels (shader multiplies by DPR) so motes stay legible at phone zoom.
+ * - ink: motes flying to the HUD Ink counter. ring/beacon/bridge: procedural ring and arc colours.
+ * - wash/vortex: Drift ink-wash and Projection vortex overlay colours.
+ * - *Life: seconds. ringWidth: annulus thickness as a fraction of radius. *Lift: world-unit arc height.
+ */
+export const FX = {
+  ink: 0x6cc4ff, production: 0x8fe6ff, sell: 0xc9b8e8, ring: 0x5fd4ff, beacon: 0xff7a92, bridge: 0xb07cff,
+  wash: 0x2a6bd6, vortex: 0xe8c872,
+  pulsePx: 9, motePx: 11, burstPx: 10, puffPx: 14, overlayPx: 22,
+  pulseLife: 0.65, moteLife: 1.1, burstLife: 0.7, puffLife: 0.9, ringLife: 1.4, auraLife: 1.8, arcLife: 0.9, overlayLife: 2.4,
+  ringWidth: 0.12, arcLift: 0.55, pulseLift: 0.35,
 } as const;

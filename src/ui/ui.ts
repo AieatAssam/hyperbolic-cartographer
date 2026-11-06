@@ -49,6 +49,10 @@ export interface UI {
   showOffline(r: OfflineReport): void;
   toast(msg: string): void;
   flash(): void;
+  /** Visual-only pulse on the HUD Ink counter (GPU mote arrival). */
+  bumpInk(weight: number): void;
+  /** Plain-words goal override while a prestige transition plays; null restores the normal goal. */
+  setTransition(text: string | null): void;
 }
 
 type Dec = GameState['ink'];
@@ -143,6 +147,8 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     return { box, v, sub };
   };
   const sInk = stat('Ink');
+  sInk.box.id = 'ink-counter';
+  sInk.box.dataset.fxTarget = 'ink';
   const sRate = stat('Ink/s');
   const sCharts = stat('Charts');
   const sCurv = stat('Curvature');
@@ -643,6 +649,20 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     document.body.append(f);
     setTimeout(() => f.remove(), 1300);
   };
+  // HUD Ink pulse when GPU motes land: visual only, rate-limited, restarts the CSS animation without reflow churn
+  let bumpAt = 0;
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  const bumpInk = (weight: number) => {
+    const now = performance.now();
+    if (reduceMotion.matches || now - bumpAt < 140) return;
+    bumpAt = now;
+    const b = sInk.box;
+    b.style.setProperty('--bump', String(Math.min(1, 0.35 + 0.15 * weight)));
+    b.classList.remove('ink-bump');
+    requestAnimationFrame(() => b.classList.add('ink-bump'));
+  };
+  let transitionText: string | null = null;
+  const setTransition = (t: string | null) => ((transitionText = t), update());
   const showOffline = (r: OfflineReport) => {
     if (r.seconds < 10) return;
     const content = el('div');
@@ -727,7 +747,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     const cod = chartsOnDrift(s);
     sCod.v.textContent = fmt(cod, s.notation);
     sCod.sub.textContent = `${fmt(s.runTime > 0 ? cod.toNumber() / (s.runTime / 60) : 0, s.notation)}/min`;
-    const g = immediateGoal(s);
+    const g = transitionText ? { text: transitionText, eta: '', progress: 0 } : immediateGoal(s);
     if (goalText.textContent !== g.text) goalText.textContent = g.text;
     goalEta.textContent = g.eta;
     goalFill.style.width = `${Math.round(clamp(g.progress) * 100)}%`;
@@ -798,7 +818,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   // ---- Mount ----
   root.append(topbar, panel, dock, palette, tip, toastEl, dev, backdrop);
   update();
-  return { update, tooltip, showOffline, toast, flash };
+  return { update, tooltip, showOffline, toast, flash, bumpInk, setTransition };
 }
 
 const escape = (str: string) => str.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);

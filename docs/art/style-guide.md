@@ -16,9 +16,9 @@ All colours are sRGB hex. three converts them to linear when it builds `Color` o
 |---|---|---|
 | `hemiSky` | `#d9c4ff` | Hemisphere sky colour: warm-violet ambient from above. |
 | `hemiGround` | `#1f4a52` | Hemisphere ground colour: deep teal bounce from below. |
-| `hemiIntensity` | 0.85 | Hemisphere strength. |
+| `hemiIntensity` | 0.6 | Hemisphere strength. |
 | `key` | `#ffd9a8` | Warm key light, main directional. |
-| `keyIntensity` | 2.4 | Key strength. |
+| `keyIntensity` | 2.0 | Key strength. |
 | `keyPos` | [6, 12, 5] | Key position. |
 | `fill` | `#7fc8ff` | Cool fill from the left, softens key falloff. |
 | `fillIntensity` | 0.7 | Fill strength. |
@@ -56,23 +56,23 @@ Shadow maps are off.
 
 | Token | Value | Meaning |
 |---|---|---|
-| `strength` | 0.65 | UnrealBloomPass strength. |
-| `radius` | 0.55 | Bloom spread. |
-| `threshold` | 0.85 | Linear luminance cut-off. Only surfaces above this glow. |
+| `strength` | 0.22 | UnrealBloomPass strength. |
+| `radius` | 0.4 | Bloom spread. |
+| `threshold` | 1.4 | Linear luminance cut-off. Only surfaces above this glow. |
 
-### TILE_IDENTITIES (Wired in `board.ts`)
+### Materials & bloom (pass 3A) (Wired in `board.ts`)
 
-Each entry is a `MaterialToken` (`base`, `emissive`, `emissiveIntensity`, `roughness`, `metalness`, `accent`). The keys match the five tile kinds in `core/tiles.ts`.
+**Tile identities.** Each entry is a `MaterialToken` (`base`, `emissive`, `emissiveIntensity`, `roughness`, `metalness`, `accent`). Keys match the five tile kinds in `core/tiles.ts`. `base` is the face colour and the palette chip colour. `emissive` and `emissiveIntensity` drive the motif core only.
 
 | Tile | Hue | Base | Emissive | Emissive I | Roughness / Metalness | Accent | Role |
 |---|---|---|---|---|---|---|---|
-| `spring` | celestial blue | `#4a9be8` | `#8fd0ff` | 0.30 | 0.50 / 0.20 | `#ffd27a` | Produces Ink. |
-| `mill` | warm amber | `#e0a040` | `#ffc870` | 0.30 | 0.50 / 0.20 | `#5fd4ff` | Produces Ink, boosted by adjacent Springs. |
-| `beacon` | coral rose | `#e0607a` | `#ff8fa6` | 0.35 | 0.45 / 0.15 | `#6fe3d0` | Multiplies adjacent tiles. |
-| `bridge` | ink-violet | `#8a5cd6` | `#b88cff` | 0.35 | 0.55 / 0.15 | `#e8c872` | Links its neighbours. |
-| `vault` | verdigris teal | `#2fb59c` | `#6fe3c8` | 0.30 | 0.60 / 0.10 | `#ff9ab0` | Offline and global bonuses. |
+| `spring` | celestial blue | `#1f6fd6` | `#6cc4ff` | 2.2 | 0.62 / 0 | `#ffd27a` | Produces Ink. |
+| `mill` | warm amber | `#d9820f` | `#ffbe55` | 2.0 | 0.68 / 0 | `#5fd4ff` | Produces Ink, boosted by adjacent Springs. |
+| `beacon` | coral rose | `#d8344f` | `#ff7a92` | 2.3 | 0.60 / 0 | `#6fe3d0` | Multiplies adjacent tiles. |
+| `bridge` | ink-violet | `#6a2fd0` | `#b07cff` | 2.3 | 0.65 / 0 | `#e8c872` | Links its neighbours. |
+| `vault` | verdigris green | `#0f9a6e` | `#4fe8b0` | 2.0 | 0.70 / 0 | `#ff9ab0` | Offline and global bonuses. |
 
-**Motifs (Wired).** Each tile kind has a distinct silhouette, drawn as an instanced accent mesh on top of the tile in its `accent` colour (emissive 0.6). The shape reads without colour, which matters on phones and for colour-blind players:
+**Motifs (Wired).** Each tile kind has a distinct silhouette, drawn as an instanced accent mesh on top of the tile in its `accent` colour. The shape reads without colour, which matters on phones and for colour-blind players:
 
 | Tile | Motif |
 |---|---|
@@ -82,29 +82,26 @@ Each entry is a `MaterialToken` (`base`, `emissive`, `emissiveIntensity`, `rough
 | `bridge` | arch (half torus) |
 | `vault` | gem (octahedron) |
 
-### EMPTY_SLOT (Wired in `board.ts`)
+**Empty slot.** `EMPTY_SLOT`: `base` `#1c1430` (dark recessed well), `accent` `#54467a` (subdued violet border), `emissive` `#3a2e60` at `emissiveIntensity` 0.12, `roughness` 0.9, `metalness` 0.
 
-| Field | Value |
-|---|---|
-| `base` | `#4a3a66` (dusky violet, matte), lerped 18% toward parchment for the slot face |
-| `emissive` | `#6a5a9a` |
-| `emissiveIntensity` | 0.15 |
-| `roughness` / `metalness` | 0.85 / 0 |
-| `accent` | `#e8c872` (gold), used for the preview border of the next ring |
+**Next ring.** `NEXT_SLOT`: `base` `#140e22`, `border` `#2e2546`. Darker than the empty slot.
 
-Empty-slot rules are in section 4.
+**Board chrome.** `BOARD`: `table` `#3b2a4f`, `tableEdge` `#7a5a3a`, `rim` `#5fd4ff`, `gold` `#e8c872` (pin outline and reward highlight), `hover` `#ffffff`, `adjacency` `#5fd4ff`, `glowAccentIntensity` 2.4 (the accent cap; motif cores sit just under it).
 
-### BOARD (Wired)
+**Material coefficients.** `MATERIAL`, multipliers on the tokens above:
 
-| Token | Hex / value | Meaning |
+| Field | Value | Meaning |
 |---|---|---|
-| `table` | `#3b2a4f` | Tabletop base colour (outer edge of the ink-map texture). |
-| `tableEdge` | `#7a5a3a` | Bevelled edge and lip colour. |
-| `rim` | `#5fd4ff` | Luminous cyan rim of the hyperbolic disk. |
-| `gold` | `#e8c872` | Pinned tiles and reward highlight. |
-| `hover` | `#ffffff` | Target colour the hovered tile lerps toward. |
-| `adjacency` | `#5fd4ff` | Outline for tiles adjacent to the hovered tile. |
-| `glowAccentIntensity` | 1.8 | Emissive intensity for the hovered tile. Also the ceiling for accents. |
+| `sideShade` | 0.32 | Side walls = `base * sideShade`. |
+| `bevelAccent` / `bevelLift` | 0.18 / 1.15 | Glassy bevel: base lerped toward accent, then lifted. |
+| `faceGlow` | 0.06 | Emissive on the face, as a fraction of base. |
+| `trimGlowRest` / `trimGlowMax` | 0.12 / 0.55 | Bevel emissive by output level. Max is below the bloom threshold. |
+| `heightBase` / `heightPerLevel` / `heightLogFull` | 0.34 / 1.0 / 6 | Extrusion: `tileHeight = 0.34 + 1.0 * L`, where `L = min(1, log10(1 + output) / 6)`. |
+| `slotHeight` / `nextHeight` | 0.015 / 0.008 | Empty and next-ring slot thickness. |
+| `hoverLerp` / `hoverTrim` | 0.12 / 0.8 | Face lerp toward white on hover, and bevel glow on hover. |
+| `pinBorder` | 0.75 | Bevel lerp toward `BOARD.gold` on pinned tiles. |
+| `motifScaleMin` / `motifScaleMax` | 0.85 / 1.35 | Motif core scale by output level. |
+| `bodyEnv` | 0.15 | `envMapIntensity` on the merged tile body. Low so room reflections don't wash faces pastel; scene env/table unaffected. |
 
 ## 3. Colour pipeline (Wired)
 
@@ -119,12 +116,11 @@ Empty-slot rules are in section 4.
 
 ### Empty slots (Wired)
 
-Empty slots look inviting, not dead:
+Empty slots are dark recessed wells, not grey slabs:
 
-- Each slot has an inset border lerped between parchment and teal (`SLOT_TEAL`, 35%). The cell reads as a place to build.
-- The next ring (one step out, preview only) is a dimmer violet with a gold-tinted border.
-- Never grey slabs. Grey reads as disabled.
-- Matte (roughness 0.85), barely emissive, so placed tiles still stand out.
+- The base is `EMPTY_SLOT.base`, very dark violet. The border is `EMPTY_SLOT.accent`, subdued and never near-white.
+- The next ring (one step out, preview only) is darker still, with a barely visible border (`NEXT_SLOT`).
+- Grey reads as disabled. Keep slots dark and matte (roughness 0.9), with a faint inner emissive (0.12).
 
 ### Tabletop (Wired)
 
@@ -135,7 +131,7 @@ Empty slots look inviting, not dead:
 ### Hyperbolic disk (Wired)
 
 - Same ink-map language as the square tabletop, with a circular texture.
-- A luminous cyan rim: a torus in `BOARD.rim` colour multiplied by `BLOOM.threshold + 1.2` (about 2.05), so it is deliberately above the bloom threshold.
+- A luminous cyan rim (`BOARD.rim`). It is a deliberate bloom accent, capped at `BOARD.glowAccentIntensity`.
 
 ### Backdrop (Wired)
 
@@ -147,15 +143,15 @@ An inverted sphere (radius 100) that follows the camera, drawn first with no dep
 4. Parchment grain.
 5. Screen-space vignette, with a floor clamp so it never goes black.
 
-## 5. Bloom and output scaling (Wired)
+## 5. Bloom rules (pass 3A)
 
-- **Resting emissive stays under the threshold.** Resting `emissiveIntensity` is 0.25 to 0.4 (0.30 to 0.35 for most kinds) and does not bloom at `BLOOM.threshold` 0.85.
-- **Glow scales with output.** For a placed tile, `L = log10(1 + output)`. Glow is the tile emissive multiplied by `rest + (GLOW_MAX - rest) * min(1, L / 6)`, so it rises from the resting value to `GLOW_MAX` 1.25 at `L = 6`. Busy, productive tiles cross the threshold on purpose.
-- **Height follows output too.** Tile height is `0.25 + 0.22 * L`.
-- **Hover uses the accent ceiling.** The hovered tile's glow is its emissive times `BOARD.glowAccentIntensity` (1.8). Hovered empty slots use a dimmer glow (0.6 of the slot border colour).
-- **Adjacency.** Tiles next to the hovered tile lerp their border 60% toward `BOARD.adjacency` and their glow 25%.
+- **Face colour and glow are separate.** `base` is the lit albedo and is what the palette chip shows. Glow comes only from `emissive`.
+- **Faces get only `MATERIAL.faceGlow`.** The face never blooms.
+- **Bloom is for motif cores and the table rim only.** Motif cores have `emissiveIntensity` above `BLOOM.threshold` (1.4), up to `BOARD.glowAccentIntensity` (2.4).
+- **Trim glow stays below the threshold.** Bevel emissive runs from `trimGlowRest` to `trimGlowMax` (0.55) with output level, so it never blooms.
+- **Side walls** are `base * sideShade` for every tile, pinned tiles included. Pins are a gold bevel outline only (`pinBorder`), not a change to the walls.
+- **Hover.** The face lerps 0.12 toward white (`hoverLerp`) so the hue survives. The bevel glow rises by `hoverTrim`.
 - **Caching.** Output is quantised to 8 steps per decade (`round(L * 8)`) for each tile. The board rebuilds only when that quantised signature, tiles, ring, pins, hover, hovered neighbours or view change. It does not rebuild every frame, and sub-step output changes do not trigger a rebuild.
-- **Above 1 is for accents only.** Keep any non-accent emissive at or below the resting range.
 
 ## 6. Phone and adaptive quality (Wired)
 
@@ -220,14 +216,41 @@ Every texture and environment is generated in code. Nothing is fetched at runtim
 - Reflections: `RoomEnvironment` baked through `PMREMGenerator`.
 - No image, font, HDR or model files are loaded.
 
+## 7a. FX
+
+Particle and transition effects live in `src/render/fx.ts`. Pure timing and curve logic lives in `src/render/transition.ts` and `src/render/fx-model.ts`.
+
+- **Draw calls.** All particles go through a single instanced, additive draw call.
+- **Capacity by quality.** 384 (level 0), 1024 (level 1), 2048 (level 2).
+- **Ambient rates by quality** (levels 0 / 1 / 2, `FX_BUDGETS` in `fx-model.ts`):
+  - Pulses per link: 1.5 / 2 / 2.5 per second, capped at 14 / 28 / 48 per second.
+  - Lone-Spring motes: 1 / 1.5 / 2 per second, capped at 4 / 8 / 14 per second.
+  - Per-frame spawn cap (all streams): 12 / 24 / 40. These caps are unchanged.
+- **Place.** A burst, plus a board squash-settle: `s = 1 + 0.25 * exp(-8t) * cos(18t)` over about 0.6 s (`SQUASH_S`). Motifs follow the squash.
+- **Sell.** A puff.
+- **Survey.** A ring sweep.
+- **Beacon.** An automatic aura.
+- **Bridge.** Arcs between linked neighbours.
+- **Spring.** Lone motes.
+- **Ink.** Motes fly to the HUD Ink counter (`#ink-counter`, `[data-fx-target="ink"]`). The counter pulses, rate-limited.
+- **Automation.** Automation-driven events are capped per frame.
+- **Prestige transitions** (about 1.5 s, `TRANSITION_S`). Each has a first half that fades out and a second half that reveals.
+  - Drift: an ink wash erases the old map, then the new map is revealed.
+  - Projection: the old square board warps and fades out. A luminous disk fades in under a GPU vortex.
+  - Board input is disabled while a transition runs.
+- **Reduced motion.** With `prefers-reduced-motion`, the squash is disabled, the HUD pulse animation is disabled, and transitions shorten to plain fades.
+- **Dev QA hooks.** Only with the dev flag: `game.fxStats()` and `game.triggerFx(kind, index?)`.
+
 ## 8. Known gaps
 
-- `board.ts` keeps a few local derived constants (`PARCHMENT`, `SLOT_TEAL`, and the rgba strings in the tabletop texture) that are not palette tokens. Move them into `palette.ts` before adding more.
+- `board.ts` slot and tile colours now come only from `palette.ts` (`PARCHMENT`/`SLOT_TEAL` are gone). The rgba strings in the tabletop texture are still local, not palette tokens.
+- The merged board mesh is one draw call, so face roughness/metalness is the mean of the tile tokens, not per type.
+- The merged body uses an explicit `envMap` (the scene environment texture) so `MATERIAL.bodyEnv` applies. three ignores `envMapIntensity` when `envMap` is null. `scene.environmentIntensity` (0.35) still lights the table and other materials.
 
 ## 9. Checklist for a change
 
 1. Add or change the token in `src/art/palette.ts` first.
 2. Consume it by name. No hex literals in render or UI code.
 3. If a balance number changes, note it in the README "Balance" section.
-4. Check bloom: resting emissives stay at or below 0.35. Accents go up to 1.8 only on purpose.
+4. Check bloom: faces stay at `MATERIAL.faceGlow` and trim at or below `trimGlowMax`. Only motif cores go above `BLOOM.threshold`, and never past `BOARD.glowAccentIntensity`.
 5. Check the phone path: a level 1 start and a manual `setQuality(0)` both render correctly.
