@@ -51,6 +51,7 @@ function syncBoard() {
     board.dispose();
   }
   board = new Board(s.geometry);
+  pulses.clear();
   scene.add(board.group);
   controls.enablePan = s.geometry === 'square';
   frameCamera();
@@ -180,6 +181,7 @@ addEventListener('pagehide', persist);
 const STEP = 1 / config.tickRate;
 let acc = 0, last = performance.now(), uiAcc = 0, linkKey = '', links: [number, number][] = [];
 function frame(now: number) {
+  requestAnimationFrame(frame);
   const dt = Math.min(0.25, (now - last) / 1000);
   last = now;
   acc += dt * speed;
@@ -187,6 +189,7 @@ function frame(now: number) {
   while (acc >= STEP && steps++ < 1000) simulate(s, STEP), (acc -= STEP);
   if (steps >= 1000) acc = 0;
 
+  if (board.geometry !== s.geometry) return renderer.render(scene, camera); // mid-Projection swap
   const p = prod(s), g = graphOf(s);
   const key = s.geometry + s.tiles.join();
   if (key !== linkKey) {
@@ -205,7 +208,6 @@ function frame(now: number) {
   controls.update();
   renderer.render(scene, camera);
   if ((uiAcc += dt) > 0.1) (uiAcc = 0), ui.update();
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 

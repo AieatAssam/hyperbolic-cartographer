@@ -8,7 +8,7 @@ Hyperbolic Cartographer is an incremental game in the browser. You place tiles t
   - **Spring**: produces Ink.
   - **Mill**: produces Ink, +100% per adjacent Spring.
   - **Beacon**: adjacent tiles x1.5 (stacks multiplicatively).
-  - **Bridge**: connects across the board (reach is extended by Curvature upgrades).
+  - **Bridge**: its neighbours count as adjacent to each other (adjacency hops through it); Long Bridges extends the reach.
   - **Vault**: improves offline progress and adds a small global Ink bonus.
 - **Survey**: expands the board by one ring. Each ring costs more.
 - **Sell (S)**: removes a tile for a 50% refund.

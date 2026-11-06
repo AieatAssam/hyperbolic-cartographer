@@ -20,6 +20,10 @@ export class Pulses {
     this.points.frustumCulled = false;
   }
 
+  clear() {
+    this.from.fill(-1);
+  }
+
   /** links: [from, to] pairs worth animating; rate: how many spawns per second. */
   update(dt: number, tops: THREE.Vector3[], links: [number, number][], rate: number) {
     let spawn = links.length ? rate * dt : 0;
