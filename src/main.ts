@@ -8,7 +8,9 @@ import { applyOffline, simulate } from './core/tick';
 import { exportString, importSave, makeSave, toJson } from './core/save';
 import { TILE_INFO, TILE_TYPES } from './core/tiles';
 import { createScene } from './render/scene';
-import { Board } from './render/board';
+import { Board, DISK_R } from './render/board';
+import { cellCorners, circlePts, fitDistance, freeRect, shouldReframe, type Rect, type Role } from './render/framing';
+import type { SquareBoard } from './core/geometry/square';
 import { Pulses } from './render/fx';
 import { createUI, type Tool } from './ui/ui';
 import { fmt } from './ui/format';
@@ -38,15 +40,60 @@ const persist = () => store.set(KEY, exportString(makeSave(s, Date.now())));
 
 // ---- render ----
 const canvas = document.getElementById('c') as HTMLCanvasElement;
-const { renderer, scene, camera, controls } = createScene(canvas);
+const { scene, camera, controls, renderFrame, getQuality } = createScene(canvas);
 const pulses = new Pulses();
 scene.add(pulses.points);
 let board: Board;
 const tap = new TapController(); // tap/drag/pinch classification; holds the touch-previewed cell
+
+// ---- UI-aware framing: centre the board in the screen area not covered by HUD/panels/dock ----
+const POLAR = Math.atan2(11, 13); // default camera tilt from vertical
+const MARGIN = 12; // px kept clear around the board inside the free rect
+let free: Rect = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+let fitD = 0; // distance that fits the current footprint into `free` (0 = not yet framed)
+let layoutDirty = true;
+/** Board footprint on the ground: hyper = whole disk incl. slab/rim; square = active cells + next ring. */
+function footprint(): [number, number][] {
+  if (s.geometry === 'hyper') return circlePts(DISK_R + 0.6);
+  const g = graphOf(s) as SquareBoard;
+  return cellCorners(g.xy.filter((_, i) => g.ring[i] <= s.ring + 1));
+}
+const solveFit = () => fitDistance({ pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar: POLAR, margin: MARGIN });
+/** Reads overlay rects (only when dirty) and shifts the projection via setViewOffset so the target sits at the
+ *  free rect's centre. Raycasts stay exact: setFromCamera uses the offset projection and NDC spans the canvas.
+ *  If already framed, rescales the current orbit distance by the new/old fit ratio (keeps the user's angle). */
+function layoutView() {
+  layoutDirty = false;
+  const W = innerWidth, H = innerHeight;
+  const overlays = [...document.querySelectorAll<HTMLElement>('#ui .hud, #ui .panel, #ui .dock')].map((el) => ({
+    role: (el.classList.contains('hud') ? 'hud' : el.classList.contains('dock') ? 'dock' : 'panel') as Role,
+    rect: el.getBoundingClientRect(),
+  }));
+  free = freeRect(overlays, W, H);
+  camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);
+  camera.updateProjectionMatrix();
+  const d = solveFit();
+  if (fitD > 0) setDistance(camera.position.distanceTo(controls.target) * (d / fitD));
+  fitD = d;
+  controls.maxDistance = Math.max(40, d * 1.5);
+}
+const setDistance = (d: number) => {
+  const off = camera.position.clone().sub(controls.target);
+  camera.position.copy(controls.target).add(off.setLength(d));
+};
+addEventListener('resize', () => (layoutDirty = true));
+// panel toggles (display:none) and dock growth show up as size changes; no per-frame DOM reads
+const ro = new ResizeObserver(() => (layoutDirty = true));
+const observeUI = () => document.querySelectorAll('#ui .hud, #ui .panel, #ui .dock').forEach((el) => ro.observe(el));
+new MutationObserver(() => ((layoutDirty = true), observeUI())).observe(document.getElementById('ui')!, { childList: true });
+
+/** Full refit: default tilt, target at origin, distance solved from the footprint (initial UI, geometry, recenter). */
 const frameCamera = () => {
+  if (layoutDirty) layoutView();
   controls.target.set(0, 0, 0);
-  const k = s.geometry === 'hyper' ? 1.4 : 1;
-  camera.position.set(0, 13 * k, 11 * k);
+  fitD = solveFit();
+  controls.maxDistance = Math.max(40, fitD * 1.5);
+  camera.position.set(0, Math.cos(POLAR) * fitD, Math.sin(POLAR) * fitD);
 };
 function syncBoard() {
   if (board?.geometry === s.geometry) return;
@@ -139,6 +186,9 @@ const ui = createUI(document.getElementById('ui')!, {
   },
 });
 if (offline) ui.showOffline(offline);
+observeUI();
+layoutDirty = true;
+frameCamera(); // re-fit now that the UI exists
 
 // ---- input ----
 const ray = new THREE.Raycaster();
@@ -224,7 +274,7 @@ addEventListener('pagehide', persist);
 
 // ---- loop: fixed 10 Hz simulation, rAF rendering ----
 const STEP = 1 / config.tickRate;
-let acc = 0, last = performance.now(), uiAcc = 0, linkKey = '', links: [number, number][] = [];
+let acc = 0, last = performance.now(), uiAcc = 0, linkKey = '', links: [number, number][] = [], lastRing = s.ring;
 function frame(now: number) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.25, (now - last) / 1000);
@@ -234,7 +284,9 @@ function frame(now: number) {
   while (acc >= STEP && steps++ < 1000) simulate(s, STEP), (acc -= STEP);
   if (steps >= 1000) acc = 0;
 
-  if (board.geometry !== s.geometry) return renderer.render(scene, camera); // mid-Projection swap
+  if (s.ring !== lastRing) (lastRing = s.ring), (layoutDirty = true);
+  if (shouldReframe(layoutDirty, tap.selected)) layoutView(); // a previewed touch cell holds the board still
+  if (board.geometry !== s.geometry) return renderFrame(dt); // mid-Projection swap
   const p = prod(s), g = graphOf(s);
   const key = s.geometry + s.tiles.join();
   if (key !== linkKey) {
@@ -252,9 +304,9 @@ function frame(now: number) {
   board.update(s, p.perTile, focus, hoverAdj);
   pulses.update(dt, board.tops, links, Math.min(40, 2 + links.length * 0.4));
   controls.update();
-  renderer.render(scene, camera);
+  renderFrame(dt);
   if ((uiAcc += dt) > 0.1) (uiAcc = 0), ui.update();
 }
 requestAnimationFrame(frame);
 
-if (dev) Object.assign(window, { game: { get s() { return s; }, Decimal, TILE_TYPES } });
+if (dev) Object.assign(window, { game: { get s() { return s; }, Decimal, TILE_TYPES, renderQuality: getQuality } });

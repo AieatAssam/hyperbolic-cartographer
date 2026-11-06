@@ -182,7 +182,10 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     }
     n.append(TOOL_NAME[t]);
     const cost = el('span', 'cost');
-    b.append(el('span', 'key', key), n, cost);
+    // Letter hotkeys get a "Key X" label and their own class so they can't be mistaken for digit hotkeys (S reads like 5 in small monospace).
+    const isLetter = /^[a-z]$/i.test(key);
+    const badge = el('span', isLetter ? 'key letter' : 'key', isLetter ? `Key ${key.toUpperCase()}` : key);
+    b.append(badge, n, cost);
     b.onclick = () => {
       ctx.tool.current = t;
       update();
@@ -271,21 +274,29 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
 
   /** Help for the control under keyboard focus or the mouse, shown in the info card. */
   let helpFor: HTMLElement | null = null;
+  let hoverHelp = false; // helpFor came from mouse hover (not focus), so it must yield to touch previews
   const helpTarget = (e: Event) => (e.target as HTMLElement | null)?.closest?.('[data-help]') as HTMLElement | null;
   root.addEventListener('focusin', (e) => {
     const t = helpTarget(e);
-    if (t?.matches(':focus-visible')) (helpFor = t), update();
+    if (t?.matches(':focus-visible')) (helpFor = t), (hoverHelp = false), update();
   });
-  root.addEventListener('focusout', () => ((helpFor = null), update()));
-  root.addEventListener('pointerover', (e) => {
-    if (e.pointerType !== 'mouse') return;
-    const t = helpTarget(e);
-    if (t !== helpFor) (helpFor = t), update();
-  });
-  root.addEventListener('pointerout', (e) => {
-    if (e.pointerType !== 'mouse' || !helpFor) return;
-    const to = (e.relatedTarget as HTMLElement | null)?.closest?.('[data-help]');
-    if (!to || !root.contains(to)) (helpFor = null), update();
+  root.addEventListener('focusout', () => ((helpFor = null), (hoverHelp = false), update()));
+  // Hover help only on devices with a real hover pointer, so touch taps never see stale mouse tooltips.
+  if (typeof matchMedia === 'function' && matchMedia('(hover: hover)').matches) {
+    root.addEventListener('pointerover', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      const t = helpTarget(e);
+      if (t !== helpFor) (helpFor = t), (hoverHelp = true), update();
+    });
+    root.addEventListener('pointerout', (e) => {
+      if (e.pointerType !== 'mouse' || !helpFor) return;
+      const to = (e.relatedTarget as HTMLElement | null)?.closest?.('[data-help]');
+      if (!to || !root.contains(to)) (helpFor = null), (hoverHelp = false), update();
+    });
+  }
+  // Touch/pen input clears any hover-only help so the cell preview and Place controls take over.
+  root.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' && hoverHelp) (helpFor = null), (hoverHelp = false), update();
   });
 
   // ---- Modal ----
@@ -686,7 +697,8 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     // Info card: focused/hovered control help > touch cell preview > selected tool
     const sel = ctx.selected();
     const tl = ctx.tool.current;
-    if (helpFor?.isConnected) {
+    // A selected touch cell beats stale hover help; keyboard/focus help still wins.
+    if (helpFor?.isConnected && !(hoverHelp && sel >= 0)) {
       setInfo(`<b>${escape(helpFor.dataset.helpName ?? '')}</b> · ${escape(helpFor.dataset.help ?? '')}${helpFor.matches(':disabled') ? ' <span class="neg">(unavailable now; see the red note)</span>' : ''}`);
       infoActs.hidden = true;
     } else if (sel >= 0) {
