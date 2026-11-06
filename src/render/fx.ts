@@ -398,20 +398,3 @@ export class CartographyFX {
     this.dirtyMax = -1;
   }
 }
-
-/**
- * Temporary backwards-compatible wrapper for main.ts until the integration pass switches to CartographyFX.
- * `points` is the FX group (an Object3D), so `scene.add(pulses.points)` keeps working.
- */
-export class Pulses {
-  readonly fx = new CartographyFX(1);
-  get points(): THREE.Object3D {
-    return this.fx.group;
-  }
-  clear() {
-    this.fx.clear();
-  }
-  update(dt: number, tops: THREE.Vector3[], links: [number, number][], _rate?: number) {
-    this.fx.update(dt, { tops, links, tiles: [], quality: 1 });
-  }
-}
