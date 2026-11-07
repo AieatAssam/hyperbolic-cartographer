@@ -3,7 +3,7 @@ import type { GameState } from '../core/state';
 import type { SurfaceGraph } from '../core/geometry/quotient';
 import { type SurfacePreview } from '../core/state';
 import {
-  BOARD, EMPTY_SLOT, MATERIAL, NEXT_SLOT, PLACE, TILE_IDENTITIES, bevelColour, hoverFace, motifScale, sideColour,
+  BOARD, EMPTY_SLOT, MATERIAL, NEXT_SLOT, PLACE, TILE_IDENTITIES, bevelColour, hoverFace, lerpHex, motifScale, sideColour,
   tileHeight, trimGlow, SURFACE,
 } from '../art/palette';
 import { placeGlsl } from './transition';
@@ -42,7 +42,8 @@ const C = {
   slotBorder: col(EMPTY_SLOT.accent), slotSide: col(sideColour(EMPTY_SLOT.base)),
   next: col(NEXT_SLOT.base), nextBorder: col(NEXT_SLOT.border),
   white: col(BOARD.hover), adj: col(BOARD.adjacency), black: col(0),
-  seamA: col(SURFACE.seamA), seamB: col(SURFACE.seamB), ghost: col(SURFACE.ghost),
+  seamA: col(SURFACE.seamA), seamB: col(SURFACE.seamB), seamFlip: col(SURFACE.seamFlip),
+  ghost: col(SURFACE.ghost),
 };
 
 /** Manifold preview board (torus 3D / chart, Klein square, Klein immersion). */
@@ -68,6 +69,8 @@ export class SurfaceBoard {
   private ghostGroup = new THREE.Group();
   private skinGroup = new THREE.Group();
   private decoGroup = new THREE.Group();
+  private readonly tileMesh: THREE.Mesh;
+  private readonly uBackDim = { value: 1 };
   private readonly envMap: THREE.Texture | null;
 
   constructor(
@@ -96,12 +99,21 @@ export class SurfaceBoard {
     });
     mat.onBeforeCompile = (sh) => {
       sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', `#include <common>\nattribute float born;\nuniform float uFxClock;\n${placeGlsl()}`)
+        .replace('#include <common>', `#include <common>\nattribute float born;\nuniform float uFxClock;\nuniform float uBackDim;\n${placeGlsl()}`)
         .replace('#include <begin_vertex>', `#include <begin_vertex>\nfloat sqT = uFxClock - born;\nif (sqT >= 0.0 && sqT < ${PLACE.life.toFixed(2)}) transformed.y *= placeScale(sqT);`);
+      sh.fragmentShader = sh.fragmentShader.replace(
+        '#include <output_fragment>',
+        'if (!gl_FrontFacing) { diffuseColor.rgb *= uBackDim; }\n#include <output_fragment>',
+      );
       sh.uniforms.uFxClock = this.uClock;
+      sh.uniforms.uBackDim = this.uBackDim;
     };
     const mesh = new THREE.Mesh(this.geom, mat);
     mesh.frustumCulled = false;
+    mesh.name = 'surface-tiles';
+    this.tileMesh = mesh;
+    this.skinGroup.renderOrder = -10;
+    this.decoGroup.renderOrder = 4;
     this.group.add(this.skinGroup, mesh, this.decoGroup);
     this.motifs = {} as Record<TileType, THREE.InstancedMesh>;
     for (const t of TILE_TYPES) {
@@ -115,10 +127,12 @@ export class SurfaceBoard {
       );
       im.count = 0;
       im.frustumCulled = false;
+      im.renderOrder = 3;
       this.motifs[t] = im;
       this.group.add(im);
     }
     this.ghostGroup.name = 'seam-ghosts';
+    this.ghostGroup.renderOrder = 5;
     this.group.add(this.ghostGroup);
     this.syncEmbedding();
     this.rebuildMesh(graph, { tiles: graph.ring.map(() => null), ring: 99 });
@@ -145,11 +159,34 @@ export class SurfaceBoard {
     while (g.children.length) {
       const ch = g.children[0];
       g.remove(ch);
-      if (ch instanceof THREE.Mesh || ch instanceof THREE.Line) {
+      if (ch instanceof THREE.Group) {
+        this.clearGroup(ch);
+        continue;
+      }
+      if (ch instanceof THREE.Mesh || ch instanceof THREE.Line || ch instanceof THREE.InstancedMesh) {
         ch.geometry.dispose();
         const m = ch.material;
         (Array.isArray(m) ? m : [m]).forEach((x) => x.dispose());
       }
+    }
+  }
+
+  private kleinGlass() {
+    return this.surface === 'klein' && this.immersion3d;
+  }
+
+  private syncTilePresentation() {
+    const kleinGlass = this.kleinGlass();
+    const mat = this.tileMesh.material as THREE.MeshStandardMaterial;
+    mat.transparent = kleinGlass;
+    mat.opacity = kleinGlass ? config.manifold.kleinTileAlpha : 1;
+    mat.depthWrite = true;
+    this.uBackDim.value = kleinGlass ? config.manifold.kleinBackfaceDim : 1;
+    this.tileMesh.renderOrder = kleinGlass ? 2 : 0;
+    for (const t of TILE_TYPES) {
+      const im = this.motifs[t];
+      im.renderOrder = kleinGlass ? 3 : 0;
+      (im.material as THREE.MeshStandardMaterial).depthWrite = true;
     }
   }
 
@@ -163,6 +200,7 @@ export class SurfaceBoard {
       this.skinGroup.add(buildKleinImmersionSkin(g, this.envMap));
       this.skinGroup.add(buildSelfIntersectionLine());
     }
+    this.syncTilePresentation();
   }
 
   private syncDeco() {
@@ -239,6 +277,8 @@ export class SurfaceBoard {
       this.ghostGroup.remove(ch);
     }
     const embed = this.embed;
+    const kleinGlass = this.kleinGlass();
+    const manifold3d = !this.isChartFlat();
     const { c, side, border, glow, trim } = this;
     for (let i = 0; i < n; i++) {
       const o = this.tileCorners(i);
@@ -254,16 +294,33 @@ export class SurfaceBoard {
         side.copy(tk.side);
         border.copy(tk.bevel);
         glow.copy(tk.faceGlow);
-        trim.copy(tk.emissive).multiplyScalar(trimGlow(L));
+        if (manifold3d) glow.multiplyScalar(1.22);
+        const trimK = trimGlow(L) * (kleinGlass ? 1.55 : manifold3d ? 1.25 : 1);
+        trim.copy(tk.emissive).multiplyScalar(trimK);
+        if (manifold3d) {
+          border.copy(col(lerpHex(TILE_IDENTITIES[t].accent, SURFACE.skinGrid, kleinGlass ? 0.25 : 0.15)));
+          ins = 0.66;
+        }
       } else if (active || next) {
         h = active ? MATERIAL.slotHeight : MATERIAL.nextHeight;
-        const edge = active ? C.slotBorder : C.nextBorder, face = active ? C.slot : C.next;
+        let edge = active ? C.slotBorder : C.nextBorder;
+        let face = active ? C.slot : C.next;
+        if (kleinGlass && active) {
+          face = col(lerpHex(EMPTY_SLOT.base, SURFACE.skinInk, 0.38));
+          edge = col(lerpHex(EMPTY_SLOT.accent, SURFACE.skinGrid, 0.5));
+        } else if (manifold3d && active) {
+          edge = col(lerpHex(EMPTY_SLOT.accent, SURFACE.skinGrid, 0.28));
+        }
         c.copy(face);
-        side.copy(C.slotSide);
-        glow.copy(active ? C.slotGlow : C.black);
+        side.copy(kleinGlass && active ? col(sideColour(lerpHex(EMPTY_SLOT.base, SURFACE.skin, 0.2))) : C.slotSide);
+        glow.copy(active ? (kleinGlass ? col(lerpHex(EMPTY_SLOT.emissive, SURFACE.skinInk, 0.35)) : C.slotGlow) : C.black);
         border.copy(edge);
-        trim.copy(glow).multiplyScalar(EMPTY_SLOT.restTrim);
-        if (!active) ins = EMPTY_SLOT.restInset;
+        const trimMul = kleinGlass && active ? 0.55 : EMPTY_SLOT.restTrim;
+        trim.copy(glow).multiplyScalar(trimMul);
+        if (manifold3d && active) {
+          ins = kleinGlass ? 0.9 : 0.91;
+          if (!kleinGlass) trim.multiplyScalar(0.85);
+        } else if (!active) ins = EMPTY_SLOT.restInset;
       } else o.scale = 0;
       if (!this.isChartFlat()) h *= config.manifold.tileExtrude3d;
       h *= o.scale;
@@ -277,7 +334,7 @@ export class SurfaceBoard {
         const im = this.motifs[t];
         const bit = new THREE.Vector3().crossVectors(norm, o.t).normalize();
         this.m4.makeBasis(o.t, bit, norm);
-        const sc = 0.85 * motifScale(L);
+        const sc = 0.85 * motifScale(L) * (manifold3d ? 1.18 : 1);
         this.m4.setPosition(
           o.c.x + norm.x * h * 0.55,
           o.c.y + norm.y * h * 0.55,
@@ -305,6 +362,19 @@ export class SurfaceBoard {
         void ax; void ay;
         return k === (dx > 0 || dy > 0 ? 1 : 3) % 4 || k === (dx > 0 || dy > 0 ? 2 : 0);
       });
+      const seamBorderAt = (k: number) => {
+        for (const j of g.neighbours[i]) {
+          if (!g.seamEdge(i, j)) continue;
+          const [ax, ay] = g.xy[i], [bx, by] = g.xy[j];
+          const dx = bx - ax, dy = by - ay;
+          if (Math.abs(dx) > 1 && Math.abs(dy) > 1) continue;
+          const hit = k === (dx > 0 || dy > 0 ? 1 : 3) % 4 || k === (dx > 0 || dy > 0 ? 2 : 0);
+          if (!hit) continue;
+          if (g.flipEdge(i, j)) return C.seamFlip;
+          return dy !== 0 ? C.seamB : C.seamA;
+        }
+        return border;
+      };
       for (let k = 0; k < K; k++) {
         const p = hidden ? o.c : o.pts[k];
         const q = hidden ? o.c : o.pts[(k + 1) % K];
@@ -314,16 +384,18 @@ export class SurfaceBoard {
         const qBev = hidden ? topC : bevelPts[(k + 1) % K];
         const ax = insetAt(pTop), bx = insetAt(qTop);
         const seam = seamEdge(k);
-        const bord = seam ? (k % 2 === 0 ? C.seamA : C.seamB) : border;
+        const bord = seam ? seamBorderAt(k) : border;
+        const rimTrim = trim.clone();
+        if (seam) rimTrim.multiplyScalar(t ? 1.35 : 0.65);
         put(topC.x, topC.y, topC.z, c, glow);
         put(bx.x, bx.y, bx.z, c, glow);
         put(ax.x, ax.y, ax.z, c, glow);
-        put(ax.x, ax.y, ax.z, bord, trim);
-        put(bx.x, bx.y, bx.z, bord, trim);
-        put(qBev.x, qBev.y, qBev.z, bord, trim);
-        put(ax.x, ax.y, ax.z, bord, trim);
-        put(qBev.x, qBev.y, qBev.z, bord, trim);
-        put(pBev.x, pBev.y, pBev.z, bord, trim);
+        put(ax.x, ax.y, ax.z, bord, rimTrim);
+        put(bx.x, bx.y, bx.z, bord, rimTrim);
+        put(qBev.x, qBev.y, qBev.z, bord, rimTrim);
+        put(ax.x, ax.y, ax.z, bord, rimTrim);
+        put(qBev.x, qBev.y, qBev.z, bord, rimTrim);
+        put(pBev.x, pBev.y, pBev.z, bord, rimTrim);
         put(pBev.x, pBev.y, pBev.z, side, C.black);
         put(qBev.x, qBev.y, qBev.z, side, C.black);
         put(q.x, q.y, q.z, side, C.black);

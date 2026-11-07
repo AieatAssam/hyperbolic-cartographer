@@ -234,10 +234,15 @@ export const hoverFace = (base: number) => lerpHex(base, BOARD.hover, MATERIAL.h
 export const SURFACE = {
   seamA: 0xff6b9d,
   seamB: 0x5fd4ff,
+  /** Klein vertical flip pair (distinct from orientable seamA/B). */
+  seamFlip: 0xe8c872,
   ghost: 0x6a4e86,
   ghostAlpha: 0.28,
   edgeGhostAlpha: 0.35,
   portalGlow: 0xe8c872,
+  /** Klein self-intersection ring: emissive just under bloom threshold. */
+  seamGlow: 0xe8c872,
+  seamGlowEmissive: 1.38,
   dashPattern: [0.12, 0.08] as const,
   skin: 0x4a3568,
   skinInk: 0x8b6cc4,

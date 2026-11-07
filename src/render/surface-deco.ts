@@ -60,11 +60,12 @@ export function buildChartSeams(
   const midX = (left + right) / 2;
   arrowAt(box, new THREE.Vector3(midX - cell * 0.45, y, top + cell * 0.3), new THREE.Vector3(midX + cell * 0.45, y, top + cell * 0.3), SURFACE.seamB);
   const rev = flipVertical;
+  const flipCol = flipVertical ? SURFACE.seamFlip : SURFACE.seamB;
   arrowAt(
     box,
     new THREE.Vector3(midX + (rev ? -1 : 1) * cell * 0.45, y, bottom - cell * 0.3),
     new THREE.Vector3(midX + (rev ? 1 : -1) * cell * 0.45, y, bottom - cell * 0.3),
-    SURFACE.seamB,
+    flipCol,
   );
   return box;
 }

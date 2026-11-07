@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BOARD, SURFACE } from '../art/palette';
+import { hexToRgb, SURFACE } from '../art/palette';
 import { config } from '../core/config';
 import type { SurfaceGraph } from '../core/geometry/quotient';
 import { KLEIN_U_MAX, KLEIN_V_MAX, KLEIN_SELF_INTERSECT_U, kleinImmersionFrame } from './klein-bottle';
@@ -15,11 +15,13 @@ function skinTexture(uSeg: number, vSeg: number): THREE.CanvasTexture {
   cv.width = cv.height = N;
   const g = cv.getContext('2d')!;
   const grad = g.createRadialGradient(N / 2, N / 2, N * 0.08, N / 2, N / 2, N * 0.78);
-  grad.addColorStop(0, '#7a5a9a');
+  const ink = SURFACE.skinInk.toString(16).padStart(6, '0');
+  grad.addColorStop(0, `#${ink}`);
   grad.addColorStop(1, `#${SURFACE.skin.toString(16).padStart(6, '0')}`);
   g.fillStyle = grad;
   g.fillRect(0, 0, N, N);
-  g.strokeStyle = 'rgba(139,108,196,0.35)';
+  const [sir, sig, sib] = hexToRgb(SURFACE.skinInk).map((v) => Math.round(v * 255));
+  g.strokeStyle = `rgba(${sir},${sig},${sib},0.35)`;
   g.lineWidth = 1;
   const du = N / Math.max(1, uSeg), dv = N / Math.max(1, vSeg);
   for (let i = 0; i <= uSeg; i++) {
@@ -34,16 +36,16 @@ function skinTexture(uSeg: number, vSeg: number): THREE.CanvasTexture {
   return tex;
 }
 
-function skinMaterial(uSeg: number, vSeg: number, env: THREE.Texture | null, rim = false) {
+function skinMaterial(uSeg: number, vSeg: number, env: THREE.Texture | null, rim = false, opacity = config.manifold.skinAlpha) {
   const map = skinTexture(uSeg, vSeg);
-  const rimCol = col(0xc8b0e8);
+  const rimCol = col(SURFACE.skinInk).lerp(col(SURFACE.skin), 0.35);
   return new THREE.MeshStandardMaterial({
     map,
     color: col(SURFACE.skinInk),
     emissive: rim ? rimCol : col(0x000000),
     emissiveIntensity: rim ? config.manifold.skinRimEmissive : 0,
     transparent: true,
-    opacity: config.manifold.skinAlpha,
+    opacity,
     roughness: rim ? 0.72 : 0.88,
     metalness: rim ? 0.12 : 0.08,
     envMap: env,
@@ -82,9 +84,9 @@ function parametricMesh(
   geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geom.setIndex(idx);
   geom.computeVertexNormals();
-  const mesh = new THREE.Mesh(geom, skinMaterial(texW, texH, env, name === 'klein-skin'));
+  const mesh = new THREE.Mesh(geom, skinMaterial(texW, texH, env, name === 'klein-skin', config.manifold.skinAlpha));
   mesh.name = name;
-  mesh.renderOrder = -2;
+  mesh.renderOrder = -6;
   return mesh;
 }
 
@@ -121,9 +123,9 @@ function kleinParametricMesh(
   geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geom.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
   geom.setIndex(idx);
-  const mesh = new THREE.Mesh(geom, skinMaterial(texW, texH, env, true));
+  const mesh = new THREE.Mesh(geom, skinMaterial(texW, texH, env, true, config.manifold.kleinSkinAlpha));
   mesh.name = 'klein-skin';
-  mesh.renderOrder = -2;
+  mesh.renderOrder = -8;
   return mesh;
 }
 
@@ -137,27 +139,54 @@ export function buildKleinImmersionSkin(g: SurfaceGraph, env: THREE.Texture | nu
   );
 }
 
-export function buildSelfIntersectionLine(scale = KLEIN_SCALE()): THREE.Line {
-  const pts: number[] = [];
+export function buildSelfIntersectionLine(scale = KLEIN_SCALE()): THREE.Group {
+  const pts: THREE.Vector3[] = [];
   const n = 96;
   for (let i = 0; i <= n; i++) {
     const v = (i / n) * Math.PI * 2;
     const [x, y, z] = kleinImmersionPos(KLEIN_SELF_INTERSECT_U, v, scale);
-    pts.push(x, y, z);
+    pts.push(new THREE.Vector3(x, y, z));
   }
-  const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-  const mat = new THREE.LineDashedMaterial({
-    color: BOARD.gold,
+  const geom = new THREE.BufferGeometry().setFromPoints(pts);
+  const lineMat = new THREE.LineDashedMaterial({
+    color: col(SURFACE.seamGlow),
     transparent: true,
-    opacity: 0.45,
+    opacity: 0.82,
     dashSize: SURFACE.dashPattern[0],
     gapSize: SURFACE.dashPattern[1],
   });
-  const line = new THREE.Line(geom, mat);
+  const line = new THREE.Line(geom, lineMat);
   line.computeLineDistances();
   line.name = 'klein-self-intersection';
-  return line;
+  line.renderOrder = 7;
+
+  const beadGeo = new THREE.SphereGeometry(0.055, 6, 5);
+  const beadMat = new THREE.MeshStandardMaterial({
+    color: col(SURFACE.seamGlow),
+    emissive: col(SURFACE.seamGlow),
+    emissiveIntensity: SURFACE.seamGlowEmissive,
+    transparent: true,
+    opacity: 0.92,
+    depthWrite: false,
+    roughness: 0.35,
+    metalness: 0,
+  });
+  const step = 4;
+  const count = Math.ceil((n + 1) / step);
+  const beads = new THREE.InstancedMesh(beadGeo, beadMat, count);
+  const m = new THREE.Matrix4();
+  for (let b = 0, i = 0; i <= n; i += step, b++) {
+    m.makeTranslation(pts[i].x, pts[i].y, pts[i].z);
+    beads.setMatrixAt(b, m);
+  }
+  beads.count = count;
+  beads.name = 'klein-self-intersection-glow';
+  beads.renderOrder = 8;
+
+  const grp = new THREE.Group();
+  grp.name = 'klein-self-intersection';
+  grp.add(line, beads);
+  return grp;
 }
 
 export function buildTorusSeamRing(g: SurfaceGraph): THREE.Line {

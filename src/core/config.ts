@@ -49,6 +49,12 @@ export const config = {
     skinLift: 0.016,
     tileGap: 0.1,
     skinAlpha: 0.5,
+    /** Klein immersion glass skin (torus keeps skinAlpha). */
+    kleinSkinAlpha: 0.32,
+    /** Klein tiles over the glass (placed + empty patches). */
+    kleinTileAlpha: 0.95,
+    /** Back-facing patch faces seen through the glass. */
+    kleinBackfaceDim: 0.4,
     skinRimEmissive: 0.42,
     demoMillOut: 8,
     kleinImmersionScale: 2.8,

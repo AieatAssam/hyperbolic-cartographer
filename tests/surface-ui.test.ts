@@ -29,6 +29,7 @@ describe('surface chart and seam toggles', () => {
 describe('SURFACE palette tokens', () => {
   it('exposes seam colours and ghost alpha', () => {
     expect(SURFACE.seamA).toBeGreaterThan(0);
+    expect(SURFACE.seamFlip).not.toBe(SURFACE.seamA);
     expect(SURFACE.ghostAlpha).toBeGreaterThan(0);
     expect(SURFACE.ghostAlpha).toBeLessThan(1);
     expect(SURFACE.dashPattern.length).toBe(2);
