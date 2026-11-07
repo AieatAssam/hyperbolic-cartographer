@@ -97,8 +97,13 @@ export const isActive = (s: GameState, i: number) => graphOf(s).ring[i] <= s.rin
 export function place(s: GameState, i: number, t: TileType): boolean {
   const cost = tileCost(s, t);
   if (!isActive(s, i) || s.tiles[i] || s.ink.lt(cost)) return false;
+  const first = owned(s, t) === 0;
   s.ink = s.ink.sub(cost);
   s.tiles[i] = t;
+  if (first && t === 'mill' && config.rewards?.firstMillInk)
+    s.ink = s.ink.add(config.rewards.firstMillInk);
+  if (first && t === 'bridge' && config.rewards?.firstBridgeInk)
+    s.ink = s.ink.add(config.rewards.firstBridgeInk);
   return true;
 }
 

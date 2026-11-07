@@ -354,6 +354,17 @@ ul.reset li::before {
 }
 .dev.hidden { display: none; }
 
+/* Floating +Ink/s on bridge placement preview (screen space, not DOM tooltip). */
+.board-gain-label {
+  position: fixed; z-index: 42; pointer-events: none; transform: translate(-50%, -50%);
+  padding: 4px 10px; border-radius: 10px; font-size: 14px; font-weight: 700;
+  font-variant-numeric: tabular-nums; color: var(--gold);
+  background: rgba(8, 12, 22, 0.82); border: 1px solid var(--gold);
+  box-shadow: 0 0 14px rgba(232, 200, 114, 0.45);
+  transition: opacity 0.15s ease;
+}
+.board-gain-label.hidden { display: none; }
+
 /* Toast: centred, around 40% from top, never blocks input */
 .toast {
   position: fixed; z-index: 40; top: 40%; left: 50%; transform: translate(-50%, -50%);

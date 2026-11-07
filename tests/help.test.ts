@@ -129,8 +129,7 @@ describe('disabled reasons', () => {
     const s = initialState();
     s.ink = new Decimal(10);
     const i = emptyActive(s);
-    // Mill costs 100, so 90 more Ink are needed.
-    expect(placeBlocked(s, i, 'mill')).toBe('Need 90 more Ink');
+    expect(placeBlocked(s, i, 'mill')).toBe(`Need ${config.tiles.mill.cost - 10} more Ink`);
   });
 
   it('place: ok case', () => {

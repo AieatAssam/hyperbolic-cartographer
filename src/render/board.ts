@@ -337,11 +337,12 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         trim.copy(tk.emissive).multiplyScalar(i === hover ? MATERIAL.hoverTrim : trimGlow(L));
         if (hl?.lit && hl.dim && hl.dim > 0 && !hl.lit.includes(i)) {
           const d = PREVIEW.inspectDim * hl.dim;
-          c.lerp(C.dim, d);
-          side.lerp(C.dim, d * 0.88);
-          border.lerp(C.dim, d * 0.72);
-          trim.lerp(C.dim, d * 0.78);
-          glow.multiplyScalar(1 - 0.88 * hl.dim);
+          const sat = 1 - PREVIEW.inspectSatMul * hl.dim;
+          c.lerp(C.dim, d).multiplyScalar(sat);
+          side.lerp(C.dim, d * 0.88).multiplyScalar(sat);
+          border.lerp(C.dim, d * 0.72).multiplyScalar(sat);
+          trim.lerp(C.dim, d * 0.78).multiplyScalar(sat);
+          glow.multiplyScalar(1 - 0.92 * hl.dim);
         }
       } else if (active || next) {
         h = active ? MATERIAL.slotHeight : MATERIAL.nextHeight;
@@ -360,11 +361,12 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         if (i === hover) c.lerp(C.white, MATERIAL.hoverLerp), border.copy(C.adj), trim.copy(C.adj).multiplyScalar(0.25);
         if (hl?.lit && hl.dim && hl.dim > 0 && !hl.lit.includes(i)) {
           const d = PREVIEW.inspectDim * hl.dim;
-          c.lerp(C.dim, d);
-          side.lerp(C.dim, d * 0.85);
-          border.lerp(C.dim, d * 0.65);
-          trim.lerp(C.dim, d * 0.7);
-          glow.multiplyScalar(1 - 0.75 * hl.dim);
+          const sat = 1 - PREVIEW.inspectSatMul * hl.dim;
+          c.lerp(C.dim, d).multiplyScalar(sat);
+          side.lerp(C.dim, d * 0.85).multiplyScalar(sat);
+          border.lerp(C.dim, d * 0.65).multiplyScalar(sat);
+          trim.lerp(C.dim, d * 0.7).multiplyScalar(sat);
+          glow.multiplyScalar(1 - 0.82 * hl.dim);
         }
       } else o.scale = 0;
       if (nearBridge) {

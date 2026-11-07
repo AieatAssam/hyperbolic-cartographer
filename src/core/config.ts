@@ -2,20 +2,22 @@
 export const config = {
   tickRate: 10,
   tiles: {
-    spring: { cost: 10, out: 1 },
-    mill: { cost: 100, out: 9, perSpring: 1 },
+    spring: { cost: 10, out: 1.15 },
+    mill: { cost: 85, out: 9, perSpring: 1 },
     beacon: { cost: 1000, mult: 1.5 },
     bridge: { cost: 5000 },
     vault: { cost: 25000, offline: 0.1, global: 0.02 },
   },
-  costGrowth: 1.15,
+  costGrowth: 1.12,
   sellRefund: 0.5,
   square: { startRing: 1, maxRing: 5, surveyBase: 50, surveyGrowth: 6 },
   hyper: { startRing: 2, maxRing: 3, surveyBase: 2e5, surveyGrowth: 12 },
-  drift: { minInk: 1e6, divisor: 2.5e5, exponent: 0.5 },
+  drift: { minInk: 2.65e5, divisor: 2.5e5, exponent: 0.5 },
   projection: { minCharts: 25 },
   offline: { baseEff: 0.5, capHours: 8 },
-  startInk: 10,
+  startInk: 22,
+  /** One-time run rewards (first placement of each kind). */
+  rewards: { firstMillInk: 35, firstBridgeInk: 120 },
   ui: { inspectFadeMs: 300 },
   autoSpringInterval: 1, // seconds between auto-placed Springs
   /** Manifold preview (Layer 3): grid sizes, framing, skin. */

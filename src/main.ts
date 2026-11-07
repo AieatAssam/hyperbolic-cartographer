@@ -306,9 +306,12 @@ function applyTool(i: number): boolean {
   }
   const why = placeBlocked(s, i, tl);
   if (why) return ui.toast(why), false;
+  const delta = tl === 'sell' || tl === 'pin' ? 0 : previewDelta(s, i, tl);
   if (tl === 'sell') return sell(s, i);
   if (tl === 'pin') return togglePin(s, i);
-  return place(s, i, tl);
+  if (!place(s, i, tl)) return false;
+  if (delta >= 4) ui.toast(delta >= 25 ? `Network linked! +${fmt(delta, s.notation)} Ink/s` : `+${fmt(delta, s.notation)} Ink/s`);
+  return true;
 }
 const ui = createUI(document.getElementById('ui')!, {
   state: () => s,
@@ -317,6 +320,21 @@ const ui = createUI(document.getElementById('ui')!, {
   selected: () => tap.selected,
   inspectCell: () => inspectCell,
   cellInfo: (i) => cellHtml(i),
+  cellScreenPos: (i) => {
+    if (i < 0 || isSurfaceBoard(board)) return null;
+    const { c } = board.cellWorld(i);
+    const v = new THREE.Vector3(c[0], 0.6, c[1]).project(camera);
+    const W = innerWidth;
+    const H = innerHeight;
+    if (v.z > 1) return null;
+    return { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H };
+  },
+  bridgePreviewDelta: () => {
+    const i = tap.selected >= 0 ? tap.selected : qaHover >= 0 ? qaHover : hover;
+    if (i < 0 || tool.current !== 'bridge' || s.tiles[i]) return null;
+    const d = previewDelta(s, i, 'bridge');
+    return d > 0 ? d : null;
+  },
   tutorial: { load: () => store.get(TUTORIAL_KEY), save: (v) => store.set(TUTORIAL_KEY, v) },
   act: {
     confirmPlace: () => {

@@ -29,6 +29,8 @@ export interface UICtx {
   /** Inspected tile (tap-to-inspect), or -1. Hides tutorial dock card while set so the board stays clear. */
   inspectCell(): number;
   cellInfo(i: number): string; // HTML describing cell i for the current tool (cost, Ink/s delta, blocked reason)
+  cellScreenPos?(i: number): { x: number; y: number } | null;
+  bridgePreviewDelta?(): number | null;
   tutorial: { load(): string | null; save(v: string): void }; // stored apart from the game save
   act: {
     survey(): void; drift(): void; project(): void;
@@ -855,6 +857,8 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     tip.style.left = `${Math.max(8, Math.min(x + 14, window.innerWidth - w - 8))}px`;
     tip.style.top = `${Math.max(8, Math.min(y + 14, window.innerHeight - h - 8))}px`;
   };
+  const boardGain = el('div', 'board-gain-label hidden');
+  boardGain.setAttribute('aria-hidden', 'true');
   const toastEl = el('div', 'toast');
   toastEl.setAttribute('role', 'status');
   let toastTimer = 0;
@@ -972,6 +976,15 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       );
       infoActs.hidden = true;
     }
+    const previewInk = ctx.bridgePreviewDelta?.() ?? null;
+    const pos = sel >= 0 ? ctx.cellScreenPos?.(sel) ?? null : null;
+    const surf = ctx.act.manifoldPreview?.();
+    if (previewInk != null && pos && (!surf || surf === 'off')) {
+      boardGain.textContent = `+${fmt(previewInk, s.notation)} Ink/s`;
+      boardGain.style.left = `${Math.round(pos.x)}px`;
+      boardGain.style.top = `${Math.round(pos.y - 28)}px`;
+      boardGain.classList.remove('hidden');
+    } else boardGain.classList.add('hidden');
   }
 
   function update() {
@@ -1063,7 +1076,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   });
 
   // ---- Mount ----
-  root.append(topbar, panel, dock, palette, manifoldBar, tip, toastEl, dev, backdrop);
+  root.append(topbar, panel, dock, palette, manifoldBar, tip, boardGain, toastEl, dev, backdrop);
   update();
   return {
     update, tooltip, showOffline, toast, flash, bumpInk, setTransition, setManifoldPreview,

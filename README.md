@@ -155,7 +155,8 @@ Changes from the original brief (all in `src/core/config.ts`; formulas unchanged
 - Charts on Drift = floor((runInk / 2.5e5)^0.5) instead of /1e6 (Drift still unlocks at 1e6 Ink); otherwise Projection took > 2 h.
 - Hyperbolic survey: base 2e5, growth 12^ring; board starts at radius 2, base max radius 3, +1 via the "Deeper Horizon" Curvature upgrade (radius 4 = 232 tiles).
 - Offline base efficiency 50% (unspecified in brief).
-- Bot results with these numbers: Drift available ~11 min (bot drifts at ~14), Projection ~71 min, hyperbolic board fully built ~95 min (~24 min of hyperbolic play).
+- 2026-11 balance pass: `startInk` 22, `costGrowth` 1.12, Mill cost 85, Spring out 1.15, Drift at 2.65e5 Ink, first Mill/Bridge Ink rewards (`npm run sim-economy` for casual/greedy milestones).
+- Bot results with these numbers: casual first Drift ~11 min (greedy ~8); Projection pacing unchanged from prior bot notes.
 - Manifold preview grids (visual only, not economy): torus **16×8**, Klein **8×8**; framing/spin/demo pulse rates in `config.manifold`.
 
 ## Credits and related works
