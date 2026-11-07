@@ -68,20 +68,33 @@ input[type=checkbox] {
   inline-size: 22px; block-size: 22px; flex: 0 0 auto; margin: 0; accent-color: var(--gold);
 }
 
+:root {
+  --control-h: 44px;
+  --control-r: 10px;
+  --control-gap: 6px;
+  --hud-pad-y: 8px;
+  --hud-pad-x: 12px;
+}
+
 /* Topbar: HUD + top actions */
 .topbar {
   grid-area: top; justify-self: center; width: 100%; max-width: 920px; min-width: 0;
-  display: flex; align-items: flex-start; gap: 8px;
+  display: flex; align-items: center; gap: var(--control-gap);
 }
 
 /* HUD */
 .hud {
   flex: 1 1 0; min-width: 0;
-  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 18px;
-  padding: 8px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--glass);
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--control-gap) 14px;
+  padding: var(--hud-pad-y) var(--hud-pad-x); border: 1px solid var(--line); border-radius: 14px; background: var(--glass);
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }
-.stat { display: flex; flex-direction: column; align-items: center; min-width: 64px; }
+.stat {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-width: 64px; min-height: var(--control-h);
+}
+.stat .label { font-size: 10px; line-height: 1.1; }
+.stat .value { font-size: 15px; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .goals { flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .goal { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 13px; min-width: 0; }
 .goal .label { flex: 0 0 auto; }
@@ -102,22 +115,44 @@ input[type=checkbox] {
   transition: width 0.4s ease;
 }
 
-.top-actions { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; }
+.top-actions { flex: 0 0 auto; display: flex; flex-direction: column; align-items: stretch; gap: var(--control-gap); }
 /* HUD expand/collapse control: shown only in the phone portrait block below */
 button.hud-toggle { display: none; }
-button.guide-btn, button.panel-toggle { min-width: 44px; min-height: 44px; padding: 6px 10px; background: var(--glass); }
-button.guide-btn.attention { position: relative; }
-button.guide-btn.attention::after {
+button.guide-btn, button.panel-toggle {
+  min-width: var(--control-h); min-height: var(--control-h); padding: 6px 10px;
+  background: var(--glass); border-radius: var(--control-r);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+button.guide-btn.attention, button.panel-toggle.attention { position: relative; }
+button.guide-btn.attention::after, button.panel-toggle.attention::after {
   content: ''; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px;
   border-radius: 50%; background: var(--gold); box-shadow: 0 0 6px rgba(232, 200, 114, 0.8);
 }
+button.panel-toggle.attention-pulse { animation: menu-pulse-once 1.4s ease-out 1; }
+@keyframes menu-pulse-once {
+  0% { box-shadow: 0 0 0 0 rgba(232, 200, 114, 0.55); }
+  70% { box-shadow: 0 0 0 10px rgba(232, 200, 114, 0); }
+  100% { box-shadow: none; }
+}
+.tab.tab-attention { box-shadow: inset 0 -2px 0 var(--gold); }
 
 /* Palette (bottom grid row) */
 .palette {
   grid-area: pal; justify-self: center; align-self: end; width: 100%; max-width: 720px; min-width: 0;
-  display: flex; gap: 8px; padding: 6px 8px; overflow-x: auto; overflow-y: hidden;
+  display: flex; gap: 8px; padding: 6px 12px 6px 8px; overflow-x: auto; overflow-y: hidden;
   scrollbar-width: thin; border: 1px solid var(--line); border-radius: 14px;
   background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  position: relative;
+  mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 22px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 22px), transparent 100%);
+  scroll-padding-right: 18px;
+}
+.palette:not(.scrolled) .palette-scroll-hint { opacity: 1; }
+.palette.scrolled .palette-scroll-hint { opacity: 0; pointer-events: none; }
+.palette-scroll-hint {
+  position: sticky; right: 0; align-self: center; margin-left: -6px; padding-left: 4px;
+  font-size: 18px; line-height: 1; color: var(--muted); opacity: 0; transition: opacity 0.25s ease;
+  pointer-events: none;
 }
 button.tool {
   position: relative; flex: 0 0 auto; display: flex; flex-direction: column;
@@ -146,6 +181,7 @@ button.tool:disabled { opacity: 0.55; }
 @media (prefers-reduced-motion: reduce) {
   .tool.hint { animation: none; }
   .fill { transition: none; }
+  button.panel-toggle.attention-pulse { animation: none; }
 }
 .ctl { margin-bottom: 8px; }
 .ctl .help { margin: 4px 0 0; }
@@ -346,7 +382,17 @@ ul.reset li::before {
     padding: 0; font-size: 15px;
   }
   .hud:not(.hud-open) { flex-wrap: nowrap; align-items: center; gap: 6px; padding: 4px 8px; }
-  .hud:not(.hud-open) .stat { min-width: 0; }
+  .hud:not(.hud-open) .stat {
+    flex-direction: row; flex-wrap: nowrap; align-items: baseline; column-gap: 3px;
+    min-width: 0; min-height: var(--control-h); max-height: var(--control-h); justify-content: center;
+  }
+  .hud:not(.hud-open) .stat .label { font-size: 9px; line-height: 1; }
+  .hud:not(.hud-open) .stat .value { font-size: 13px; line-height: 1.1; }
+  .hud:not(.hud-open) .stat .muted { display: none; }
+  .topbar button.guide-btn, .topbar button.panel-toggle, .hud:not(.hud-open) .stat,
+  .hud:not(.hud-open) .goal, .hud:not(.hud-open) button.hud-toggle {
+    height: var(--control-h); max-height: var(--control-h); box-sizing: border-box;
+  }
   .hud:not(.hud-open) .hud-detail,
   .hud:not(.hud-open) .explain,
   .hud:not(.hud-open) .next,
@@ -355,8 +401,8 @@ ul.reset li::before {
   .hud:not(.hud-open) .goals { flex: 1 1 0; min-width: 0; flex-direction: row; gap: 0; }
   /* The goal is one chip: its progress bar fills it behind the name or glyph; full text is in the expanded HUD */
   .hud:not(.hud-open) .goal {
-    position: relative; flex: 1 1 0; min-width: 0; height: 32px; padding: 0 8px;
-    flex-wrap: nowrap; overflow: hidden; font-size: 12px; border-radius: 8px;
+    position: relative; flex: 1 1 0; min-width: 0; height: var(--control-h); padding: 0 8px;
+    flex-wrap: nowrap; overflow: hidden; font-size: 12px; border-radius: var(--control-r);
     container: goal / inline-size;
   }
   .hud:not(.hud-open) .goal .bar {

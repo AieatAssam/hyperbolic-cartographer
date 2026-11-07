@@ -3,6 +3,8 @@ import Decimal from 'break_eternity.js';
 import { config } from './core/config';
 import { initialState, graphOf, GRAPHS, SURFACE_GRAPHS, type GameState, type SurfacePreview } from './core/state';
 import { adjacency, buyChartUpg, buyCurvUpg, isActive, maxRing, mods, place, prod, previewDelta, sell, sellValue, survey, tileCost, togglePin } from './core/economy';
+import { placementImpactState, tileInfluenceState } from './core/placement-impact';
+import type { TileGraph } from './core/geometry/graph';
 import { canDrift, canProject, drift, project } from './core/prestige';
 import { applyOffline, simulate } from './core/tick';
 import { exportString, importSave, makeSave, toJson } from './core/save';
@@ -10,7 +12,6 @@ import { TILE_INFO, TILE_TYPES, type TileType } from './core/tiles';
 import { createScene, type QualityLevel } from './render/scene';
 import { Board, DISK_R } from './render/board';
 import { SurfaceBoard } from './render/surface-board';
-import type { TileGraph } from './core/geometry/graph';
 import { cellCorners, circlePts, fitDistance, freeRect, shouldReframe, type Rect, type Role } from './render/framing';
 import {
   fitManifoldProjected, checkManifoldProjectFit, kleinImmersionTargetY,
@@ -19,6 +20,7 @@ import { kleinCameraOffset } from './render/surface-params';
 import type { SquareBoard } from './core/geometry/square';
 import { CartographyFX, type FxContext, type FxQuality } from './render/fx';
 import { analyseCanvasPixels } from './render/canvas-check';
+import type { BoardHighlight } from './render/board-highlight';
 import { productionRoutes, revealSpans, surveyWave, type Route } from './render/fx-graph';
 import { budgetFor } from './render/fx-model';
 import { TRANSITION_S, transitionPhase } from './render/transition';
@@ -216,6 +218,25 @@ function seedManifoldDemo(which: 'torus' | 'klein') {
     }
   }
 }
+/** Keeps ?surface= in sync without a document navigation (layout QA clicks must not wait on load). */
+function replaceSurfaceQuery(which: SurfacePreview) {
+  const params = new URLSearchParams(location.search);
+  if (which === 'off') params.delete('surface');
+  else params.set('surface', which);
+  const q = params.toString();
+  const next = `${location.pathname}${q ? `?${q}` : ''}${location.hash}`;
+  const cur = `${location.pathname}${location.search}${location.hash}`;
+  if (next !== cur) history.replaceState(history.state, '', next);
+}
+function scheduleKleinImmersionReadyMark() {
+  if (!qa) return;
+  renderFrame(0);
+  requestAnimationFrame(() => {
+    renderFrame(0);
+    const on = isSurfaceBoard(board) && board.surface === 'klein' && board.immersion3d;
+    document.documentElement.dataset.qaKleinImmersionReady = on ? '1' : '0';
+  });
+}
 function enterManifoldPreview(which: 'torus' | 'klein') {
   manifoldPreview = which;
   seedManifoldDemo(which);
@@ -231,6 +252,8 @@ function enterManifoldPreview(which: 'torus' | 'klein') {
   layoutDirty = true;
   applyManifoldCamera();
   if (isSurfaceBoard(board)) board.update(renderState(), [], -1, []);
+  replaceSurfaceQuery(which);
+  if (which === 'klein') scheduleKleinImmersionReadyMark();
 }
 function exitManifoldPreview() {
   manifoldPreview = 'off';
@@ -243,6 +266,8 @@ function exitManifoldPreview() {
   ui.setManifoldPreview(false);
   layoutDirty = true;
   frameCamera();
+  replaceSurfaceQuery('off');
+  if (qa) delete document.documentElement.dataset.qaKleinImmersionReady;
 }
 /** `full` (imports, resets) kills every FX instance; the transition swap passes false and calls fx.clearAnchored itself. */
 function syncBoard(full = true) {
@@ -355,6 +380,8 @@ const ui = createUI(document.getElementById('ui')!, {
       manifoldSpinOn = board.immersion3d;
       layoutDirty = true;
       applyManifoldCamera();
+      ui.update();
+      scheduleKleinImmersionReadyMark();
     },
     switchManifold: (which: 'torus' | 'klein') => enterManifoldPreview(which),
     manifoldPreview: () => manifoldPreview,
@@ -485,6 +512,35 @@ const worldAt = (x: number, y: number) => {
 };
 let hover = -1; // mouse hover only; touch uses tap.selected
 let panFrom: THREE.Vector3 | null = null; // hyperbolic one-pointer pan anchor
+const PLACE_TOOLS = new Set<TileType>(['spring', 'mill', 'beacon', 'bridge', 'vault']);
+const isPlaceTool = (t: Tool): t is TileType => PLACE_TOOLS.has(t as TileType);
+let inspectCell = -1;
+let inspectBlend = 0;
+let inspectTarget = 0;
+let bridgePulse = 0;
+
+function bridgeArcEnds(g: TileGraph, tiles: (TileType | null)[], i: number): [number, number] | null {
+  const nb = g.neighbours[i];
+  if (nb.length < 2) return null;
+  const occ = nb.filter((n) => tiles[n]);
+  if (occ.length >= 2) return [occ[0], occ[1]];
+  return [nb[0], nb[1]];
+}
+
+function tryInspect(cell: number): boolean {
+  if (cell < 0 || !s.tiles[cell]) return false;
+  if (tool.current === 'sell' || tool.current === 'pin') return false;
+  if (inspectCell === cell) {
+    inspectCell = -1;
+    inspectTarget = 0;
+  } else {
+    inspectCell = cell;
+    inspectTarget = 1;
+    tap.clearSelection();
+    hover = -1;
+  }
+  return true;
+}
 
 /** Cell description for the hover tooltip (mouse) and the preview card (touch). */
 function cellHtml(i: number): string {
@@ -497,13 +553,18 @@ function cellHtml(i: number): string {
   if (!t) {
     if (tl === 'sell' || tl === 'pin') return `<span class="muted">Empty cell · ${nb} neighbours</span>${whyHtml}`;
     const cost = tileCost(s, tl);
-    return `<b>Place ${TILE_INFO[tl].name}</b> · ${fmt(cost, s.notation)} Ink · ${nb} neighbours<br>${delta(previewDelta(s, i, tl))}${whyHtml}`;
+    let extra = '';
+    if (tl === 'bridge') {
+      const d = previewDelta(s, i, 'bridge');
+      if (d > 0) extra = `<br><span class="pos">+${fmt(d, s.notation)} Ink/s via new links</span>`;
+    }
+    return `<b>Place ${TILE_INFO[tl].name}</b> · ${fmt(cost, s.notation)} Ink · ${nb} neighbours<br>${delta(previewDelta(s, i, tl))}${extra}${whyHtml}`;
   }
   const out = prod(s).perTile[i];
   let html = `<b>${TILE_INFO[t].name}</b>${s.pinned.includes(i) ? ' · 📌 pinned' : ''}<br><span class="muted">${out ? `${fmt(out, s.notation)} Ink/s` : TILE_INFO[t].desc}</span>`;
   if (tl === 'sell') html += `<br>Sell for ${fmt(sellValue(s, t), s.notation)} · ${delta(previewDelta(s, i, null))}`;
   else if (tl === 'pin') html += `<br>${s.pinned.includes(i) ? 'Unpin' : 'Pin'}: pinned tiles are kept through Drift`;
-  else return `${html}<br><span class="muted">Occupied: pick Sell (S) to remove it</span>`;
+  else return `${html}<br><span class="muted">Tap again to inspect · Sell (S) to remove</span>`;
   return html + whyHtml;
 }
 
@@ -531,6 +592,14 @@ addEventListener('pointerup', (e) => {
   const touch = e.pointerType !== 'mouse';
   const a = tap.up(e.pointerId, pickAt(e.clientX, e.clientY));
   endPointer();
+  if (a.kind === 'deselect') {
+    inspectCell = -1;
+    inspectTarget = 0;
+  }
+  if ((a.kind === 'apply' || a.kind === 'select') && tryInspect(a.cell)) {
+    ui.update();
+    return;
+  }
   if (a.kind === 'apply' && !applyTool(a.cell) && touch) tap.selected = a.cell; // keep the preview so the reason stays visible
   if (a.kind !== 'none') ui.update();
 });
@@ -578,12 +647,35 @@ function frame(now: number) {
   const tiles = rs.tiles;
   const rKey = `${manifoldPreview}|${s.geometry}|${rs.ring}|${reach}|${tiles.join()}`;
   if (rKey !== routeKey) (routeKey = rKey), (routes = productionRoutes(g, tiles, reach));
-  const focus = hover >= 0 ? hover : tap.selected;
-  const hoverAdj = focus >= 0 ? (tiles[focus] ? adjacency(g, tiles, focus, reach) : g.neighbours[focus]) : [];
+  const reduceMotion = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const fadeStep = reduceMotion ? 1 : Math.min(1, dt * 1000 / config.ui.inspectFadeMs);
+  inspectBlend += (inspectTarget - inspectBlend) * fadeStep;
+  if (inspectTarget === 0 && inspectBlend < 0.02) inspectBlend = 0;
+  bridgePulse = (bridgePulse + dt * 0.65) % 1;
+
+  const focus = inspectCell >= 0 ? inspectCell : hover >= 0 ? hover : tap.selected;
+  let hoverAdj: number[] = [];
+  const hl: BoardHighlight = {};
+  if (inspectCell >= 0 && inspectBlend > 0) {
+    hl.lit = tileInfluenceState(s, inspectCell);
+    hl.dim = inspectBlend;
+  } else if (focus >= 0 && !tiles[focus] && isPlaceTool(tool.current)) {
+    const imp = placementImpactState(s, focus, tool.current);
+    hoverAdj = imp.direct;
+    hl.direct = imp.direct;
+    hl.bridge = imp.viaBridge;
+    hl.pulse = bridgePulse;
+    if (tool.current === 'bridge') {
+      const arc = bridgeArcEnds(g, tiles, focus);
+      if (arc) hl.arc = arc;
+    }
+  } else if (focus >= 0) {
+    hoverAdj = tiles[focus] ? adjacency(g, tiles, focus, reach) : g.neighbours[focus];
+  }
   const perTile = manifoldTiles
     ? tiles.map((t) => (t === 'mill' ? config.manifold.demoMillOut : t === 'spring' ? 1 : 0))
     : p.perTile;
-  board.update(rs, perTile, focus, hoverAdj);
+  board.update(rs, perTile, focus, hoverAdj, hl);
   // prepare binds the new board's embedding before any spawn; update then advances time once
   const ctx = fxContext(perTile, routes);
   fx.prepare(ctx);
@@ -753,6 +845,23 @@ if (dev) {
         if (which === 'off') exitManifoldPreview();
         else enterManifoldPreview(which);
         ui.update();
+      },
+      enterKleinImmersion: async () => {
+        if (manifoldPreview !== 'klein') enterManifoldPreview('klein');
+        if (!isSurfaceBoard(board) || board.surface !== 'klein') return { ok: false, reason: 'not-klein' };
+        if (!board.immersion3d) {
+          board.immersion3d = true;
+          board.invalidate();
+          manifoldSpinOn = true;
+          layoutDirty = true;
+          applyManifoldCamera();
+          ui.update();
+        }
+        renderFrame(0);
+        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+        renderFrame(0);
+        if (qa) document.documentElement.dataset.qaKleinImmersionReady = '1';
+        return { ok: board.immersion3d, immersion3d: board.immersion3d };
       },
       manifoldProjectFit: () => {
         if (!isSurfaceBoard(board) || board.isChartFlat()) return { ok: false, failures: ['not-3d'], fill: 0 };

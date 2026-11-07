@@ -60,6 +60,21 @@ async function need(page, qaName) {
   return null;
 }
 
+/** Playwright's default click waits for navigation; manifold toggles only repaint. */
+async function clickQaButtonNoNav(page, qaId) {
+  const loc = page.locator(`[data-qa="${qaId}"]`).first();
+  await loc.waitFor({ state: 'visible', timeout: 8000 });
+  await loc.click({ noWaitAfter: true });
+}
+
+async function waitKleinImmersionReady(page) {
+  await page.waitForFunction(
+    () => document.documentElement.dataset.qaKleinImmersionReady === '1',
+    undefined,
+    { timeout: 12000 },
+  );
+}
+
 async function modalButton(page, re) {
   const loc = page.locator(`${MODAL} button, ${MODAL} [role="button"]`).filter({ hasText: re });
   if ((await loc.count()) === 0) return `no button matching ${re} inside modal`;
@@ -412,6 +427,41 @@ function boardBand() {
 }
 
 // Runs in the page. HUD state read for the collapsed/expanded cases (no mutation).
+function topbarControlRhythm() {
+  const pick = (sel) => {
+    const el = document.querySelector(sel);
+    if (!el || !el.offsetParent) return null;
+    const r = el.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return null;
+    return { el, r };
+  };
+  const buttons = [pick('button.guide-btn'), pick('button.panel-toggle'), pick('[data-qa="hud-toggle"]')].filter(Boolean);
+  const stats = [pick('.hud > .stat'), pick('.hud > .stat + .stat')].filter(Boolean);
+  const chip = pick('.hud:not(.hud-open) .goal');
+  const out = [];
+  if (buttons.length >= 2) {
+    const bh = buttons.map((x) => x.r.height);
+    if (Math.max(...bh) - Math.min(...bh) > 2.5) {
+      out.push(`topbar action buttons height delta ${(Math.max(...bh) - Math.min(...bh)).toFixed(1)}px (max 2.5)`);
+    }
+  }
+  const wide = window.innerWidth >= 700;
+  const rowEls = wide
+    ? [...buttons, ...stats.slice(0, 1)]
+    : [...buttons, ...stats, ...(chip ? [chip] : [])];
+  if (rowEls.length < 3) return ['topbar rhythm: need stats/chip/actions visible'];
+  const centers = rowEls.map((x) => x.r.top + x.r.height / 2);
+  const spread = Math.max(...centers) - Math.min(...centers);
+  const centerTol = wide ? 8 : 5;
+  if (spread > centerTol) out.push(`topbar control centers off by ${spread.toFixed(1)}px (max ${centerTol})`);
+  const heights = rowEls.map((x) => x.r.height);
+  const heightTol = wide ? 14 : 6;
+  if (Math.max(...heights) - Math.min(...heights) > heightTol) {
+    out.push(`topbar control heights differ by ${(Math.max(...heights) - Math.min(...heights)).toFixed(1)}px (max ${heightTol})`);
+  }
+  return out;
+}
+
 function hudState() {
   const toggle = document.querySelector('[data-qa="hud-toggle"]');
   const topbar = document.querySelector('.topbar');
@@ -883,6 +933,14 @@ const CASES = [
   hyperPreviewCase(true),
   hudCollapsedCase,
   hudExpandedCase,
+  {
+    name: 'hud-control-rhythm',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'dismissTutorial');
+    },
+    expect: async (p) => p.evaluate(topbarControlRhythm),
+  },
   boardCase('board-free-55', 'midgame', false),
   boardCase('board-free-55-preview', 'midgame', true),
   boardCase('board-free-55-hyper-preview', 'hyper', true, true),
@@ -938,8 +996,8 @@ const CASES = [
       await qa(p, 'seed', 'midgame');
       await qa(p, 'dismissTutorial');
       await qa(p, 'manifold', 'klein');
-      await p.locator('[data-qa="mf-immersion"]').click();
-      await p.waitForTimeout(900);
+      await clickQaButtonNoNav(p, 'mf-immersion');
+      await waitKleinImmersionReady(p);
     },
     expect: async (p) => {
       const r = await qa(p, 'manifoldProjectFit');

@@ -16,6 +16,7 @@ export const config = {
   projection: { minCharts: 25 },
   offline: { baseEff: 0.5, capHours: 8 },
   startInk: 10,
+  ui: { inspectFadeMs: 300 },
   autoSpringInterval: 1, // seconds between auto-placed Springs
   /** Manifold preview (Layer 3): grid sizes, framing, skin. */
   manifold: {

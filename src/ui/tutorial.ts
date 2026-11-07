@@ -1,7 +1,7 @@
 import Decimal from 'break_eternity.js';
 import { config } from '../core/config';
-import { graphOf, type GameState } from '../core/state';
-import { adjacency, mods, owned, prod, tileCost } from '../core/economy';
+import { type GameState } from '../core/state';
+import { hasBoostedMill, owned, prod, tileCost } from '../core/economy';
 import type { TileType } from '../core/tiles';
 import { fmt, fmtTime } from './format';
 
@@ -158,14 +158,7 @@ export function restartTutorial(): TutorialState {
   return freshTutorial();
 }
 
-/** True when some Mill touches a Spring (bridges included via adjacency). */
-export function hasBoostedMill(s: GameState): boolean {
-  const g = graphOf(s);
-  const reach = mods(s).reach;
-  return s.tiles.some(
-    (t, i) => t === 'mill' && adjacency(g, s.tiles, i, reach).some((n) => s.tiles[n] === 'spring'),
-  );
-}
+export { hasBoostedMill };
 
 export function currentStep(t: TutorialState): TutStep | null {
   if (t.done) return null;
