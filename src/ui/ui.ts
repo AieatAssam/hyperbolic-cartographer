@@ -46,6 +46,7 @@ export interface UICtx {
     toggleSurfaceChart?(): void;
     toggleSeamView?(): void;
     toggleKleinImmersion?(): void;
+    switchManifold?(which: 'torus' | 'klein'): void;
     manifoldPreview?(): SurfacePreview;
   };
   dev: boolean;
@@ -60,6 +61,8 @@ export interface UI {
   bumpInk(weight: number): void;
   /** Plain-words goal override while a prestige transition plays; null restores the normal goal. `short` is its compact chip label, `icon` its glyph (default 'project'). */
   setTransition(text: string | null, short?: string, icon?: GoalIcon): void;
+  /** Manifold preview: hide the panel and show the floating surface toolbar. */
+  setManifoldPreview(on: boolean, surface?: SurfacePreview): void;
   /** Dev/QA hooks (main.ts exposes them only under ?dev&qa). Each one calls an existing internal. */
   qa: {
     tab(id: string): void; openImport(text?: string): void; checkImport(): void; showExport(): void; openReset(): void;
@@ -304,6 +307,47 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   actions.append(guideBtn, toggle);
   topbar.append(hud, actions);
   setPanel(!narrow());
+
+  const manifoldBar = el('div', 'manifold-bar hidden');
+  manifoldBar.dataset.qa = 'manifold-bar';
+  manifoldBar.setAttribute('role', 'toolbar');
+  manifoldBar.setAttribute('aria-label', 'Manifold preview');
+  const mBtn = (label: string, qaId: string, on: () => void) => {
+    const b = btn(label, 'mf-btn', on);
+    b.dataset.qa = qaId;
+    return b;
+  };
+  const barSync = () => {
+    const mp = ctx.act.manifoldPreview?.() ?? 'off';
+    manifoldBar.classList.toggle('hidden', mp === 'off');
+    root.classList.toggle('manifold-preview', mp !== 'off');
+    if (mp !== 'off') setPanel(false);
+    torusBtn.classList.toggle('active', mp === 'torus');
+    kleinBtn.classList.toggle('active', mp === 'klein');
+    chartBtn.style.display = mp === 'klein' ? 'none' : '';
+    immBtn.style.display = mp === 'klein' ? '' : 'none';
+    chartBtn.textContent = '2D chart';
+    immBtn.textContent = '3D';
+  };
+  const torusBtn = mBtn('Torus', 'mf-torus', () => ctx.act.switchManifold?.('torus') ?? ctx.act.enterManifoldPreview?.('torus'));
+  const kleinBtn = mBtn('Klein', 'mf-klein', () => ctx.act.switchManifold?.('klein') ?? ctx.act.enterManifoldPreview?.('klein'));
+  const seamBtn = mBtn('Seams', 'mf-seams', () => ctx.act.toggleSeamView?.());
+  const chartBtn = mBtn('2D chart', 'mf-chart', () => ctx.act.toggleSurfaceChart?.());
+  const immBtn = mBtn('3D', 'mf-immersion', () => ctx.act.toggleKleinImmersion?.());
+  const exitBtn = mBtn('Exit', 'mf-exit', () => ctx.act.exitManifoldPreview?.());
+  manifoldBar.append(torusBtn, kleinBtn, seamBtn, chartBtn, immBtn, exitBtn);
+  const setManifoldPreview = (on: boolean, surface?: SurfacePreview) => {
+    root.classList.toggle('manifold-preview', on);
+    manifoldBar.classList.toggle('hidden', !on);
+    if (on) {
+      setPanel(false);
+      torusBtn.classList.toggle('active', surface === 'torus');
+      kleinBtn.classList.toggle('active', surface === 'klein');
+      chartBtn.style.display = surface === 'klein' ? 'none' : '';
+      immBtn.style.display = surface === 'klein' ? '' : 'none';
+    }
+    barSync();
+  };
 
   // ---- Dock: tutorial card + info / preview card ----
   const dock = el('div', 'dock');
@@ -650,27 +694,16 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     const mp = ctx.act.manifoldPreview?.() ?? 'off';
     const prev = card(
       title('Manifold preview (locked)'),
-      txt('Layer 3 surfaces: orbit a 3D torus or study the Klein bottle fundamental square with coloured seams. No Handles currency or Loops scoring yet.'),
-      el('div', 'row'),
+      txt('Layer 3 surfaces: orbit a 3D torus or study the Klein bottle fundamental square with coloured seams. Controls move to a floating bar on the board. No Handles currency or Loops scoring yet.'),
     );
-    const row = prev.querySelector('.row')!;
-    const torusB = btn(mp === 'torus' ? 'Torus (active)' : 'Preview torus', mp === 'torus' ? 'primary' : '', () => ctx.act.enterManifoldPreview?.('torus'));
-    const kleinB = btn(mp === 'klein' ? 'Klein (active)' : 'Preview Klein', mp === 'klein' ? 'primary' : '', () => ctx.act.enterManifoldPreview?.('klein'));
-    const exitB = btn('Exit preview', '', () => ctx.act.exitManifoldPreview?.());
-    exitB.style.display = mp === 'off' ? 'none' : '';
-    row.append(torusB, kleinB, exitB);
-    if (mp !== 'off') {
-      const chart = btn('2D chart', '', () => ctx.act.toggleSurfaceChart?.());
-      const seam = btn('Seams', '', () => ctx.act.toggleSeamView?.());
-      chart.classList.add('surface-toggle');
-      seam.classList.add('surface-toggle');
-      row.append(chart, seam);
-      if (mp === 'klein') {
-        const imm = btn('3D immersion', '', () => ctx.act.toggleKleinImmersion?.());
-        imm.classList.add('surface-toggle');
-        row.append(imm);
-      }
-    }
+    const row = el('div', 'row');
+    const torusB = btn(mp === 'torus' ? 'Torus (active)' : 'Open torus preview', mp === 'torus' ? 'primary' : '', () => ctx.act.enterManifoldPreview?.('torus'));
+    const kleinB = btn(mp === 'klein' ? 'Klein (active)' : 'Open Klein preview', mp === 'klein' ? 'primary' : '', () => ctx.act.enterManifoldPreview?.('klein'));
+    torusB.dataset.qa = 'open-torus-preview';
+    kleinB.dataset.qa = 'open-klein-preview';
+    row.append(torusB, kleinB);
+    prev.append(row);
+    if (mp !== 'off') prev.append(txt('Preview is open — use the floating toolbar on the board.'));
     out.push(prev);
     return out;
   };
@@ -981,10 +1014,10 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   });
 
   // ---- Mount ----
-  root.append(topbar, panel, dock, palette, tip, toastEl, dev, backdrop);
+  root.append(topbar, panel, dock, palette, manifoldBar, tip, toastEl, dev, backdrop);
   update();
   return {
-    update, tooltip, showOffline, toast, flash, bumpInk, setTransition,
+    update, tooltip, showOffline, toast, flash, bumpInk, setTransition, setManifoldPreview,
     qa: {
       tab: (id: string) => tabBtns.has(id as Tab) && openTab(id as Tab),
       openImport: (text?: string) => openImport(text),

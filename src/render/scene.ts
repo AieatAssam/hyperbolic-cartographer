@@ -141,8 +141,10 @@ function createBackdrop() {
 
 export interface QualityReport extends QualityProfile { dpr: number; emaMs: number; width: number; height: number }
 
-export function createScene(canvas: HTMLCanvasElement) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+export function createScene(canvas: HTMLCanvasElement, opts: { preserveDrawingBuffer?: boolean } = {}) {
+  const renderer = new THREE.WebGLRenderer({
+    canvas, antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: !!opts.preserveDrawingBuffer,
+  });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = LIGHTS.exposure;

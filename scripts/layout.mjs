@@ -887,29 +887,35 @@ const CASES = [
   boardCase('board-free-55-preview', 'midgame', true),
   boardCase('board-free-55-hyper-preview', 'hyper', true, true),
   {
-    name: 'manifold-torus-chart',
+    name: 'manifold-torus-lit',
     setup: async (p) => {
       await qa(p, 'seed', 'midgame');
       await qa(p, 'dismissTutorial');
       await qa(p, 'manifold', 'torus');
-      await qa(p, 'tab', 'proj');
+      await p.waitForTimeout(600);
     },
     expect: async (p) => {
-      const n = await p.locator('.surface-toggle').count();
-      return n < 2 ? [`expected chart+seam toggles on torus preview, got ${n}`] : [];
+      const bar = await p.locator('[data-qa="manifold-bar"]:not(.hidden)').count();
+      const panel = await p.locator('#ui.manifold-preview .panel:not(.hidden)').count();
+      const errs = [];
+      if (!bar) errs.push('manifold toolbar not visible');
+      if (panel) errs.push('panel should be hidden in manifold preview');
+      const s = await qa(p, 'canvasSample');
+      if (!s?.ok) errs.push(`torus canvas blank: ${JSON.stringify(s)}`);
+      return errs;
     },
   },
   {
-    name: 'manifold-klein-seams',
+    name: 'manifold-klein-lit',
     setup: async (p) => {
       await qa(p, 'seed', 'midgame');
       await qa(p, 'dismissTutorial');
       await qa(p, 'manifold', 'klein');
-      await qa(p, 'tab', 'proj');
+      await p.waitForTimeout(600);
     },
     expect: async (p) => {
-      const n = await p.locator('.surface-toggle').count();
-      return n < 3 ? [`expected chart, seam and immersion toggles on Klein preview, got ${n}`] : [];
+      const s = await qa(p, 'canvasSample');
+      return s?.ok ? [] : [`klein canvas blank: ${JSON.stringify(s)}`];
     },
   },
   // Harness self-check for the board band: a tall dock must be reported on phone portrait.
@@ -1087,7 +1093,10 @@ async function main() {
   const results = [];
   let browser;
   try {
-    browser = await chromium.launch({ headless: true }).catch((e) => {
+    browser = await chromium.launch({
+      headless: true,
+      args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+    }).catch((e) => {
       throw new Error(`could not launch Chromium (run \`npx playwright install chromium\`): ${e.message}`);
     });
     for (const vp of selected) {

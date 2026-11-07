@@ -14,6 +14,7 @@ import type { TileGraph } from './core/geometry/graph';
 import { cellCorners, circlePts, fitDistance, freeRect, shouldReframe, type Rect, type Role } from './render/framing';
 import type { SquareBoard } from './core/geometry/square';
 import { CartographyFX, type FxContext, type FxQuality } from './render/fx';
+import { analyseCanvasPixels } from './render/canvas-check';
 import { productionRoutes, revealSpans, surveyWave, type Route } from './render/fx-graph';
 import { budgetFor } from './render/fx-model';
 import { TRANSITION_S, transitionPhase } from './render/transition';
@@ -53,7 +54,7 @@ const persist = () => store.set(KEY, exportString(makeSave(s, Date.now())));
 
 // ---- render ----
 const canvas = document.getElementById('c') as HTMLCanvasElement;
-const { renderer, scene, camera, controls, composer, renderFrame, getQuality, setQuality } = createScene(canvas);
+const { renderer, scene, camera, controls, composer, renderFrame, getQuality, setQuality } = createScene(canvas, { preserveDrawingBuffer: qa });
 const fx = new CartographyFX(getQuality().level as FxQuality);
 scene.add(fx.group);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
@@ -90,6 +91,7 @@ let fitD = 0; // distance that fits the current footprint into `free` (0 = not y
 let layoutDirty = true;
 /** Board footprint on the ground: hyper = whole disk incl. slab/rim; square = active cells + next ring. */
 function footprint(): [number, number][] {
+  if (manifoldPreview !== 'off' && board && isSurfaceBoard(board)) return board.bounds();
   if (s.geometry === 'hyper') return circlePts(DISK_R + 0.6);
   const g = graphOf(s) as SquareBoard;
   return cellCorners(g.xy.filter((_, i) => g.ring[i] <= s.ring + 1));
@@ -138,21 +140,38 @@ const observeUI = () => document.querySelectorAll('#ui .hud, #ui .panel, #ui .do
 new MutationObserver(() => ((layoutDirty = true), observeUI())).observe(document.getElementById('ui')!, { childList: true });
 
 /** Full refit: default tilt, target at origin, distance solved from the footprint (initial UI, geometry, recenter). */
-const frameCamera = () => {
+const frameCamera = () => frameBoardCamera(POLAR);
+const frameBoardCamera = (polar = POLAR) => {
   if (layoutDirty) layoutView();
-  controls.target.set(0, 0, 0);
-  fitD = solveFit();
+  controls.target.set(0, isSurfaceBoard(board) && board.surface === 'torus' && !board.chartMode ? 1.8 : 0, 0);
+  fitD = fitDistance({
+    pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar, margin: MARGIN,
+  });
   controls.maxDistance = Math.max(40, fitD * 1.5);
-  camera.position.set(0, Math.cos(POLAR) * fitD, Math.sin(POLAR) * fitD);
+  camera.position.set(0, Math.cos(polar) * fitD, Math.sin(polar) * fitD);
 };
+function seedManifoldDemo(which: 'torus' | 'klein') {
+  const g = SURFACE_GRAPHS[which];
+  manifoldTiles = g.ring.map((_, i) => (i % 5 === 0 ? 'spring' : i % 7 === 2 ? 'mill' : null));
+  const seamCell = g.xy.findIndex(([x, y]) => x === 0 && y === 0);
+  if (seamCell >= 0) {
+    manifoldTiles[seamCell] = 'spring';
+    for (const j of g.neighbours[seamCell]) {
+      if (g.seamEdge(seamCell, j)) manifoldTiles[j] = 'mill';
+    }
+  }
+}
 function enterManifoldPreview(which: 'torus' | 'klein') {
   manifoldPreview = which;
-  manifoldTiles = SURFACE_GRAPHS[which].ring.map(() => null);
+  seedManifoldDemo(which);
   syncBoard(true);
   controls.enableRotate = true;
   controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
   controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
-  frameCamera();
+  ui.setManifoldPreview(true, which);
+  layoutDirty = true;
+  frameBoardCamera(which === 'torus' && isSurfaceBoard(board) && !board.chartMode ? 0.85 : POLAR);
+  if (isSurfaceBoard(board)) board.update(renderState(), [], -1, []);
 }
 function exitManifoldPreview() {
   manifoldPreview = 'off';
@@ -161,6 +180,8 @@ function exitManifoldPreview() {
   controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
   controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
   controls.enablePan = s.geometry === 'square';
+  ui.setManifoldPreview(false);
+  layoutDirty = true;
   frameCamera();
 }
 /** `full` (imports, resets) kills every FX instance; the transition swap passes false and calls fx.clearAnchored itself. */
@@ -184,8 +205,7 @@ function syncBoard(full = true) {
   controls.enablePan = !wantSurface && s.geometry === 'square';
   if (!wantSurface) frameCamera();
 }
-if (manifoldPreview !== 'off') enterManifoldPreview(manifoldPreview);
-else syncBoard();
+syncBoard();
 
 // ---- actions ----
 let speed = 1;
@@ -259,14 +279,23 @@ const ui = createUI(document.getElementById('ui')!, {
     enterManifoldPreview,
     exitManifoldPreview,
     toggleSurfaceChart: () => {
-      if (isSurfaceBoard(board)) (board.chartMode = !board.chartMode), (layoutDirty = true);
+      if (!isSurfaceBoard(board)) return;
+      board.chartMode = !board.chartMode;
+      board.invalidate();
+      layoutDirty = true;
+      frameBoardCamera(board.surface === 'torus' && !board.chartMode ? 0.85 : POLAR);
     },
     toggleSeamView: () => {
-      if (isSurfaceBoard(board)) board.seamView = !board.seamView;
+      if (isSurfaceBoard(board)) (board.seamView = !board.seamView, board.invalidate());
     },
     toggleKleinImmersion: () => {
-      if (isSurfaceBoard(board) && board.surface === 'klein') board.immersion3d = !board.immersion3d;
+      if (!isSurfaceBoard(board) || board.surface !== 'klein') return;
+      board.immersion3d = !board.immersion3d;
+      board.invalidate();
+      layoutDirty = true;
+      frameBoardCamera(board.immersion3d ? 0.75 : POLAR);
     },
+    switchManifold: (which: 'torus' | 'klein') => enterManifoldPreview(which),
     manifoldPreview: () => manifoldPreview,
   },
 });
@@ -336,7 +365,7 @@ const viewportPx = () => innerWidth * innerHeight;
 /** Frame context for the FX. Built once per frame, so fx.prepare and fx.update see the same board, routes and budget. */
 function fxContext(perTile: readonly number[], routes: readonly Route[]): FxContext {
   return {
-    tops: board.tops, tiles: s.tiles, perTile, quality: getQuality().level as FxQuality, inkTargetNdc: inkTarget,
+    tops: board.tops, tiles: manifoldTiles ?? s.tiles, perTile, quality: getQuality().level as FxQuality, inkTargetNdc: inkTarget,
     embed: board.embed, routes, boardMatrix: board.group.matrixWorld, viewportPx: viewportPx(),
   };
 }
@@ -381,7 +410,8 @@ function diffFx() {
 }
 observeUI();
 layoutDirty = true;
-frameCamera(); // re-fit now that the UI exists
+frameCamera();
+if (manifoldPreview !== 'off') enterManifoldPreview(manifoldPreview);
 
 // ---- input ----
 const ray = new THREE.Raycaster();
@@ -651,6 +681,35 @@ if (dev) {
         if (which === 'off') exitManifoldPreview();
         else enterManifoldPreview(which);
         ui.update();
+      },
+      manifoldStats: () => {
+        if (!isSurfaceBoard(board)) return null;
+        let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity, cnt = 0;
+        for (const v of board.tops) {
+          minx = Math.min(minx, v.x); maxx = Math.max(maxx, v.x);
+          miny = Math.min(miny, v.y); maxy = Math.max(maxy, v.y);
+          cnt++;
+        }
+        return {
+          surface: board.surface, chartMode: board.chartMode, immersion3d: board.immersion3d, seamView: board.seamView,
+          minx, maxx, miny, maxy, cnt,
+        };
+      },
+      canvasSample: () => {
+        renderFrame(0);
+        const c = canvas;
+        const w = c.width, h = c.height;
+        const gl = c.getContext('webgl2') || c.getContext('webgl');
+        if (!gl || !(w > 0 && h > 0)) return { ok: false, mean: 0, chroma: 0, nonBackdrop: 0, reason: 'no-gl' };
+        const buf = new Uint8Array(w * h * 4);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+        const flipped = new Uint8ClampedArray(w * h * 4);
+        for (let y = 0; y < h; y++) {
+          const src = (h - 1 - y) * w * 4;
+          flipped.set(buf.subarray(src, src + w * 4), y * w * 4);
+        }
+        const s = analyseCanvasPixels(flipped, w, h);
+        return { ...s, reason: s.ok ? 'ok' : 'blank' };
       },
     };
     Object.assign(game, { qa: qaApi });
