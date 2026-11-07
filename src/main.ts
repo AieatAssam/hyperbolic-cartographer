@@ -876,6 +876,14 @@ if (dev) {
         ui.update();
         return true;
       },
+      /** Hyper board only: centre the previewed cell without using the dock button (layout QA). */
+      centreSelected: (): boolean => {
+        if (trans || tap.selected < 0 || s.geometry !== 'hyper' || isSurfaceBoard(board)) return false;
+        board.centreOn(tap.selected);
+        ui.update();
+        renderFrame(0);
+        return true;
+      },
       setTool: (name: TileType | 'sell' | 'pin') => {
         tool.current = name;
         tap.clearSelection();
