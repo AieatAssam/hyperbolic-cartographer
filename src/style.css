@@ -356,12 +356,14 @@ ul.reset li::before {
 
 /* Floating +Ink/s on bridge placement preview (screen space, not DOM tooltip). */
 .board-gain-label {
-  position: fixed; z-index: 42; pointer-events: none; transform: translate(-50%, -50%);
-  padding: 4px 10px; border-radius: 10px; font-size: 14px; font-weight: 700;
-  font-variant-numeric: tabular-nums; color: var(--gold);
-  background: rgba(8, 12, 22, 0.82); border: 1px solid var(--gold);
-  box-shadow: 0 0 14px rgba(232, 200, 114, 0.45);
+  position: fixed; z-index: 55; pointer-events: none; transform: translate(-50%, -100%);
+  padding: 6px 12px; border-radius: 10px; font-size: 16px; font-weight: 800; line-height: 1.2;
+  font-variant-numeric: tabular-nums; color: #ffe7a8;
+  background: rgba(4, 6, 14, 0.94); border: 2px solid var(--gold);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.65), 0 0 16px rgba(232, 200, 114, 0.4);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
   transition: opacity 0.15s ease;
+  min-width: 4.5rem; text-align: center;
 }
 .board-gain-label.hidden { display: none; }
 

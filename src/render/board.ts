@@ -141,6 +141,8 @@ export class Board {
   private mats: THREE.Material[] = [];
   private tileType: GameState['tiles'] = [];
   private previewLine: THREE.Line;
+  private constellationLine: THREE.LineSegments;
+  private ghostLine: THREE.LineSegments;
 
   constructor(readonly geometry: Geometry, env: THREE.Texture | null = null) {
     const g = GRAPHS[geometry];
@@ -226,6 +228,46 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     this.previewLine.frustumCulled = false;
     this.previewLine.renderOrder = 6;
     this.group.add(this.previewLine);
+    const gold = new THREE.Color(0xe8c872);
+    this.constellationLine = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({
+        color: gold, transparent: true, opacity: 0.92,
+        depthTest: false, depthWrite: false,
+      }),
+    );
+    this.constellationLine.visible = false;
+    this.constellationLine.frustumCulled = false;
+    this.constellationLine.renderOrder = 7;
+    this.group.add(this.constellationLine);
+    this.ghostLine = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineDashedMaterial({
+        color: gold, transparent: true, opacity: 0.5, dashSize: 0.22, gapSize: 0.14,
+        depthTest: false, depthWrite: false,
+      }),
+    );
+    this.ghostLine.visible = false;
+    this.ghostLine.frustumCulled = false;
+    this.ghostLine.renderOrder = 6.5;
+    this.group.add(this.ghostLine);
+  }
+
+  private updateEdgeLines(edges: readonly [number, number][] | undefined, mesh: THREE.LineSegments, lift: number) {
+    if (!edges?.length) {
+      mesh.visible = false;
+      return;
+    }
+    const pts: number[] = [];
+    for (const [a, b] of edges) {
+      const ta = this.tops[a], tb = this.tops[b];
+      if (!ta || !tb) continue;
+      const y = Math.max(ta.y, tb.y) + lift;
+      pts.push(ta.x, y, ta.z, tb.x, y, tb.z);
+    }
+    mesh.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
+    if (mesh.material instanceof THREE.LineDashedMaterial) (mesh as THREE.Line).computeLineDistances();
+    mesh.visible = pts.length > 0;
   }
 
   private updatePreviewArc(arc: readonly [number, number] | undefined) {
@@ -302,7 +344,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       glowSig = (glowSig * 31 + qv) | 0;
     }
     const hlKey = hl
-      ? `${hl.dim ?? 0}|${hl.pulse ?? 0}|${hl.direct?.join() ?? ''}|${hl.bridge?.join() ?? ''}|${hl.lit?.join() ?? ''}|${hl.arc?.join() ?? ''}`
+      ? `${hl.dim ?? 0}|${hl.pulse ?? 0}|${hl.direct?.join() ?? ''}|${hl.bridge?.join() ?? ''}|${hl.lit?.join() ?? ''}|${hl.arc?.join() ?? ''}|${hl.constellation?.map((e) => e.join(':')).join() ?? ''}|${hl.constellationGhost?.map((e) => e.join(':')).join() ?? ''}`
       : '';
     const key = `${s.tiles.join()}|${s.ring}|${s.pinned}|${hover}|${hoverAdj}|${this.viewRev}|${glowSig}|${hlKey}`;
     if (key === this.key) return;
@@ -409,6 +451,8 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     for (const name of ['position', 'normal', 'color', 'glow']) this.geom.attributes[name].needsUpdate = true;
     for (const t of TILE_TYPES) this.motifs[t].instanceMatrix.needsUpdate = true;
     this.updatePreviewArc(hl?.arc);
+    this.updateEdgeLines(hl?.constellation, this.constellationLine, 0.38);
+    this.updateEdgeLines(hl?.constellationGhost, this.ghostLine, 0.22);
   }
 
   /** Starts a squash-settle on tile i at fx time `now` (writes only that tile's vertex span). */

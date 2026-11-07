@@ -4,6 +4,7 @@
  */
 import Decimal from 'break_eternity.js';
 import { chartUpgrades, config, curvUpgrades } from './config';
+import { applyConstellationRewards, eventsAfterPlace } from './constellations';
 import { buyChartUpg, buyCurvUpg, isActive, maxRing, owned, place, previewDelta, prod, sell, survey, surveyCost, tileCost } from './economy';
 import { pickImmediateGoal } from './goal-policy';
 import { graphOf, initialState, type GameState } from './state';
@@ -157,7 +158,11 @@ export function runSim(policy: PolicyId, limitMin: number, opts?: { offlineAtMin
       if (sec % 10 === 0) target = bestGreedyBuy(s);
       if (sec % 2 === 0 && target && s.ink.gte(target.cost)) {
         if (s.tiles[target.i]) sell(s, target.i);
-        if (place(s, target.i, target.t)) noteMilestones(s, sec, milestones, target.t);
+        const before = s.tiles.slice();
+        if (place(s, target.i, target.t)) {
+          applyConstellationRewards(s, eventsAfterPlace(s, before, target.i, target.t));
+          noteMilestones(s, sec, milestones, target.t);
+        }
         target = bestGreedyBuy(s);
       }
     } else if (sec % 5 === 0) {
@@ -169,7 +174,13 @@ export function runSim(policy: PolicyId, limitMin: number, opts?: { offlineAtMin
         const act = casualAction(s);
         if (act?.kind === 'survey' && survey(s)) { /* ring */ }
         else if (act?.kind === 'project') project(s);
-        else if (act?.kind === 'place' && place(s, act.i, act.t)) noteMilestones(s, sec, milestones, act.t);
+        else if (act?.kind === 'place') {
+          const before = s.tiles.slice();
+          if (place(s, act.i, act.t)) {
+            applyConstellationRewards(s, eventsAfterPlace(s, before, act.i, act.t));
+            noteMilestones(s, sec, milestones, act.t);
+          }
+        }
       }
     }
 

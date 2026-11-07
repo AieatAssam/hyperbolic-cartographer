@@ -1,7 +1,7 @@
 import { chartUpgrades, curvUpgrades, type ChartUpgradeId, type CurvUpgradeId } from './config';
 import { canDrift, canProject } from './prestige';
 import type { GameState } from './state';
-type MenuTab = 'map' | 'drift' | 'charts' | 'proj' | 'miles' | 'save' | 'guide';
+type MenuTab = 'map' | 'constellations' | 'drift' | 'charts' | 'proj' | 'miles' | 'save' | 'guide';
 
 function affordableChart(s: GameState): ChartUpgradeId | null {
   for (const u of chartUpgrades) {

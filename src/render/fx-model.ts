@@ -26,9 +26,9 @@ export interface FxBudget {
 
 /** Explicit counts by quality 0/1/2 (low/medium/high, matching scene.ts QualityLevel). */
 export const FX_BUDGETS: readonly FxBudget[] = [
-  { capacity: 384, pulsePerLink: 1.2, pulseRate: 11, motePerSpring: 0.8, moteRate: 3, maxSpawnPerFrame: 8, burst: 6, puff: 5, ringParticles: 12, arcsPerBridge: 1, overlay: 36, auraEvery: 2.8, reveal: 48, auraLinks: 8, pops: 3 },
-  { capacity: 1024, pulsePerLink: 1.6, pulseRate: 20, motePerSpring: 1.1, moteRate: 5, maxSpawnPerFrame: 14, burst: 12, puff: 9, ringParticles: 22, arcsPerBridge: 2, overlay: 90, auraEvery: 2.1, reveal: 96, auraLinks: 18, pops: 5 },
-  { capacity: 2048, pulsePerLink: 2, pulseRate: 36, motePerSpring: 1.5, moteRate: 9, maxSpawnPerFrame: 26, burst: 18, puff: 14, ringParticles: 36, arcsPerBridge: 3, overlay: 170, auraEvery: 1.65, reveal: 192, auraLinks: 36, pops: 10 },
+  { capacity: 320, pulsePerLink: 1.1, pulseRate: 9, motePerSpring: 0.7, moteRate: 2.5, maxSpawnPerFrame: 6, burst: 4, puff: 4, ringParticles: 8, arcsPerBridge: 1, overlay: 28, auraEvery: 3.0, reveal: 40, auraLinks: 6, pops: 2 },
+  { capacity: 896, pulsePerLink: 1.4, pulseRate: 16, motePerSpring: 0.95, moteRate: 4, maxSpawnPerFrame: 10, burst: 8, puff: 7, ringParticles: 16, arcsPerBridge: 2, overlay: 72, auraEvery: 2.4, reveal: 84, auraLinks: 14, pops: 4 },
+  { capacity: 1792, pulsePerLink: 1.7, pulseRate: 28, motePerSpring: 1.2, moteRate: 7, maxSpawnPerFrame: 20, burst: 12, puff: 10, ringParticles: 28, arcsPerBridge: 3, overlay: 140, auraEvery: 1.85, reveal: 160, auraLinks: 28, pops: 8 },
 ];
 
 /** Viewport reference for budget scaling: 1024 × 1000 px. Smaller viewports get fewer stream and one-shot items. */

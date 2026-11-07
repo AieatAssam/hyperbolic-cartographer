@@ -310,7 +310,7 @@ describe('ambient rates at the 10 ticks/s sim step', () => {
       const fx = new CartographyFX(q);
       const mote = vi.spyOn(fx as any, 'mote');
       const ctx = ctxFor(['spring'], [], q);
-      for (let s = 0; s < (q === 0 ? 20 : 10); s++) fx.update(TICK, ctx);
+      for (let s = 0; s < (q === 0 ? 24 : 14); s++) fx.update(TICK, ctx);
       const minMotes = q === 0 ? 0 : 1;
       expect(mote.mock.calls.length, `quality ${q}`).toBeGreaterThanOrEqual(minMotes);
       fx.dispose();
@@ -349,9 +349,9 @@ describe('new budget fields (reveal, auraLinks, pops)', () => {
   });
 
   it('match the tier values in fx-model.ts', () => {
-    expect(FX_BUDGETS.map((b) => b.reveal)).toEqual([48, 96, 192]);
-    expect(FX_BUDGETS.map((b) => b.auraLinks)).toEqual([8, 18, 36]);
-    expect(FX_BUDGETS.map((b) => b.pops)).toEqual([3, 5, 10]);
+    expect(FX_BUDGETS.map((b) => b.reveal)).toEqual([40, 84, 160]);
+    expect(FX_BUDGETS.map((b) => b.auraLinks)).toEqual([6, 14, 28]);
+    expect(FX_BUDGETS.map((b) => b.pops)).toEqual([2, 4, 8]);
   });
 });
 

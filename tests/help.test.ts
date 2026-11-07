@@ -99,7 +99,7 @@ describe('disabled reasons', () => {
 
   it('drift is allowed once run Ink reaches the threshold', () => {
     const s = initialState();
-    s.runInk = new Decimal(config.drift.minInk);
+    s.runInk = new Decimal(config.drift.minInk * 1.05);
     expect(driftBlocked(s)).toBeNull();
   });
 

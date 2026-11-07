@@ -95,6 +95,16 @@ void main() {
   float s = noise(d * 160.0);
   col += uStar * pow(s, 24.0) * 0.6 * smoothstep(-0.1, 0.3, h);
 
+  // Cartographic drift: compass rhumbs + latitude rings (Vagrus / map-table language).
+  vec2 dir = normalize(d.xz + 1e-5);
+  float lon = atan(dir.y, dir.x);
+  float lat = asin(clamp(d.y, -1.0, 1.0));
+  float rhumb = abs(fract(lon * 2.618 + t * 0.015) - 0.5);
+  float parallel = abs(fract((lat + 1.0) * 5.5 - t * 0.008) - 0.5);
+  float gridA = smoothstep(0.48, 0.0, rhumb) * 0.14;
+  float gridB = smoothstep(0.46, 0.0, parallel) * 0.11;
+  col += mix(vec3(0.58, 0.76, 0.95), vec3(0.91, 0.79, 0.45), 0.35 + 0.65 * n1) * (gridA + gridB);
+
   // Parchment grain + screen-space vignette; floor keeps it from going dead black.
   vec2 uv = gl_FragCoord.xy / uRes;
   col += (hash(vec3(gl_FragCoord.xy, 0.0)) - 0.5) * uGrain;

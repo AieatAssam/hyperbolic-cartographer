@@ -1,4 +1,4 @@
-/** Balance/visual PR captures @ 390×844 — requires `npm run build` + vite preview on 4173. */
+/** Balance pass 2 captures @ 390×844 — `npm run build` + preview on 4173. */
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -19,13 +19,13 @@ async function qa(page, hook, ...args) {
   }, [hook, args]);
 }
 
-async function waitReady(page) {
+async function waitReady(page, seed = 'ux-demo') {
   await page.goto(URL, { waitUntil: 'load' });
   await page.waitForFunction(() => window.game?.qa?.ready);
-  await qa(page, 'seed', 'ux-demo');
+  await qa(page, 'seed', seed);
   await qa(page, 'dismissTutorial');
   await qa(page, 'menu', false);
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(700);
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 }
 
@@ -53,7 +53,7 @@ const browser = await chromium.launch({
 const ctx = await browser.newContext({ viewport: VP, recordVideo: { dir: ART, size: VP } });
 const page = await ctx.newPage();
 
-await waitReady(page);
+await waitReady(page, 'ux-demo');
 await page.evaluate(() => document.querySelector('.tutorial')?.classList.add('hidden'));
 await page.screenshot({ path: join(ART, 'balance-board-hud-390.png') });
 
@@ -61,38 +61,55 @@ const cells = await qa(page, 'demoCells');
 if (cells?.springAt >= 0) {
   await hideDock(page);
   await qa(page, 'inspectAt', cells.springAt);
-  await page.waitForTimeout(450);
+  await page.waitForTimeout(500);
   await page.screenshot({ path: join(ART, 'balance-inspect-dim-390.png') });
+  await qa(page, 'clearBoardFocus');
 }
 
 if (cells?.bridgeAt >= 0) {
   await hideDock(page);
-  await qa(page, 'clearBoardFocus');
   await qa(page, 'previewAt', cells.bridgeAt, 'bridge');
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(950);
   await page.screenshot({ path: join(ART, 'balance-bridge-gain-390.png') });
+  await qa(page, 'clearBoardFocus');
 }
 
-if (cells?.millAt >= 0) {
-  await hideDock(page);
-  await qa(page, 'previewAt', cells.millAt, 'mill');
-  await page.waitForTimeout(500);
-  await page.screenshot({ path: join(ART, 'balance-placement-preview-390.png') });
+let hintCell = -1;
+await waitReady(page, 'constellation-demo');
+await hideDock(page);
+hintCell = await qa(page, 'inkstreamHintCell');
+if (hintCell >= 0) {
+  await qa(page, 'previewAt', hintCell, 'spring');
+  await page.waitForTimeout(750);
+  await page.screenshot({ path: join(ART, 'balance-constellation-ghost-390.png') });
+  await qa(page, 'placeAt', hintCell, 'spring');
+  await page.waitForTimeout(1300);
+  await page.screenshot({ path: join(ART, 'balance-constellation-complete-390.png') });
+}
+
+await waitReady(page, 'network-demo');
+await hideDock(page);
+const linkAt = await qa(page, 'networkLinkCell');
+if (linkAt >= 0) {
+  await qa(page, 'previewAt', linkAt, 'spring');
+  await page.waitForTimeout(400);
+  await qa(page, 'placeAt', linkAt, 'spring');
+  await page.waitForTimeout(1000);
+  await page.screenshot({ path: join(ART, 'balance-network-pulse-390.png') });
 }
 
 await qa(page, 'clearBoardFocus');
 await page.evaluate(() => document.querySelector('.infocard')?.classList.remove('capture-hide'));
-if (cells?.springAt >= 0) {
-  await qa(page, 'inspectAt', cells.springAt);
-  await page.waitForTimeout(500);
-  await qa(page, 'clearBoardFocus');
+if (hintCell >= 0) {
+  await waitReady(page, 'constellation-demo');
+  const again = await qa(page, 'inkstreamHintCell');
+  if (again >= 0) {
+    await qa(page, 'previewAt', again, 'spring');
+    await page.waitForTimeout(500);
+    await qa(page, 'placeAt', again, 'spring');
+    await page.waitForTimeout(1800);
+  }
 }
-if (cells?.bridgeAt >= 0) {
-  await qa(page, 'previewAt', cells.bridgeAt, 'bridge');
-  await page.waitForTimeout(900);
-}
-await qa(page, 'clearBoardFocus');
-await page.waitForTimeout(400);
 
 const video = await page.video()?.path();
 await ctx.close();

@@ -76,8 +76,10 @@ Before: mostly Springs, no Mills placed in sim tile counts (policy waited too lo
 - `costGrowth`: 1.15 → **1.12**
 - `tiles.spring.out`: 1 → **1.15**
 - `tiles.mill.cost`: 100 → **85**
-- `drift.minInk`: 1e6 → **2.65e5**
+- `drift.minInk`: 1e6 → **2.42e5** (casual first Drift **~10.25 min** with offline @5 min)
 - `rewards`: first Mill **35** Ink, first Bridge **120** Ink
+- **Constellations** (graph patterns): Inkstream / Millwheel / Twin Mills (+Ink, gold lines, Menu **Stars** tab)
+- **Camera (phone)**: steeper polar, **16px** margin, **1.28×** fill between HUD and info panel
 
 ---
 

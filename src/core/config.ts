@@ -12,12 +12,19 @@ export const config = {
   sellRefund: 0.5,
   square: { startRing: 1, maxRing: 5, surveyBase: 50, surveyGrowth: 6 },
   hyper: { startRing: 2, maxRing: 3, surveyBase: 2e5, surveyGrowth: 12 },
-  drift: { minInk: 2.65e5, divisor: 2.5e5, exponent: 0.5 },
+  drift: { minInk: 2.42e5, divisor: 2.5e5, exponent: 0.5 },
   projection: { minCharts: 25 },
   offline: { baseEff: 0.5, capHours: 8 },
   startInk: 22,
   /** One-time run rewards (first placement of each kind). */
   rewards: { firstMillInk: 35, firstBridgeInk: 120 },
+  /** Named shape bonuses (graph adjacency; once per unique instance per run). */
+  constellations: {
+    inkstream: { name: 'Inkstream', bonusInk: 55, blurb: 'A line of three Springs.' },
+    millwheel: { name: 'Millwheel', bonusInk: 80, blurb: 'A Mill ringed by Springs on three sides.' },
+    twinmills: { name: 'Twin Mills', bonusInk: 150, blurb: 'A Bridge linking two Mills.' },
+  },
+  camera: { polarY: 13, polarZ: 9, margin: 16, phoneFill: 1.28, desktopFill: 1.1 },
   ui: { inspectFadeMs: 300 },
   autoSpringInterval: 1, // seconds between auto-placed Springs
   /** Manifold preview (Layer 3): grid sizes, framing, skin. */

@@ -3,15 +3,15 @@ import { config } from '../src/core/config';
 import { runSim } from '../src/core/sim-economy';
 
 it('casual first Drift lands in 8–12 minutes (20 min sim)', () => {
-  const r = runSim('casual', 20);
+  const r = runSim('casual', 20, { offlineAtMin: 5 });
   const d = r.milestones.firstDrift;
   expect(d).toBeDefined();
-  expect(d!).toBeGreaterThanOrEqual(7);
-  expect(d!).toBeLessThanOrEqual(13);
+  expect(d!).toBeGreaterThanOrEqual(8);
+  expect(d!).toBeLessThanOrEqual(12);
 });
 
 it('casual has no affordability dead zone over 45s in the first 15 minutes', () => {
-  const r = runSim('casual', 20);
+  const r = runSim('casual', 20, { offlineAtMin: 5 });
   expect(r.maxDeadZoneSecFirst15).toBeLessThanOrEqual(45);
 });
 

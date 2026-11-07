@@ -216,7 +216,7 @@ function layoutScan() {
   }
 
   // Transient floating layers that are intentionally allowed to sit over other UI.
-  const TRANSIENT = /(^|\s)(tooltip|toast|flash|dev|modal-backdrop)(\s|$)/;
+  const TRANSIENT = /(^|\s)(tooltip|toast|flash|dev|modal-backdrop|board-gain-label)(\s|$)/;
   const isTransient = (el) => TRANSIENT.test(String(el.getAttribute('class') || '')) ||
     getComputedStyle(el).pointerEvents === 'none';
 
@@ -460,7 +460,7 @@ function layoutScan() {
 // The board canvas behind the UI is not counted; only what is left between overlays is the usable board.
 function boardBand() {
   const vh = window.innerHeight;
-  const TRANSIENT = /(^|\s)(tooltip|toast|flash|dev|modal-backdrop)(\s|$)/;
+  const TRANSIENT = /(^|\s)(tooltip|toast|flash|dev|modal-backdrop|board-gain-label)(\s|$)/;
   const shownEl = (el) => {
     for (let e = el; e && e.nodeType === 1; e = e.parentElement) {
       const cs = getComputedStyle(e);

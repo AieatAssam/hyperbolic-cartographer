@@ -3,6 +3,13 @@ import Decimal from 'break_eternity.js';
 import { config } from './core/config';
 import { initialState, graphOf, GRAPHS, SURFACE_GRAPHS, type GameState, type SurfacePreview } from './core/state';
 import { adjacency, buyChartUpg, buyCurvUpg, isActive, maxRing, mods, place, prod, previewDelta, sell, sellValue, survey, tileCost, togglePin } from './core/economy';
+import {
+  applyConstellationRewards,
+  eventsAfterPlace,
+  hintIfPlace,
+  networkLinkEdges,
+} from './core/constellations';
+import { playChime } from './ui/chime';
 import { placementImpactState, tileInfluenceState } from './core/placement-impact';
 import type { TileGraph } from './core/geometry/graph';
 import { canDrift, canProject, drift, project } from './core/prestige';
@@ -90,8 +97,9 @@ const MAX_FX_EVENTS = 6; // per frame, so autoBuy bursts cannot flood the pool
 const tap = new TapController(); // tap/drag/pinch classification; holds the touch-previewed cell
 
 // ---- UI-aware framing: centre the board in the screen area not covered by HUD/panels/dock ----
-const POLAR = Math.atan2(11, 13); // default camera tilt from vertical
-const MARGIN = 12; // px kept clear around the board inside the free rect
+const POLAR = Math.atan2(config.camera.polarY, config.camera.polarZ);
+const MARGIN = config.camera.margin;
+const boardFill = () => (innerWidth < 520 && innerHeight > innerWidth ? config.camera.phoneFill : config.camera.desktopFill);
 let free: Rect = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
 let fitD = 0; // distance that fits the current footprint into `free` (0 = not yet framed)
 let layoutDirty = true;
@@ -158,7 +166,7 @@ let manifoldAz = Math.PI * 0.32;
 let manifoldSpinOn = false;
 let kleinSpinPhase = 0;
 /** Full refit: default tilt, target at origin, distance solved from the footprint (initial UI, geometry, recenter). */
-const frameCamera = () => frameBoardCamera(POLAR);
+const frameCamera = () => frameBoardCamera(POLAR, 0, boardFill());
 const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
   const chart = isSurfaceBoard(board) && board.isChartFlat();
   const klein3d = isSurfaceBoard(board) && board.surface === 'klein' && !board.isChartFlat();
@@ -309,8 +317,26 @@ function applyTool(i: number): boolean {
   const delta = tl === 'sell' || tl === 'pin' ? 0 : previewDelta(s, i, tl);
   if (tl === 'sell') return sell(s, i);
   if (tl === 'pin') return togglePin(s, i);
+  const before = s.tiles.slice();
   if (!place(s, i, tl)) return false;
-  if (delta >= 4) ui.toast(delta >= 25 ? `Network linked! +${fmt(delta, s.notation)} Ink/s` : `+${fmt(delta, s.notation)} Ink/s`);
+  const g = graphOf(s);
+  const links = networkLinkEdges(g, before, s.tiles, i);
+  if (links?.length) {
+    fx.networkLink(links);
+    playChime('link');
+    if (delta >= 4) ui.toast(`Network linked! +${fmt(delta, s.notation)} Ink/s`);
+  } else if (delta >= 4) ui.toast(delta >= 25 ? `Network linked! +${fmt(delta, s.notation)} Ink/s` : `+${fmt(delta, s.notation)} Ink/s`);
+  const events = eventsAfterPlace(s, before, i, tl);
+  if (events.length) {
+    applyConstellationRewards(s, events);
+    for (const e of events) {
+      ui.toast(`★ ${e.name} — +${fmt(e.bonusInk, s.notation)} Ink & pattern bonus`);
+      constellationEdges = e.edges;
+      constellationUntil = performance.now() / 1000 + 9;
+      fx.celebrateConstellation(e.cells);
+      playChime('constellation');
+    }
+  }
   return true;
 }
 const ui = createUI(document.getElementById('ui')!, {
@@ -318,6 +344,12 @@ const ui = createUI(document.getElementById('ui')!, {
   tool,
   dev,
   selected: () => tap.selected,
+  boardFocus: () => {
+    if (inspectCell >= 0) return inspectCell;
+    if (tap.selected >= 0) return tap.selected;
+    if (qaHover >= 0) return qaHover;
+    return hover;
+  },
   inspectCell: () => inspectCell,
   cellInfo: (i) => cellHtml(i),
   cellScreenPos: (i) => {
@@ -330,7 +362,7 @@ const ui = createUI(document.getElementById('ui')!, {
     return { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H };
   },
   bridgePreviewDelta: () => {
-    const i = tap.selected >= 0 ? tap.selected : qaHover >= 0 ? qaHover : hover;
+    const i = tap.selected >= 0 ? tap.selected : qaHover >= 0 ? qaHover : hover >= 0 ? hover : -1;
     if (i < 0 || tool.current !== 'bridge' || s.tiles[i]) return null;
     const d = previewDelta(s, i, 'bridge');
     return d > 0 ? d : null;
@@ -538,6 +570,8 @@ let inspectCell = -1;
 let inspectBlend = 0;
 let inspectTarget = 0;
 let bridgePulse = 0;
+let constellationUntil = 0;
+let constellationEdges: [number, number][] = [];
 
 function bridgeArcEnds(g: TileGraph, tiles: (TileType | null)[], i: number): [number, number] | null {
   const nb = g.neighbours[i];
@@ -585,7 +619,9 @@ function cellHtml(i: number): string {
       const d = previewDelta(s, i, 'bridge');
       if (d > 0) fx += `<br><span class="pos">+${fmt(d, s.notation)} Ink/s via new links</span>`;
     }
-    return `${lead(`Place ${TILE_INFO[tl].name}`)}${meta(`${fmt(cost, s.notation)} Ink · ${nb} neighbours`)}${effect(fx)}${whyHtml}`;
+    const hint = hintIfPlace(s, i, tl);
+    const hintHtml = hint ? `<div class="info-note pos">★ Completes ${config.constellations[hint.id].name}</div>` : '';
+    return `${lead(`Place ${TILE_INFO[tl].name}`)}${meta(`${fmt(cost, s.notation)} Ink · ${nb} neighbours`)}${effect(fx)}${hintHtml}${whyHtml}`;
   }
   const out = prod(s).perTile[i];
   const title = `${TILE_INFO[t].name}${s.pinned.includes(i) ? ' · pinned' : ''}`;
@@ -702,9 +738,13 @@ function frame(now: number) {
       const arc = bridgeArcEnds(g, tiles, focus);
       if (arc) hl.arc = arc;
     }
+    const hint = hintIfPlace(s, focus, tool.current);
+    if (hint) hl.constellationGhost = hint.edges;
   } else if (focus >= 0) {
     hoverAdj = tiles[focus] ? adjacency(g, tiles, focus, reach) : g.neighbours[focus];
   }
+  const nowSec = now / 1000;
+  if (nowSec < constellationUntil && constellationEdges.length) hl.constellation = constellationEdges;
   const perTile = manifoldTiles
     ? tiles.map((t) => (t === 'mill' ? config.manifold.demoMillOut : t === 'spring' ? 1 : 0))
     : p.perTile;
@@ -731,7 +771,7 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // ---- QA fixtures (?dev&qa only): deterministic states, no randomness ----
-type QaSeed = 'fresh' | 'midgame' | 'drift-ready' | 'projection-ready' | 'hyper' | 'ux-demo';
+type QaSeed = 'fresh' | 'midgame' | 'drift-ready' | 'projection-ready' | 'hyper' | 'ux-demo' | 'constellation-demo' | 'network-demo';
 /** Tiles on every `every`-th active cell, alternating Mill and Spring. */
 function sprinkle(g: GameState, every: number) {
   g.tiles = g.tiles.map((_, i): TileType | null => (!isActive(g, i) || i % every ? null : (i / every) % 2 ? 'mill' : 'spring'));
@@ -755,6 +795,19 @@ function fixture(name: QaSeed): GameState {
   } else if (name === 'projection-ready') {
     Object.assign(g, { ink: d(1e6), runInk: d(1e5), lifetimeInk: d(3e6), charts: d(30), cycleCharts: d(30), drifts: 1, runTime: 300, totalTime: 3600 });
     sprinkle(g, 4);
+  } else if (name === 'network-demo') {
+    g.ring = 2;
+    Object.assign(g, { ink: d(500), runInk: d(100), totalTime: 60, runTime: 60 });
+    g.tiles[0] = 'spring';
+    g.tiles[7] = 'spring';
+  } else if (name === 'constellation-demo') {
+    g.ring = 2;
+    Object.assign(g, { ink: d(800), runInk: d(1e4), lifetimeInk: d(1e4), runTime: 120, totalTime: 120 });
+    const graph = graphOf(g);
+    g.tiles[0] = 'spring';
+    g.tiles[1] = 'spring';
+    const third = graph.neighbours[0].find((n) => graph.neighbours[1].includes(n) && n !== 0 && n !== 1);
+    if (third !== undefined) g.tiles[third] = null;
   } else if (name === 'ux-demo') {
     g.ring = 3;
     Object.assign(g, {
@@ -973,6 +1026,37 @@ if (dev) {
           surface: board.surface, chartMode: board.chartMode, immersion3d: board.immersion3d, seamView: board.seamView,
           minx, maxx, miny, maxy, cnt,
         };
+      },
+      networkLinkCell: () => {
+        const g = graphOf(s);
+        for (let i = 0; i < s.tiles.length; i++) {
+          if (!isActive(s, i) || s.tiles[i]) continue;
+          const before = s.tiles.slice();
+          const after = before.slice();
+          after[i] = 'spring';
+          if (networkLinkEdges(g, before, after, i)?.length) return i;
+        }
+        return -1;
+      },
+      inkstreamHintCell: () => {
+        for (let i = 0; i < s.tiles.length; i++) {
+          if (!isActive(s, i) || s.tiles[i]) continue;
+          if (hintIfPlace(s, i, 'spring')) return i;
+        }
+        return -1;
+      },
+      placeAt: (i: number, tl: Tool) => {
+        if (tl === 'sell' || tl === 'pin') return false;
+        if (!isActive(s, i) || s.tiles[i]) return false;
+        tool.current = tl as TileType;
+        tap.selected = i;
+        inspectCell = -1;
+        qaHover = -1;
+        const ok = applyTool(i);
+        tap.clearSelection();
+        ui.update();
+        renderFrame(0);
+        return ok;
       },
       demoCells: () => {
         const g = graphOf(s);
