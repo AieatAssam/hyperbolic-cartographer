@@ -216,7 +216,7 @@ function layoutScan() {
   }
 
   // Transient floating layers that are intentionally allowed to sit over other UI.
-  const TRANSIENT = /(^|\s)(tooltip|toast|flash|dev|modal-backdrop)(\s|$)/;
+  const TRANSIENT = /(^|\s)(tooltip|toast|flash|dev|modal-backdrop|board-gain-label)(\s|$)/;
   const isTransient = (el) => TRANSIENT.test(String(el.getAttribute('class') || '')) ||
     getComputedStyle(el).pointerEvents === 'none';
 
@@ -460,7 +460,7 @@ function layoutScan() {
 // The board canvas behind the UI is not counted; only what is left between overlays is the usable board.
 function boardBand() {
   const vh = window.innerHeight;
-  const TRANSIENT = /(^|\s)(tooltip|toast|flash|dev|modal-backdrop)(\s|$)/;
+  const TRANSIENT = /(^|\s)(tooltip|toast|flash|dev|modal-backdrop|board-gain-label)(\s|$)/;
   const shownEl = (el) => {
     for (let e = el; e && e.nodeType === 1; e = e.parentElement) {
       const cs = getComputedStyle(e);
@@ -578,6 +578,27 @@ async function focusLastActive(p) {
   });
   if (idx === null) throw new MissingHookError('focusCell');
   if (idx < 0) throw new Error('no active cell to focus');
+  return idx;
+}
+
+/** Prefer the highest-index active cell still inside phoneSnapshot (preview QA). */
+async function focusVisibleActive(p) {
+  const idx = await p.evaluate(() => {
+    const q = window.game?.qa;
+    if (typeof q?.focusCell !== 'function' || typeof q?.phoneSnapshot !== 'function') return null;
+    q.phoneSnapshot();
+    const visible = new Set(q.phoneSnapshot().visibleCells.map((c) => c.index));
+    if (!visible.size) {
+      for (let i = window.game.s.tiles.length - 1; i >= 0; i--) if (q.focusCell(i)) return i;
+      return -1;
+    }
+    for (let i = window.game.s.tiles.length - 1; i >= 0; i--) {
+      if (visible.has(i) && q.focusCell(i)) return i;
+    }
+    return -1;
+  });
+  if (idx === null) throw new MissingHookError('focusCell');
+  if (idx < 0) throw new Error('no visible active cell to focus');
   return idx;
 }
 
@@ -793,7 +814,7 @@ const boardCase = (name, seed, preview, centre = false) => ({
   setup: async (p) => {
     await qa(p, 'seed', seed);
     await qa(p, 'dismissTutorial');
-    if (preview) boardPreview.set(p, await focusLastActive(p));
+    if (preview) boardPreview.set(p, await focusVisibleActive(p));
     await rafTwice(p);
   },
   expect: async (p) => {
@@ -1009,6 +1030,26 @@ const CASES = [
       await qa(p, 'dismissTutorial');
     },
     expect: async (p) => p.evaluate(topbarControlRhythm),
+  },
+  {
+    name: 'bridge-gain-label',
+    setup: async (p) => {
+      await qa(p, 'seed', 'bridge-gain');
+      await qa(p, 'dismissTutorial');
+      const i = await qa(p, 'bridgeGainCell');
+      if (i < 0) throw new Error('bridge-gain fixture: no bridge cell');
+      await qa(p, 'previewAt', i, 'bridge');
+      await rafTwice(p);
+      await p.waitForTimeout(350);
+    },
+    expect: async (p) => {
+      const ok = await p.locator('.board-gain-label:not(.hidden)').evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const st = getComputedStyle(el);
+        return r.width > 40 && r.height > 14 && st.visibility !== 'hidden' && /Ink\/s/.test(el.textContent ?? '');
+      }).catch(() => false);
+      return ok ? [] : ['bridge +Ink/s gain label not visible during bridge preview'];
+    },
   },
   boardCase('board-free-55', 'midgame', false),
   boardCase('board-free-55-preview', 'midgame', true),

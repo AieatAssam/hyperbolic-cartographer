@@ -30,6 +30,7 @@ export function drift(s: GameState): Decimal {
   s.cycleCharts = s.cycleCharts.add(gain);
   s.drifts++;
   resetRun(s);
+  s.constellationKeys = [];
   s.tiles = s.tiles.map((t, i) => (s.pinned.includes(i) ? t : null));
   // Pinned tiles beyond the start area keep their ring surveyed.
   const g = GRAPHS[s.geometry];

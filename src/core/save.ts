@@ -3,7 +3,7 @@ import LZString from 'lz-string';
 import { GRAPHS, initialState, type GameState } from './state';
 import { TILE_TYPES } from './tiles';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 const DECIMAL_KEYS = ['ink', 'runInk', 'lifetimeInk', 'charts', 'cycleCharts', 'curvature'] as const;
 
 export interface SaveFile {
@@ -14,7 +14,13 @@ export interface SaveFile {
 }
 
 /** migrations[v] upgrades a v state to v+1. */
-export const migrations: Record<number, (s: Record<string, unknown>) => Record<string, unknown>> = {};
+export const migrations: Record<number, (s: Record<string, unknown>) => Record<string, unknown>> = {
+  1: (s) => ({
+    ...s,
+    constellationKeys: Array.isArray(s.constellationKeys) ? s.constellationKeys : [],
+    constellationLog: Array.isArray(s.constellationLog) ? s.constellationLog : [],
+  }),
+};
 
 export function fnv1a(str: string): string {
   let h = 0x811c9dc5;
@@ -76,5 +82,7 @@ function hydrate(raw: Record<string, unknown>): GameState {
   if (!Array.isArray(s.tiles) || s.tiles.length !== n || s.tiles.some((t) => t !== null && !TILE_TYPES.includes(t)))
     throw new Error('bad tiles');
   if (!Array.isArray(s.pinned) || s.pinned.some((i) => !s.tiles[i])) throw new Error('bad pins');
+  if (!Array.isArray(s.constellationKeys)) s.constellationKeys = [];
+  if (!Array.isArray(s.constellationLog)) s.constellationLog = [];
   return s;
 }

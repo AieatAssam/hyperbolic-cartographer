@@ -354,6 +354,19 @@ ul.reset li::before {
 }
 .dev.hidden { display: none; }
 
+/* Floating +Ink/s on bridge placement preview (screen space, not DOM tooltip). */
+.board-gain-label {
+  position: fixed; z-index: 55; pointer-events: none; transform: translate(-50%, -100%);
+  padding: 6px 12px; border-radius: 10px; font-size: 16px; font-weight: 800; line-height: 1.2;
+  font-variant-numeric: tabular-nums; color: #ffe7a8;
+  background: rgba(4, 6, 14, 0.94); border: 2px solid var(--gold);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.65), 0 0 16px rgba(232, 200, 114, 0.4);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  transition: opacity 0.15s ease;
+  min-width: 4.5rem; text-align: center;
+}
+.board-gain-label.hidden { display: none; }
+
 /* Toast: centred, around 40% from top, never blocks input */
 .toast {
   position: fixed; z-index: 40; top: 40%; left: 50%; transform: translate(-50%, -50%);
@@ -427,10 +440,17 @@ ul.reset li::before {
     height: var(--control-h); box-sizing: border-box;
   }
   .hud:not(.hud-open) .stat .label {
-    font-size: 10px; line-height: 1; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+    font-size: 10px; font-weight: 600; line-height: 1; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--cyan);
   }
   .hud:not(.hud-open) .stat .value {
-    font-size: 16px; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums;
+    font-size: 17px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+  }
+  .hud:not(.hud-open) > .stat {
+    border: 1px solid rgba(95, 212, 255, 0.35); border-radius: var(--control-r); background: rgba(8, 14, 28, 0.82);
+    padding: 2px 6px;
   }
   .hud:not(.hud-open) .stat .muted { display: none; }
   .hud:not(.hud-open) .hud-seg {

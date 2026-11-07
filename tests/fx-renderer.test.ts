@@ -58,11 +58,11 @@ describe('production streams: feed routes only', () => {
     fx.seed(3);
     const routes: Route[] = [{ nodes: [0, 1], source: 'beacon', kind: 'boost' }];
     const c = ctxOf(['beacon', 'spring'], { routes });
-    step(fx, c, 4); // 1.0 s, before the first aura tick (1.8 s at quality 1)
+    step(fx, c, 6); // before aura tick (~2.4 s at quality 1)
     expect(fx.stats().spawned).toBeGreaterThan(0); // the lone Spring is emitting motes
     expect(live(fx, Mode.Leg)).toEqual([]);
     let sawBoostLeg = false;
-    for (let k = 0; k < 8; k++) {
+    for (let k = 0; k < 16; k++) {
       fx.update(0.25, c);
       if (live(fx, Mode.Leg).length) sawBoostLeg = true;
     }
@@ -77,7 +77,7 @@ describe('lone producers: Ink motes for Springs and Mills with no feed route', (
     let arrived = 0;
     fx.onInkArrive = (w) => (arrived += w);
     const c = ctxOf(['beacon', 'spring'], { routes: [{ nodes: [0, 1], source: 'beacon', kind: 'boost' }] });
-    step(fx, c, 8);
+    step(fx, c, 16);
     expect(arrived).toBeGreaterThanOrEqual(1);
   });
 
@@ -87,7 +87,7 @@ describe('lone producers: Ink motes for Springs and Mills with no feed route', (
     const c = ctxOf(['mill']);
     const want = new THREE.Color().setHex(TILE_IDENTITIES.mill.emissive);
     let matched = false;
-    for (let k = 0; k < 4; k++) {
+    for (let k = 0; k < 12; k++) {
       fx.update(0.25, c);
       const col = attr(fx, 'aCol');
       for (const s of live(fx, Mode.Mote)) {

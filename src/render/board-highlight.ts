@@ -12,4 +12,12 @@ export interface BoardHighlight {
   pulse?: number;
   /** Optional bridge preview arc between two tile indices. */
   arc?: readonly [number, number];
+  /** Active constellation edges (gold lines on the board). */
+  constellation?: readonly [number, number][];
+  /** Burst intensity 0..1 (decays after complete). */
+  constellationPulse?: number;
+  /** Permanent faint links after a pattern completes. */
+  constellationPermanent?: readonly [number, number][];
+  /** Dashed ghost hint for a pattern that would complete on place. */
+  constellationGhost?: readonly [number, number][];
 }

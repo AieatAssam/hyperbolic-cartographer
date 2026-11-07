@@ -15,6 +15,7 @@ import {
   type Tab, type Tool,
 } from './help';
 import { attentionCleared, menuAttention } from '../core/menu-attention';
+import type { ConstellationId } from '../core/constellations';
 import { explainNow, immediateGoal, longGoal, type GoalIcon } from './goals';
 import {
   STEPS, currentStep, dismissTutorial, nextStep, parseTutorial, prevStep, reopenTutorial, restartTutorial, serializeTutorial, syncTutorial,
@@ -26,9 +27,13 @@ export interface UICtx {
   state: () => GameState; // live mutable state object (may be replaced after import/reset, so always call it)
   tool: { current: Tool };
   selected(): number; // touch-previewed cell, -1 if none
+  /** Focused board cell for labels (tap, hover, QA). */
+  boardFocus?(): number;
   /** Inspected tile (tap-to-inspect), or -1. Hides tutorial dock card while set so the board stays clear. */
   inspectCell(): number;
   cellInfo(i: number): string; // HTML describing cell i for the current tool (cost, Ink/s delta, blocked reason)
+  cellScreenPos?(i: number): { x: number; y: number } | null;
+  bridgePreviewDelta?(): number | null;
   tutorial: { load(): string | null; save(v: string): void }; // stored apart from the game save
   act: {
     survey(): void; drift(): void; project(): void;
@@ -56,6 +61,8 @@ export interface UICtx {
 }
 export interface UI {
   update(): void; // called ~10x per second; cheap. Rebuilds panel body only on tab/state-key change.
+  /** Repositions the floating bridge +Ink/s label (call every frame while previewing). */
+  syncBridgeGain(): void;
   tooltip(x: number, y: number, html: string | null): void; // null hides
   showOffline(r: OfflineReport): void;
   toast(msg: string): void;
@@ -78,8 +85,13 @@ export interface UI {
 
 type Dec = GameState['ink'];
 const TABS: [Tab, string][] = [
-  ['map', 'Map'], ['drift', 'Drift'], ['charts', 'Charts'], ['proj', 'Projection'], ['miles', 'Milestones'], ['save', 'Save'], ['guide', 'Guide'],
+  ['map', 'Map'], ['constellations', 'Stars'], ['drift', 'Drift'], ['charts', 'Charts'], ['proj', 'Projection'], ['miles', 'Milestones'], ['save', 'Save'], ['guide', 'Guide'],
 ];
+const CONST_NAMES: Record<ConstellationId, string> = {
+  inkstream: config.constellations.inkstream.name,
+  millwheel: config.constellations.millwheel.name,
+  twinmills: config.constellations.twinmills.name,
+};
 const TOOL_NAME: Record<Tool, string> = { ...Object.fromEntries(TILE_TYPES.map((t) => [t, TILE_INFO[t].name])), sell: 'Sell', pin: 'Pin' } as Record<Tool, string>;
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] => {
@@ -617,6 +629,33 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     return box;
   };
 
+  const constellationsTab = (_s: GameState): HTMLElement[] => {
+    const intro = card(
+      title('Constellations'),
+      txt('Place named shapes on the board for Ink bonuses. Gold lines mark a pattern; dashed lines show a hint while you preview.'),
+      list('guide-list', [
+        `${config.constellations.inkstream.name}: ${config.constellations.inkstream.blurb} (+${config.constellations.inkstream.bonusInk} Ink)`,
+        `${config.constellations.millwheel.name}: ${config.constellations.millwheel.blurb} (+${config.constellations.millwheel.bonusInk} Ink)`,
+        `${config.constellations.twinmills.name}: ${config.constellations.twinmills.blurb} (+${config.constellations.twinmills.bonusInk} Ink)`,
+      ]),
+    );
+    const logCard = card(title('Completed this journey'));
+    const logList = el('ul', 'guide-list');
+    logCard.append(logList);
+    watch(() => {
+      const g = get();
+      logList.replaceChildren();
+      if (!g.constellationLog.length) {
+        logList.append(el('li', 'muted', 'None yet — complete a pattern on the board.'));
+        return;
+      }
+      for (const row of [...g.constellationLog].reverse().slice(0, 24)) {
+        logList.append(el('li', '', `${CONST_NAMES[row.id]} · +${fmt(row.bonusInk, g.notation)} Ink`));
+      }
+    });
+    return [intro, logCard];
+  };
+
   const mapTab = (s: GameState): HTMLElement[] => {
     const full = s.ring >= maxRing(s);
     const sb = btn('', 'buy', () => ctx.act.survey());
@@ -838,7 +877,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   };
 
   const tabs: Record<Tab, (s: GameState) => HTMLElement[]> = {
-    map: mapTab, drift: driftTab, charts: chartsTab, proj: projTab, miles: milesTab, save: saveTab, guide: guideTab,
+    map: mapTab, constellations: constellationsTab, drift: driftTab, charts: chartsTab, proj: projTab, miles: milesTab, save: saveTab, guide: guideTab,
   };
 
   // ---- Tooltip / toast / flash ----
@@ -855,6 +894,8 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     tip.style.left = `${Math.max(8, Math.min(x + 14, window.innerWidth - w - 8))}px`;
     tip.style.top = `${Math.max(8, Math.min(y + 14, window.innerHeight - h - 8))}px`;
   };
+  const boardGain = el('div', 'board-gain-label hidden');
+  boardGain.setAttribute('aria-hidden', 'true');
   const toastEl = el('div', 'toast');
   toastEl.setAttribute('role', 'status');
   let toastTimer = 0;
@@ -972,6 +1013,24 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       );
       infoActs.hidden = true;
     }
+    syncBridgeGainLabel();
+  }
+
+  function syncBridgeGainLabel() {
+    const s = get();
+    const sel = ctx.selected();
+    const tl = ctx.tool.current;
+    const focus = ctx.boardFocus?.() ?? (sel >= 0 ? sel : -1);
+    const previewInk = ctx.bridgePreviewDelta?.() ?? null;
+    const pos = focus >= 0 ? ctx.cellScreenPos?.(focus) ?? null : null;
+    const surf = ctx.act.manifoldPreview?.();
+    const bridgeOn = tl === 'bridge';
+    if (previewInk != null && focus >= 0 && pos && bridgeOn && (!surf || surf === 'off')) {
+      boardGain.textContent = `+${fmt(previewInk, s.notation)} Ink/s`;
+      boardGain.style.left = `${Math.round(pos.x)}px`;
+      boardGain.style.top = `${Math.round(pos.y - 40)}px`;
+      boardGain.classList.remove('hidden');
+    } else boardGain.classList.add('hidden');
   }
 
   function update() {
@@ -1064,9 +1123,10 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
 
   // ---- Mount ----
   root.append(topbar, panel, dock, palette, manifoldBar, tip, toastEl, dev, backdrop);
+  document.body.append(boardGain);
   update();
   return {
-    update, tooltip, showOffline, toast, flash, bumpInk, setTransition, setManifoldPreview,
+    update, syncBridgeGain: syncBridgeGainLabel, tooltip, showOffline, toast, flash, bumpInk, setTransition, setManifoldPreview,
     qa: {
       tab: (id: string) => tabBtns.has(id as Tab) && openTab(id as Tab),
       openImport: (text?: string) => openImport(text),
