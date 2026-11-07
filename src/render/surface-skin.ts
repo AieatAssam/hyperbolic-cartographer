@@ -53,9 +53,9 @@ function skinMaterial(uSeg: number, vSeg: number, env: THREE.Texture | null) {
 }
 
 function parametricMesh(
-  w: number, h: number, posAt: (u: number, v: number) => [number, number, number], env: THREE.Texture | null, name: string,
+  uSteps: number, vSteps: number, texW: number, texH: number,
+  posAt: (u: number, v: number) => [number, number, number], env: THREE.Texture | null, name: string,
 ) {
-  const uSteps = w * 4, vSteps = h * 4;
   const pos: number[] = [], idx: number[] = [], uvs: number[] = [];
   for (let yi = 0; yi <= vSteps; yi++) {
     for (let xi = 0; xi <= uSteps; xi++) {
@@ -78,19 +78,24 @@ function parametricMesh(
   geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geom.setIndex(idx);
   geom.computeVertexNormals();
-  const mesh = new THREE.Mesh(geom, skinMaterial(w, h, env));
+  const mesh = new THREE.Mesh(geom, skinMaterial(texW, texH, env));
   mesh.name = name;
   mesh.renderOrder = -2;
   return mesh;
 }
 
 export function buildTorusSkin(g: SurfaceGraph, env: THREE.Texture | null): THREE.Mesh {
-  return parametricMesh(g.width, g.height, (u, v) => torusPosFromUv(u, v), env, 'torus-skin');
+  return parametricMesh(g.width * 4, g.height * 4, g.width, g.height, (u, v) => torusPosFromUv(u, v), env, 'torus-skin');
 }
 
 export function buildKleinImmersionSkin(g: SurfaceGraph, env: THREE.Texture | null): THREE.Mesh {
   const scale = KLEIN_SCALE();
-  return parametricMesh(g.width, g.height, (u, v) => kleinImmersionPos(u, v, scale), env, 'klein-skin');
+  const uSteps = config.manifold.kleinSkinU;
+  const vSteps = config.manifold.kleinSkinV;
+  return parametricMesh(
+    uSteps, vSteps, g.width, g.height,
+    (u, v) => kleinImmersionPos(u, v, scale), env, 'klein-skin',
+  );
 }
 
 export function buildSelfIntersectionLine(scale = KLEIN_SCALE()): THREE.Line {

@@ -12,6 +12,7 @@ import { Board, DISK_R } from './render/board';
 import { SurfaceBoard } from './render/surface-board';
 import type { TileGraph } from './core/geometry/graph';
 import { cellCorners, circlePts, fitDistance, freeRect, shouldReframe, type Rect, type Role } from './render/framing';
+import { fitManifoldProjected, checkManifoldProjectFit } from './render/manifold-camera-fit';
 import type { SquareBoard } from './core/geometry/square';
 import { CartographyFX, type FxContext, type FxQuality } from './render/fx';
 import { analyseCanvasPixels } from './render/canvas-check';
@@ -96,15 +97,24 @@ function footprint(): [number, number][] {
   const g = graphOf(s) as SquareBoard;
   return cellCorners(g.xy.filter((_, i) => g.ring[i] <= s.ring + 1));
 }
-const solveFit = () => fitDistance({ pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar: POLAR, margin: MARGIN });
+const solveFit = () => {
+  if (manifoldPreview !== 'off' && board && isSurfaceBoard(board) && !board.isChartFlat()) {
+    const polar = board.surface === 'torus' ? 1.08 : config.manifold.kleinImmersionPolar;
+    const fill = board.surface === 'klein' ? config.manifold.kleinImmersionFill : config.manifold.boardFill3d;
+    return fitManifoldProjected(board, camera, controls.target, free, innerWidth, innerHeight, polar, manifoldAz, fill);
+  }
+  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : MARGIN;
+  return fitDistance({ pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar: POLAR, margin });
+};
 /** Reads overlay rects (only when dirty) and shifts the projection via setViewOffset so the target sits at the
  *  free rect's centre. Raycasts stay exact: setFromCamera uses the offset projection and NDC spans the canvas.
  *  If already framed, rescales the current orbit distance by the new/old fit ratio (keeps the user's angle). */
 function layoutView() {
   layoutDirty = false;
   const W = innerWidth, H = innerHeight;
-  const overlays = [...document.querySelectorAll<HTMLElement>('#ui .hud, #ui .panel, #ui .dock')].map((el) => ({
-    role: (el.classList.contains('hud') ? 'hud' : el.classList.contains('dock') ? 'dock' : 'panel') as Role,
+  const overlays = [...document.querySelectorAll<HTMLElement>('#ui .hud, #ui .panel, #ui .dock, #ui .manifold-bar')].map((el) => ({
+    role: (el.classList.contains('hud') ? 'hud'
+      : (el.classList.contains('dock') || el.classList.contains('manifold-bar')) ? 'dock' : 'panel') as Role,
     rect: el.getBoundingClientRect(),
   }));
   free = freeRect(overlays, W, H);
@@ -136,7 +146,7 @@ addEventListener('resize', () => ((layoutDirty = true), clearPreviewOnLayoutChan
 addEventListener('orientationchange', () => ((layoutDirty = true), clearPreviewOnLayoutChange(true)));
 // panel toggles (display:none) and dock growth show up as size changes; no per-frame DOM reads
 const ro = new ResizeObserver(() => (layoutDirty = true));
-const observeUI = () => document.querySelectorAll('#ui .hud, #ui .panel, #ui .dock').forEach((el) => ro.observe(el));
+const observeUI = () => document.querySelectorAll('#ui .hud, #ui .panel, #ui .dock, #ui .manifold-bar').forEach((el) => ro.observe(el));
 new MutationObserver(() => ((layoutDirty = true), observeUI())).observe(document.getElementById('ui')!, { childList: true });
 
 let manifoldAz = Math.PI * 0.32;
@@ -149,18 +159,34 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
   const tY = chart ? 0 : isSurfaceBoard(board) && board.surface === 'torus' ? 0.1 : 0;
   controls.target.set(0, tY, 0);
   const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : MARGIN;
-  fitD = fitDistance({
-    pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar, margin,
-  }) / Math.max(0.35, fill);
+  const surf = isSurfaceBoard(board) ? board : null;
+  const useProjected = manifoldPreview !== 'off' && surf && !surf.isChartFlat();
+  if (useProjected && surf) {
+    const kleinFill = surf.surface === 'klein' ? config.manifold.kleinImmersionFill : fill;
+    fitD = fitManifoldProjected(surf, camera, controls.target, free, innerWidth, innerHeight, polar, azimuth, kleinFill);
+  } else {
+    fitD = fitDistance({
+      pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar, margin,
+    }) / Math.max(0.35, fill);
+  }
   controls.maxDistance = Math.max(40, fitD * 1.5);
   const cp = Math.cos(polar);
-  camera.position.set(Math.sin(azimuth) * cp * fitD, cp * fitD, Math.cos(azimuth) * cp * fitD);
+  camera.position.set(
+    controls.target.x + Math.sin(azimuth) * cp * fitD,
+    controls.target.y + cp * fitD,
+    controls.target.z + Math.cos(azimuth) * cp * fitD,
+  );
+  camera.lookAt(controls.target);
+  const W = innerWidth, H = innerHeight;
+  camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);
+  camera.updateProjectionMatrix();
 };
 const applyManifoldCamera = () => {
   if (!isSurfaceBoard(board)) return frameCamera();
   if (board.isChartFlat()) return frameBoardCamera(config.manifold.chartPolar, 0, config.manifold.chartFill);
-  const polar = board.surface === 'torus' ? 1.08 : 0.92;
-  frameBoardCamera(polar, manifoldAz, config.manifold.boardFill3d);
+  const polar = board.surface === 'torus' ? 1.08 : config.manifold.kleinImmersionPolar;
+  const fill = board.surface === 'klein' ? config.manifold.kleinImmersionFill : config.manifold.boardFill3d;
+  frameBoardCamera(polar, manifoldAz, fill);
 };
 function seedManifoldDemo(which: 'torus' | 'klein') {
   const g = SURFACE_GRAPHS[which];
@@ -712,6 +738,14 @@ if (dev) {
         if (which === 'off') exitManifoldPreview();
         else enterManifoldPreview(which);
         ui.update();
+      },
+      manifoldProjectFit: () => {
+        if (!isSurfaceBoard(board) || board.isChartFlat()) return { ok: false, failures: ['not-3d'] };
+        layoutDirty = true;
+        applyManifoldCamera();
+        renderFrame(0);
+        const fill = board.surface === 'klein' ? config.manifold.kleinImmersionFill : config.manifold.boardFill3d;
+        return checkManifoldProjectFit(board, camera, free, innerWidth, innerHeight, fill);
       },
       manifoldStats: () => {
         if (!isSurfaceBoard(board)) return null;

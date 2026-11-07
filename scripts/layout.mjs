@@ -918,6 +918,33 @@ const CASES = [
       return s?.ok ? [] : [`klein canvas blank: ${JSON.stringify(s)}`];
     },
   },
+  {
+    name: 'manifold-torus-inboard',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'dismissTutorial');
+      await qa(p, 'manifold', 'torus');
+      await p.waitForTimeout(900);
+    },
+    expect: async (p) => {
+      const r = await qa(p, 'manifoldProjectFit');
+      return r?.ok ? [] : (r?.failures ?? [`manifoldProjectFit failed: ${JSON.stringify(r)}`]).slice(0, 4);
+    },
+  },
+  {
+    name: 'manifold-klein-immersion-inboard',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'dismissTutorial');
+      await qa(p, 'manifold', 'klein');
+      await p.locator('[data-qa="mf-immersion"]').click();
+      await p.waitForTimeout(900);
+    },
+    expect: async (p) => {
+      const r = await qa(p, 'manifoldProjectFit');
+      return r?.ok ? [] : (r?.failures ?? [`manifoldProjectFit failed: ${JSON.stringify(r)}`]).slice(0, 4);
+    },
+  },
   // Harness self-check for the board band: a tall dock must be reported on phone portrait.
   calibrationCase('dock-tall', 'midgame', null, /^board free height/, boardScan, phonePortrait),
 ];

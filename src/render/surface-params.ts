@@ -63,11 +63,47 @@ export function torusFrameAtGrid(gx: number, gy: number, w: number, h: number, l
   return { p, n, t, u, v };
 }
 
+const KLEIN_BOTTLE_K = 0.21;
+
+/** Classic Dickson / Gray bottle immersion (u,v ∈ [0, 2π)). */
 export function kleinImmersionPos(u: number, v: number, scale = KLEIN_SCALE()): Tuple3 {
-  const px = scale * (Math.cos(u / 2) * Math.sin(v) - Math.sin(u / 2) * Math.sin(2 * v));
-  const py = scale * Math.sin(u / 2) * Math.cos(v) * 2;
-  const pz = scale * (Math.sin(u / 2) * Math.sin(v) + Math.cos(u / 2) * Math.sin(2 * v));
-  return [px, py, pz];
+  const cu = Math.cos(u), su = Math.sin(u), cv = Math.cos(v), sv = Math.sin(v);
+  const r = 4 * (1 - cu / 2);
+  let x: number, y: number, z: number;
+  if (u < Math.PI) {
+    x = 6 * cu * (1 + su) + r * cu * cv;
+    y = 16 * su + r * su * cv;
+    z = r * sv;
+  } else {
+    x = 6 * cu * (1 + su) + r * cv;
+    y = 16 * su;
+    z = r * sv;
+  }
+  const k = scale * KLEIN_BOTTLE_K;
+  return [x * k, y * k, z * k];
+}
+
+export function kleinBottleAabb(scale = KLEIN_SCALE()): { lo: Tuple3; hi: Tuple3 } {
+  const lo: Tuple3 = [Infinity, Infinity, Infinity];
+  const hi: Tuple3 = [-Infinity, -Infinity, -Infinity];
+  const steps = 40;
+  for (let i = 0; i <= steps; i++) {
+    for (let j = 0; j <= steps; j++) {
+      const u = (i / steps) * Math.PI * 2;
+      const v = (j / steps) * Math.PI * 2;
+      const p = kleinImmersionPos(u, v, scale);
+      for (let k = 0; k < 3; k++) {
+        lo[k] = Math.min(lo[k], p[k]);
+        hi[k] = Math.max(hi[k], p[k]);
+      }
+    }
+  }
+  return { lo, hi };
+}
+
+export function torusFitAabb(R = TORUS_R(), r = TORUS_r()): { lo: Tuple3; hi: Tuple3 } {
+  const pad = 1.04;
+  return { lo: [-R - r * pad, -r * 1.18, -R - r * pad], hi: [R + r * pad, r * 1.18, R + r * pad] };
 }
 
 export function kleinImmersionFrame(u: number, v: number, scale = KLEIN_SCALE()) {
@@ -171,5 +207,7 @@ export function torusBoundingRadius(R = TORUS_R(), r = TORUS_r()) {
 }
 
 export function kleinBoundingRadius(scale = KLEIN_SCALE()) {
-  return scale * 2.65;
+  const { lo, hi } = kleinBottleAabb(scale);
+  const mx = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+  return mx * 0.58;
 }
