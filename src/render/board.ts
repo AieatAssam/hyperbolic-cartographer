@@ -4,7 +4,7 @@ import type { SquareBoard } from '../core/geometry/square';
 import { apply, boost, boostToOrigin, dist, geodesic, identity, inverse, mul, normalize, orthonormalize, toDisk, type HyperBoard, type Mat3, type Vec3 } from '../core/geometry/hyperbolic';
 import { TILE_TYPES, type TileType } from '../core/tiles';
 import {
-  BLOOM, BOARD, EMPTY_SLOT, MATERIAL, NEXT_SLOT, PLACE, PREVIEW, TILE_IDENTITIES, bevelColour, hoverFace, motifScale, sideColour, tileHeight, trimGlow,
+  BLOOM, BOARD, CONSTELLATION, EMPTY_SLOT, MATERIAL, NEXT_SLOT, PLACE, PREVIEW, TILE_IDENTITIES, bevelColour, hoverFace, motifScale, sideColour, tileHeight, trimGlow,
 } from '../art/palette';
 import type { BoardHighlight } from './board-highlight';
 import { placeGlsl, placeScale } from './transition';
@@ -141,9 +141,8 @@ export class Board {
   private mats: THREE.Material[] = [];
   private tileType: GameState['tiles'] = [];
   private previewLine: THREE.Line;
-  private constellationLine: THREE.LineSegments;
-  private constellationGlow: THREE.LineSegments;
-  private constellationFaint: THREE.LineSegments;
+  private constellationLine: THREE.Mesh;
+  private constellationFaint: THREE.Mesh;
   private constellationStars: THREE.InstancedMesh;
   private ghostLine: THREE.LineSegments;
 
@@ -231,42 +230,29 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     this.previewLine.frustumCulled = false;
     this.previewLine.renderOrder = 6;
     this.group.add(this.previewLine);
-    const gold = new THREE.Color(0xe8c872);
-    this.constellationLine = new THREE.LineSegments(
-      new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({
-        color: gold, transparent: true, opacity: 0.92,
-        depthTest: false, depthWrite: false,
-      }),
-    );
-    this.constellationLine.visible = false;
-    this.constellationLine.frustumCulled = false;
-    this.constellationLine.renderOrder = 8;
-    this.group.add(this.constellationLine);
-    const glowMat = new THREE.LineBasicMaterial({
-      color: gold, transparent: true, opacity: 0.45,
-      depthTest: false, depthWrite: false,
-    });
-    this.constellationGlow = new THREE.LineSegments(new THREE.BufferGeometry(), glowMat);
-    this.constellationGlow.visible = false;
-    this.constellationGlow.frustumCulled = false;
-    this.constellationGlow.renderOrder = 7.5;
-    this.group.add(this.constellationGlow);
-    this.constellationFaint = new THREE.LineSegments(
-      new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({
-        color: gold, transparent: true, opacity: 0.38,
-        depthTest: false, depthWrite: false,
-      }),
-    );
-    this.constellationFaint.visible = false;
-    this.constellationFaint.frustumCulled = false;
-    this.constellationFaint.renderOrder = 5;
-    this.group.add(this.constellationFaint);
+    const mkRibbon = (color: number, renderOrder: number) => {
+      const m = new THREE.Mesh(
+        new THREE.BufferGeometry(),
+        new THREE.MeshBasicMaterial({
+          color: col(color), transparent: true, opacity: 1,
+          depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+        }),
+      );
+      m.visible = false;
+      m.frustumCulled = false;
+      m.renderOrder = renderOrder;
+      this.group.add(m);
+      return m;
+    };
+    this.constellationLine = mkRibbon(CONSTELLATION.ink, 8);
+    this.constellationFaint = mkRibbon(CONSTELLATION.inkComplete, 6);
     const starCap = GRAPHS[geometry].ring.length;
     this.constellationStars = new THREE.InstancedMesh(
-      new THREE.SphereGeometry(0.11, 10, 8),
-      new THREE.MeshBasicMaterial({ color: 0xfff0c8, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false }),
+      new THREE.SphereGeometry(0.13, 10, 8),
+      new THREE.MeshBasicMaterial({
+        color: col(CONSTELLATION.star), transparent: true, opacity: 0.95,
+        depthTest: false, depthWrite: false,
+      }),
       starCap,
     );
     this.constellationStars.count = 0;
@@ -276,7 +262,8 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     this.ghostLine = new THREE.LineSegments(
       new THREE.BufferGeometry(),
       new THREE.LineDashedMaterial({
-        color: gold, transparent: true, opacity: 0.88, dashSize: 0.22, gapSize: 0.1,
+        color: CONSTELLATION.inkGhost, transparent: true, opacity: CONSTELLATION.opacityGhost,
+        dashSize: 0.2, gapSize: 0.09, linewidth: 1,
         depthTest: false, depthWrite: false,
       }),
     );
@@ -286,12 +273,45 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     this.group.add(this.ghostLine);
   }
 
+  private updateConstellationRibbons(
+    edges: readonly [number, number][] | undefined,
+    mesh: THREE.Mesh,
+    halfWidth: number,
+    opacity: number,
+    lift: number,
+  ) {
+    const mat = mesh.material as THREE.MeshBasicMaterial;
+    mat.opacity = opacity;
+    if (!edges?.length) {
+      mesh.visible = false;
+      return;
+    }
+    const pos: number[] = [];
+    for (const [a, b] of edges) {
+      const ta = this.tops[a], tb = this.tops[b];
+      if (!ta || !tb) continue;
+      const y = Math.max(ta.y, tb.y) + lift;
+      const ax = ta.x, az = ta.z, bx = tb.x, bz = tb.z;
+      const dx = bx - ax, dz = bz - az;
+      const len = Math.hypot(dx, dz) || 1;
+      const px = (-dz / len) * halfWidth, pz = (dx / len) * halfWidth;
+      const q = (x: number, z: number) => { pos.push(x, y, z); };
+      q(ax + px, az + pz);
+      q(ax - px, az - pz);
+      q(bx + px, bz + pz);
+      q(ax + px, az + pz);
+      q(bx + px, bz + pz);
+      q(bx - px, bz - pz);
+    }
+    mesh.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+    mesh.visible = pos.length > 0;
+  }
+
   private updateEdgeLines(
     edges: readonly [number, number][] | undefined,
     mesh: THREE.LineSegments,
     lift: number,
     opacity = 1,
-    glowMul = 0,
   ) {
     const mat = mesh.material as THREE.LineBasicMaterial | THREE.LineDashedMaterial;
     mat.opacity = opacity;
@@ -300,25 +320,15 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       return;
     }
     const pts: number[] = [];
-    const glowPts: number[] = [];
     for (const [a, b] of edges) {
       const ta = this.tops[a], tb = this.tops[b];
       if (!ta || !tb) continue;
       const y = Math.max(ta.y, tb.y) + lift;
       pts.push(ta.x, y, ta.z, tb.x, y, tb.z);
-      if (glowMul > 0) {
-        const g = glowMul * 0.08;
-        glowPts.push(ta.x + g, y + 0.02, ta.z, tb.x - g, y + 0.02, tb.z);
-      }
     }
     mesh.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
     if (mesh.material instanceof THREE.LineDashedMaterial) (mesh as THREE.Line).computeLineDistances();
     mesh.visible = pts.length > 0;
-    if (glowMul > 0 && this.constellationGlow) {
-      (this.constellationGlow.material as THREE.LineBasicMaterial).opacity = opacity * 0.55;
-      this.constellationGlow.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(glowPts), 3));
-      this.constellationGlow.visible = glowPts.length > 0;
-    } else if (this.constellationGlow) this.constellationGlow.visible = false;
   }
 
   private updateConstellationStars(edges: readonly [number, number][] | undefined, pulse: number) {
@@ -348,10 +358,16 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     const bright = hl?.constellation;
     const faint = hl?.constellationPermanent;
     const ghost = hl?.constellationGhost;
-    const mainOp = bright?.length ? 0.55 + 0.45 * pulse : 0;
-    this.updateEdgeLines(bright, this.constellationLine, 0.42, mainOp, pulse);
-    this.updateEdgeLines(faint, this.constellationFaint, 0.26, 0.42, 0);
-    this.updateEdgeLines(ghost, this.ghostLine, 0.24, 0.92, 0);
+    const mainOp = bright?.length ? 0.72 + 0.28 * pulse : 0;
+    this.updateConstellationRibbons(
+      bright, this.constellationLine, CONSTELLATION.ribbonWidth * 0.5,
+      mainOp * CONSTELLATION.opacityPulse, 0.44,
+    );
+    this.updateConstellationRibbons(
+      faint, this.constellationFaint, CONSTELLATION.ribbonWidthComplete * 0.5,
+      CONSTELLATION.opacityComplete, 0.3,
+    );
+    this.updateEdgeLines(ghost, this.ghostLine, 0.26, CONSTELLATION.opacityGhost);
     this.updateConstellationStars(bright, pulse);
   }
 

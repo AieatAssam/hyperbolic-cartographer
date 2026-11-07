@@ -23,7 +23,7 @@ import {
   cellCorners, circlePts, fitDistance, freeRect, phonePortrait, shouldReframe, type Rect, type Role,
 } from './render/framing';
 import {
-  fitManifoldProjected, checkManifoldProjectFit, kleinImmersionTargetY,
+  fitManifoldProjected, checkManifoldProjectFit, kleinImmersionTargetY, manifoldFitPolar,
 } from './render/manifold-camera-fit';
 import { kleinCameraOffset } from './render/surface-params';
 import type { SquareBoard } from './core/geometry/square';
@@ -108,9 +108,12 @@ let layoutDirty = true;
 /** Board footprint on the ground: hyper = whole disk incl. slab/rim; square = active cells + next ring. */
 function footprint(): [number, number][] {
   if (manifoldPreview !== 'off' && board && isSurfaceBoard(board)) return board.bounds();
-  if (s.geometry === 'hyper') return circlePts(DISK_R + 0.6);
+  if (s.geometry === 'hyper') return circlePts(DISK_R + 0.72);
   const g = graphOf(s) as SquareBoard;
-  return cellCorners(g.xy.filter((_, i) => g.ring[i] <= s.ring + 1));
+  const cell = cellCorners(g.xy.filter((_, i) => g.ring[i] <= s.ring + 1));
+  const h = 6.35;
+  const rim: [number, number][] = [[-h, -h], [h, -h], [h, h], [-h, h]];
+  return [...cell, ...rim];
 }
 const solveFit = () => {
   if (manifoldPreview !== 'off' && board && isSurfaceBoard(board) && !board.isChartFlat()) {
@@ -184,6 +187,7 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
   const useProjected = manifoldPreview !== 'off' && surf && !surf.isChartFlat();
   if (useProjected && surf) {
     fitD = fitManifoldProjected(surf, camera, controls.target, free, innerWidth, innerHeight, polar, azimuth);
+    polar = manifoldFitPolar(surf.surface, surf.isChartFlat(), polar, innerWidth, innerHeight);
   } else {
     const W = innerWidth, H = innerHeight;
     const portraitWidthFirst = manifoldPreview === 'off' && phonePortrait(W, H);
@@ -1051,6 +1055,7 @@ if (dev) {
         renderFrame(0);
         layoutDirty = true;
         layoutView();
+        const fitPolar = manifoldFitPolar(board.surface, board.isChartFlat(), polar, innerWidth, innerHeight);
         fitD = fitManifoldProjected(
           board, camera, controls.target, free, innerWidth, innerHeight, polar, manifoldAz,
         );
@@ -1058,7 +1063,7 @@ if (dev) {
           const [ox, oy, oz] = kleinCameraOffset(fitD);
           camera.position.set(controls.target.x + ox, controls.target.y + oy, controls.target.z + oz);
         } else {
-          const cp = Math.cos(polar);
+          const cp = Math.cos(fitPolar);
           camera.position.set(
             controls.target.x + Math.sin(manifoldAz) * cp * fitD,
             controls.target.y + cp * fitD,
@@ -1072,7 +1077,7 @@ if (dev) {
         renderFrame(0);
         return checkManifoldProjectFit(board, camera, free, innerWidth, innerHeight, {
           target: controls.target,
-          polar,
+          polar: fitPolar,
           azimuth: manifoldAz,
           distance: fitD,
         });
