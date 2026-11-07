@@ -62,7 +62,7 @@ export const phoneLandscape = (W: number, H: number): boolean => W > H && H < 52
  *  the projection is view-offset so the target sits at the free rect's centre. Camera at d·(0, cosφ, sinφ):
  *  a ground point (x, z) has depth d − z·sinφ, screen x = x / depth, screen y = −z·cosφ / depth (tan units). */
 export function fitDistance(p: FitParams): number {
-  const margin = Math.max(12, p.margin + (phonePortrait(p.W, p.H) && p.portraitWidthFirst ? 2 : 0));
+  const margin = Math.max(12, p.margin);
   const t = Math.tan((p.fov * Math.PI) / 360);
   const a = t * (p.W / p.H) * Math.max(1, (p.free.right - p.free.left) / 2 - margin) / (p.W / 2);
   const b = t * Math.max(1, (p.free.bottom - p.free.top) / 2 - margin) / (p.H / 2);

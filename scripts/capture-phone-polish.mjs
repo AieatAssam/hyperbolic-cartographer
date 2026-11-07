@@ -38,20 +38,19 @@ const shots = [
     vp: { width: 390, height: 844 },
     async setup(page) {
       await qa(page, 'quality', 1);
-      await qa(page, 'seed', 'constellation-demo');
+      await qa(page, 'seed', 'midgame');
       await qa(page, 'dismissTutorial');
       await qa(page, 'manifold', 'off');
-      const i = await page.evaluate(() => {
-        const g = window.game.s;
-        const graph = window.game.s.geometry === 'hyper'
-          ? window.game.s
-          : null;
-        void graph;
-        const tiles = g.tiles;
-        for (let k = 0; k < tiles.length; k++) if (!tiles[k] && g.ring[k] <= g.ring) return k;
-        return 6;
-      });
-      await qa(page, 'previewAt', i, 'spring');
+      await qa(page, 'constellationCapture');
+    },
+  },
+  {
+    file: `polish-${TAG}-board-midgame-390x844.png`,
+    vp: { width: 390, height: 844 },
+    async setup(page) {
+      await qa(page, 'quality', 1);
+      await qa(page, 'seed', 'midgame');
+      await qa(page, 'dismissTutorial');
     },
   },
   {
@@ -73,6 +72,16 @@ const shots = [
     },
   },
   {
+    file: `polish-${TAG}-palette-360x640.png`,
+    vp: { width: 360, height: 640 },
+    async setup(page) {
+      await qa(page, 'quality', 1);
+      await qa(page, 'seed', 'fresh');
+      await qa(page, 'dismissTutorial');
+    },
+    clip: true,
+  },
+  {
     file: `polish-${TAG}-torus-844x390.png`,
     vp: { width: 844, height: 390 },
     isMobile: true,
@@ -82,6 +91,20 @@ const shots = [
       await qa(page, 'dismissTutorial');
       await qa(page, 'manifold', 'torus');
       await page.waitForFunction(() => window.game?.qa?.manifoldStats?.()?.surface === 'torus');
+      await qa(page, 'manifoldProjectFit');
+    },
+  },
+  {
+    file: `polish-${TAG}-torus-932x430.png`,
+    vp: { width: 932, height: 430 },
+    isMobile: true,
+    async setup(page) {
+      await qa(page, 'quality', 1);
+      await qa(page, 'seed', 'midgame');
+      await qa(page, 'dismissTutorial');
+      await qa(page, 'manifold', 'torus');
+      await page.waitForFunction(() => window.game?.qa?.manifoldStats?.()?.surface === 'torus');
+      await qa(page, 'manifoldProjectFit');
     },
   },
 ];
@@ -108,7 +131,12 @@ async function main() {
     await page.waitForFunction(() => window.game?.qa?.ready);
     await s.setup(page);
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-    await page.screenshot({ path: join(ART, s.file) });
+    const opts = { path: join(ART, s.file) };
+    if (s.clip) {
+      const box = await page.locator('.palette').boundingBox();
+      if (box) opts.clip = box;
+    }
+    await page.screenshot(opts);
     console.log('wrote', join(ART, s.file));
     await ctx.close();
   }

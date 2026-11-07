@@ -5,6 +5,7 @@ import { initialState, graphOf, GRAPHS, SURFACE_GRAPHS, type GameState, type Sur
 import { adjacency, buyChartUpg, buyCurvUpg, isActive, maxRing, mods, place, prod, previewDelta, sell, sellValue, survey, tileCost, togglePin } from './core/economy';
 import {
   applyConstellationRewards,
+  detectMatches,
   eventsAfterPlace,
   hintIfPlace,
   networkLinkEdges,
@@ -12,21 +13,22 @@ import {
 import { playChime } from './ui/chime';
 import { placementImpactState, tileInfluenceState } from './core/placement-impact';
 import type { TileGraph } from './core/geometry/graph';
+import type { SquareBoard } from './core/geometry/square';
 import { canDrift, canProject, drift, project } from './core/prestige';
 import { applyOffline, simulate } from './core/tick';
 import { exportString, importSave, makeSave, toJson } from './core/save';
 import { TILE_INFO, TILE_TYPES, type TileType } from './core/tiles';
 import { createScene, type QualityLevel } from './render/scene';
-import { Board, DISK_R } from './render/board';
+import { Board } from './render/board';
 import { SurfaceBoard } from './render/surface-board';
 import {
-  cellCorners, circlePts, fitDistance, freeRect, phonePortrait, shouldReframe, type Rect, type Role,
+  cellCorners, fitDistance, freeRect, phonePortrait, shouldReframe, type Rect, type Role,
 } from './render/framing';
 import {
   fitManifoldProjected, checkManifoldProjectFit, kleinImmersionTargetY, manifoldFitPolar,
+  resetManifoldFitFov,
 } from './render/manifold-camera-fit';
 import { kleinCameraOffset } from './render/surface-params';
-import type { SquareBoard } from './core/geometry/square';
 import { CartographyFX, type FxContext, type FxQuality } from './render/fx';
 import { analyseCanvasPixels } from './render/canvas-check';
 import type { BoardHighlight } from './render/board-highlight';
@@ -105,15 +107,35 @@ const boardFill = () => config.camera.phoneFill;
 let free: Rect = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
 let fitD = 0; // distance that fits the current footprint into `free` (0 = not yet framed)
 let layoutDirty = true;
-/** Board footprint on the ground: hyper = whole disk incl. slab/rim; square = active cells + next ring. */
+/** Playable cells plus ~one cell margin; decorative table / rim may extend past the screen. */
+const PLAYABLE_FRAME_MARGIN = 0.9;
+
 function footprint(): [number, number][] {
   if (manifoldPreview !== 'off' && board && isSurfaceBoard(board)) return board.bounds();
-  if (s.geometry === 'hyper') return circlePts(DISK_R + 0.72);
-  const g = graphOf(s) as SquareBoard;
-  const cell = cellCorners(g.xy.filter((_, i) => g.ring[i] <= s.ring + 1));
-  const h = 6.35;
-  const rim: [number, number][] = [[-h, -h], [h, -h], [h, h], [-h, h]];
-  return [...cell, ...rim];
+  const g = graphOf(s);
+  if (s.geometry === 'square') {
+    const sq = g as SquareBoard;
+    return cellCorners(sq.xy.filter((_, i) => isActive(s, i)), PLAYABLE_FRAME_MARGIN);
+  }
+  const pts: [number, number][] = [];
+  for (let i = 0; i < g.ring.length; i++) {
+    if (!isActive(s, i)) continue;
+    const { c, corner } = board.cellWorld(i);
+    const [cx, cz] = c;
+    const dx = corner[0] - cx, dz = corner[1] - cz;
+    const len = Math.hypot(dx, dz) || 1;
+    const ux = dx / len, uz = dz / len;
+    const px = -uz, pz = ux;
+    const pad = 0.25 * PLAYABLE_FRAME_MARGIN;
+    const r = len + pad;
+    pts.push(
+      [cx + ux * r, cz + uz * r],
+      [cx - ux * r, cz - uz * r],
+      [cx + px * r, cz + pz * r],
+      [cx - px * r, cz - pz * r],
+    );
+  }
+  return pts;
 }
 const solveFit = () => {
   if (manifoldPreview !== 'off' && board && isSurfaceBoard(board) && !board.isChartFlat()) {
@@ -287,6 +309,7 @@ function exitManifoldPreview() {
   layoutDirty = true;
   frameCamera();
   replaceSurfaceQuery('off');
+  resetManifoldFitFov(camera);
   if (qa) delete document.documentElement.dataset.qaKleinImmersionReady;
 }
 /** `full` (imports, resets) kills every FX instance; the transition swap passes false and calls fx.clearAnchored itself. */
@@ -1119,6 +1142,62 @@ if (dev) {
           if (hintIfPlace(s, i, 'spring')) return i;
         }
         return -1;
+      },
+      /** Completed + in-progress constellation overlays for captures/QA. */
+      constellationCapture: () => {
+        const g = graphOf(s);
+        for (let j = 0; j < g.ring.length; j++) {
+          if (!isActive(s, j)) continue;
+          for (const a of g.neighbours[j]) {
+            if (!isActive(s, a)) continue;
+            for (const c of g.neighbours[j]) {
+              if (c === a || !isActive(s, c)) continue;
+              if (g.neighbours[a].includes(c)) continue;
+              s.tiles[a] = 'spring';
+              s.tiles[j] = 'spring';
+              s.tiles[c] = 'spring';
+              break;
+            }
+          }
+        }
+        let matches = detectMatches(g, s.tiles);
+        constellationPermanent = matches[0]?.edges ?? [];
+        let hintCell = -1;
+        for (let m = 0; m < g.ring.length; m++) {
+          if (!isActive(s, m) || s.tiles[m] !== 'mill') continue;
+          const adj = g.neighbours[m].filter((i) => isActive(s, i) && !s.tiles[i]);
+          if (adj.length < 1) continue;
+          const springs = g.neighbours[m].filter((i) => s.tiles[i] === 'spring');
+          if (springs.length >= 2) {
+            constellationBurstEdges = springs.slice(0, 2).map((s0) => (s0 < m ? [s0, m] : [m, s0]));
+            hintCell = adj[0]!;
+            break;
+          }
+        }
+        if (!constellationBurstEdges.length && matches.length > 1) {
+          constellationBurstEdges = matches[1].edges;
+        }
+        constellationPulseUntil = performance.now() / 1000 + 120;
+        if (hintCell >= 0) {
+          tool.current = 'spring';
+          tap.selected = hintCell;
+          qaHover = hintCell;
+        } else {
+          for (let i = 0; i < s.tiles.length; i++) {
+            if (!isActive(s, i) || s.tiles[i]) continue;
+            if (hintIfPlace(s, i, 'spring')) {
+              tool.current = 'spring';
+              tap.selected = i;
+              qaHover = i;
+              hintCell = i;
+              break;
+            }
+          }
+        }
+        matches = detectMatches(g, s.tiles);
+        ui.update();
+        renderFrame(0);
+        return { permanent: constellationPermanent.length, pulse: constellationBurstEdges.length, hintCell, matches: matches.length };
       },
       placeAt: (i: number, tl: Tool) => {
         if (tl === 'sell' || tl === 'pin') return false;

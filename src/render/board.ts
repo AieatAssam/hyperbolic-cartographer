@@ -358,16 +358,16 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     const bright = hl?.constellation;
     const faint = hl?.constellationPermanent;
     const ghost = hl?.constellationGhost;
-    const mainOp = bright?.length ? 0.72 + 0.28 * pulse : 0;
+    const mainOp = bright?.length ? 0.85 + 0.15 * pulse : 0;
     this.updateConstellationRibbons(
       bright, this.constellationLine, CONSTELLATION.ribbonWidth * 0.5,
-      mainOp * CONSTELLATION.opacityPulse, 0.44,
+      mainOp * CONSTELLATION.opacityPulse, 0.52,
     );
     this.updateConstellationRibbons(
       faint, this.constellationFaint, CONSTELLATION.ribbonWidthComplete * 0.5,
-      CONSTELLATION.opacityComplete, 0.3,
+      CONSTELLATION.opacityComplete, 0.42,
     );
-    this.updateEdgeLines(ghost, this.ghostLine, 0.26, CONSTELLATION.opacityGhost);
+    this.updateEdgeLines(ghost, this.ghostLine, 0.38, CONSTELLATION.opacityGhost);
     this.updateConstellationStars(bright, pulse);
   }
 

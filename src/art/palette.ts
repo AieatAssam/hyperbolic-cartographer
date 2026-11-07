@@ -176,12 +176,12 @@ export const CONSTELLATION = {
   /** Ghost hint while previewing. */
   inkGhost: 0xffe7a8,
   /** World-space ribbon half-widths (metres on the board plane). */
-  ribbonWidth: 0.14,
-  ribbonWidthComplete: 0.11,
-  ribbonWidthGhost: 0.1,
+  ribbonWidth: 0.42,
+  ribbonWidthComplete: 0.34,
+  ribbonWidthGhost: 0.3,
   opacityPulse: 1,
-  opacityComplete: 0.92,
-  opacityGhost: 0.94,
+  opacityComplete: 0.96,
+  opacityGhost: 0.9,
   star: 0xfff8e6,
 } as const;
 
