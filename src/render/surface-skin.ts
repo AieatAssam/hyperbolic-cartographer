@@ -33,17 +33,20 @@ function skinTexture(uSeg: number, vSeg: number): THREE.CanvasTexture {
   return tex;
 }
 
-function skinMaterial(uSeg: number, vSeg: number, env: THREE.Texture | null) {
+function skinMaterial(uSeg: number, vSeg: number, env: THREE.Texture | null, rim = false) {
   const map = skinTexture(uSeg, vSeg);
+  const rimCol = col(0xc8b0e8);
   return new THREE.MeshStandardMaterial({
     map,
     color: col(SURFACE.skinInk),
+    emissive: rim ? rimCol : col(0x000000),
+    emissiveIntensity: rim ? config.manifold.skinRimEmissive : 0,
     transparent: true,
     opacity: config.manifold.skinAlpha,
-    roughness: 0.88,
-    metalness: 0.08,
+    roughness: rim ? 0.72 : 0.88,
+    metalness: rim ? 0.12 : 0.08,
     envMap: env,
-    envMapIntensity: 0.22,
+    envMapIntensity: rim ? 0.38 : 0.22,
     side: THREE.DoubleSide,
     depthWrite: false,
     polygonOffset: true,
@@ -78,7 +81,7 @@ function parametricMesh(
   geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geom.setIndex(idx);
   geom.computeVertexNormals();
-  const mesh = new THREE.Mesh(geom, skinMaterial(texW, texH, env));
+  const mesh = new THREE.Mesh(geom, skinMaterial(texW, texH, env, name === 'klein-skin'));
   mesh.name = name;
   mesh.renderOrder = -2;
   return mesh;

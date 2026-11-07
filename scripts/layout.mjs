@@ -928,7 +928,8 @@ const CASES = [
     },
     expect: async (p) => {
       const r = await qa(p, 'manifoldProjectFit');
-      return r?.ok ? [] : (r?.failures ?? [`manifoldProjectFit failed: ${JSON.stringify(r)}`]).slice(0, 4);
+      if (r?.ok) return [];
+      return (r?.failures ?? [`manifoldProjectFit failed: ${JSON.stringify(r)}`]).slice(0, 5);
     },
   },
   {
@@ -942,7 +943,8 @@ const CASES = [
     },
     expect: async (p) => {
       const r = await qa(p, 'manifoldProjectFit');
-      return r?.ok ? [] : (r?.failures ?? [`manifoldProjectFit failed: ${JSON.stringify(r)}`]).slice(0, 4);
+      if (r?.ok) return [];
+      return (r?.failures ?? [`manifoldProjectFit failed: ${JSON.stringify(r)}`]).slice(0, 5);
     },
   },
   // Harness self-check for the board band: a tall dock must be reported on phone portrait.

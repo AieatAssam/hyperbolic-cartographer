@@ -63,7 +63,7 @@ export function torusFrameAtGrid(gx: number, gy: number, w: number, h: number, l
   return { p, n, t, u, v };
 }
 
-const KLEIN_BOTTLE_K = 0.24;
+const KLEIN_BOTTLE_K = 0.31;
 
 /** Classic Dickson / Gray bottle immersion (u,v ∈ [0, 2π)). */
 export function kleinImmersionPos(u: number, v: number, scale = KLEIN_SCALE()): Tuple3 {
@@ -102,8 +102,7 @@ export function kleinBottleAabb(scale = KLEIN_SCALE()): { lo: Tuple3; hi: Tuple3
 }
 
 export function torusFitAabb(R = TORUS_R(), r = TORUS_r()): { lo: Tuple3; hi: Tuple3 } {
-  const pad = 1.04;
-  return { lo: [-R - r * pad, -r * 1.18, -R - r * pad], hi: [R + r * pad, r * 1.18, R + r * pad] };
+  return { lo: [-R - r, -r, -R - r], hi: [R + r, r, R + r] };
 }
 
 export function kleinImmersionFrame(u: number, v: number, scale = KLEIN_SCALE()) {

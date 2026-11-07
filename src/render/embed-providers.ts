@@ -19,6 +19,7 @@ import {
 import {
   chartCell, chartCellCenter, kleinFrameAtGrid, torusFrameAtGrid,
 } from './surface-params';
+import { buildKleinSurfaceEdgePaths, buildTorusSurfaceEdgePaths } from './manifold-edge-paths';
 
 export const DISK_R = 9;
 
@@ -139,13 +140,14 @@ export function embedTorus(g: SurfaceGraph, out: Embedding, params: TorusEmbedPa
       writeFrameExt(out, i, { p, s: 1, n, t, chi: 1 });
     }
     fillPortals(g, out, at);
+    buildTorusSurfaceEdgePaths(g, out);
   }
-  buildEdgePaths(g, out, (a, b) => {
-    const pa = at(a), pb = at(b);
-    const na = chart ? ([0, 1, 0] as Tuple3) : torusFrameAtGrid(g.xy[a][0] + 0.5, g.xy[a][1] + 0.5, g.width, g.height).n;
-    const nb = chart ? ([0, 1, 0] as Tuple3) : torusFrameAtGrid(g.xy[b][0] + 0.5, g.xy[b][1] + 0.5, g.width, g.height).n;
-    return { pa, pb, na, nb };
-  });
+  if (chart) {
+    buildEdgePaths(g, out, (a, b) => {
+      const pa = at(a), pb = at(b);
+      return { pa, pb, na: [0, 1, 0] as Tuple3, nb: [0, 1, 0] as Tuple3 };
+    });
+  }
   bumpRev(out);
   return out;
 }
@@ -173,21 +175,10 @@ export function embedKleinImmersion(g: SurfaceGraph, out: Embedding, params: Kle
     writeFrameExt(out, i, { p, s: 1, n, t, chi: 1 });
   }
   fillPortals(g, out, at);
-  buildEdgePaths(g, out, (a, b) => {
-    const fa = framePos(out, a), fb = framePos(out, b);
-    return { pa: fa.p, pb: fb.p, na: fa.n, nb: fb.n };
-  });
+  buildKleinSurfaceEdgePaths(g, out);
   bumpRev(out);
   return out;
 }
-
-const framePos = (e: Embedding, i: number) => {
-  const o = i * 12;
-  return {
-    p: [e.data[o], e.data[o + 1], e.data[o + 2]] as Tuple3,
-    n: [e.data[o + 4], e.data[o + 5], e.data[o + 6]] as Tuple3,
-  };
-};
 
 export function embedKlein(g: SurfaceGraph, out: Embedding, params: KleinEmbedParams = {}): Embedding {
   const cell = params.cell ?? chartCell(g.width, g.height);
