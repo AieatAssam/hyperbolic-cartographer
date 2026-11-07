@@ -250,3 +250,27 @@ The particle mechanics are specified in `particle-language.md`. This section lis
 3. If a balance number changes, note it in the README "Balance" section.
 4. Check bloom: faces stay at `MATERIAL.faceGlow` and trim at or below `trimGlowMax`. Only motif cores go above `BLOOM.threshold`, and never past `BOARD.glowAccentIntensity`.
 5. Check the phone path: a level 1 start and a manual `setQuality(0)` both render correctly.
+
+## 10. References (direction only)
+
+These works inform readability and framing. They are **not** sources to copy or trace. Implement only through `palette.ts` tokens and the rules above.
+
+| Reference | Link | Rule it drives |
+|---|---|---|
+| Hyperbolica (CodeParade) | [Steam store page](https://store.steampowered.com/app/1256230/Hyperbolica/) | Placed tiles and landmarks stay high-saturation and readable as cells shrink; empty cells stay muted against denser rim space. |
+| Manifold Garden box design (William Chyr) | [Development update: box design](https://williamchyr.com/development-update-box-design/) | Colour-coded regions; heavy rim on placed/active tiles, thin rim on inactive; paired seam hues plus a distinct flip hue on Klein. |
+| Hyperbolic Catacombs {3,7,3} (Nelson & Segerman) | [Bridges 2015 exhibition](https://gallery.bridgesmathart.org/exhibitions/2015-bridges-conference/roice3) | Clear figure–ground between cell fill and edge ink (disk and future ball). |
+| Round Klein Bottle (Segerman & Schleimer) | [JMM 2012 exhibition](https://gallery.bridgesmathart.org/exhibitions/2012-joint-mathematics-meetings/henrys) | Self-intersection reads as a seam with a local glow motif (`SURFACE.seamGlow`), not whole-surface bloom. |
+| Cartography of the Riven Realms (Vagrus) | [Lost Pilgrims devlog](https://lostpilgrims.itch.io/vagrus/devlog/837441/cartography-of-the-riven-realms) | On phones, keep the free play band clean; drop secondary ornament before shrinking touch targets. |
+| Monument Valley (ustwo games) | [Monument Valley](https://ustwogames.co.uk/our-games/monument-valley/) | Each 3D surface reads as a calm centred monument with breathing room; building tiles use chunky silhouettes at phone size. |
+
+### Manifold preview (Wired)
+
+| Token / behaviour | Meaning |
+|---|---|
+| `SURFACE.seamA` / `seamB` | Orientable seam pair hues on chart and 3D patch rims. |
+| `SURFACE.seamFlip` | Klein vertical flip seam (distinct from seamA/B). |
+| `SURFACE.seamGlow` / `seamGlowEmissive` | Klein self-intersection ring glow beads (just under bloom threshold). |
+| `config.manifold.kleinSkinAlpha` | Klein immersion glass (~32%); torus uses `skinAlpha` (~50%). |
+| `config.manifold.kleinTileAlpha` | Opaque tile patches over Klein glass; back faces dimmed via `kleinBackfaceDim`. |
+| Manifold placed `inset` 0.66 / empty ~0.9 | Active versus inactive rim weight on 3D surfaces. |

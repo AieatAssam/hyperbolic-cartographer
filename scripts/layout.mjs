@@ -886,6 +886,67 @@ const CASES = [
   boardCase('board-free-55', 'midgame', false),
   boardCase('board-free-55-preview', 'midgame', true),
   boardCase('board-free-55-hyper-preview', 'hyper', true, true),
+  {
+    name: 'manifold-torus-lit',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'dismissTutorial');
+      await qa(p, 'manifold', 'torus');
+      await p.waitForTimeout(600);
+    },
+    expect: async (p) => {
+      const bar = await p.locator('[data-qa="manifold-bar"]:not(.hidden)').count();
+      const panel = await p.locator('#ui.manifold-preview .panel:not(.hidden)').count();
+      const errs = [];
+      if (!bar) errs.push('manifold toolbar not visible');
+      if (panel) errs.push('panel should be hidden in manifold preview');
+      const s = await qa(p, 'canvasSample');
+      if (!s?.ok) errs.push(`torus canvas blank: ${JSON.stringify(s)}`);
+      return errs;
+    },
+  },
+  {
+    name: 'manifold-klein-lit',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'dismissTutorial');
+      await qa(p, 'manifold', 'klein');
+      await p.waitForTimeout(600);
+    },
+    expect: async (p) => {
+      const s = await qa(p, 'canvasSample');
+      return s?.ok ? [] : [`klein canvas blank: ${JSON.stringify(s)}`];
+    },
+  },
+  {
+    name: 'manifold-torus-inboard',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'dismissTutorial');
+      await qa(p, 'manifold', 'torus');
+      await p.waitForTimeout(900);
+    },
+    expect: async (p) => {
+      const r = await qa(p, 'manifoldProjectFit');
+      if (r?.ok) return [];
+      return (r?.failures ?? [`manifoldProjectFit failed: ${JSON.stringify(r)}`]).slice(0, 5);
+    },
+  },
+  {
+    name: 'manifold-klein-immersion-inboard',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'dismissTutorial');
+      await qa(p, 'manifold', 'klein');
+      await p.locator('[data-qa="mf-immersion"]').click();
+      await p.waitForTimeout(900);
+    },
+    expect: async (p) => {
+      const r = await qa(p, 'manifoldProjectFit');
+      if (r?.ok) return [];
+      return (r?.failures ?? [`manifoldProjectFit failed: ${JSON.stringify(r)}`]).slice(0, 5);
+    },
+  },
   // Harness self-check for the board band: a tall dock must be reported on phone portrait.
   calibrationCase('dock-tall', 'midgame', null, /^board free height/, boardScan, phonePortrait),
 ];
@@ -1061,7 +1122,10 @@ async function main() {
   const results = [];
   let browser;
   try {
-    browser = await chromium.launch({ headless: true }).catch((e) => {
+    browser = await chromium.launch({
+      headless: true,
+      args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+    }).catch((e) => {
       throw new Error(`could not launch Chromium (run \`npx playwright install chromium\`): ${e.message}`);
     });
     for (const vp of selected) {

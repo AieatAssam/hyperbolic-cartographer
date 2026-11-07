@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import Decimal from 'break_eternity.js';
 import { config } from './core/config';
-import { initialState, graphOf, GRAPHS, type GameState } from './core/state';
+import { initialState, graphOf, GRAPHS, SURFACE_GRAPHS, type GameState, type SurfacePreview } from './core/state';
 import { adjacency, buyChartUpg, buyCurvUpg, isActive, maxRing, mods, place, prod, previewDelta, sell, sellValue, survey, tileCost, togglePin } from './core/economy';
 import { canDrift, canProject, drift, project } from './core/prestige';
 import { applyOffline, simulate } from './core/tick';
@@ -9,9 +9,16 @@ import { exportString, importSave, makeSave, toJson } from './core/save';
 import { TILE_INFO, TILE_TYPES, type TileType } from './core/tiles';
 import { createScene, type QualityLevel } from './render/scene';
 import { Board, DISK_R } from './render/board';
+import { SurfaceBoard } from './render/surface-board';
+import type { TileGraph } from './core/geometry/graph';
 import { cellCorners, circlePts, fitDistance, freeRect, shouldReframe, type Rect, type Role } from './render/framing';
+import {
+  fitManifoldProjected, checkManifoldProjectFit, kleinImmersionTargetY,
+} from './render/manifold-camera-fit';
+import { kleinCameraOffset } from './render/surface-params';
 import type { SquareBoard } from './core/geometry/square';
 import { CartographyFX, type FxContext, type FxQuality } from './render/fx';
+import { analyseCanvasPixels } from './render/canvas-check';
 import { productionRoutes, revealSpans, surveyWave, type Route } from './render/fx-graph';
 import { budgetFor } from './render/fx-model';
 import { TRANSITION_S, transitionPhase } from './render/transition';
@@ -51,12 +58,23 @@ const persist = () => store.set(KEY, exportString(makeSave(s, Date.now())));
 
 // ---- render ----
 const canvas = document.getElementById('c') as HTMLCanvasElement;
-const { renderer, scene, camera, controls, composer, renderFrame, getQuality, setQuality } = createScene(canvas);
+const { renderer, scene, camera, controls, composer, renderFrame, getQuality, setQuality } = createScene(canvas, { preserveDrawingBuffer: qa });
 const fx = new CartographyFX(getQuality().level as FxQuality);
 scene.add(fx.group);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 let inkTarget: [number, number] = [0, 0.92]; // HUD Ink counter centre in NDC, cached in layoutView
-let board: Board;
+type GameBoard = Board | SurfaceBoard;
+const surfaceParam = new URLSearchParams(location.search).get('surface');
+let manifoldPreview: SurfacePreview =
+  surfaceParam === 'torus' || surfaceParam === 'klein' ? surfaceParam : 'off';
+/** Local tile placement state for the Manifold preview (not saved, no Ink economy). */
+let manifoldTiles: (TileType | null)[] | null = null;
+let board: GameBoard;
+const isSurfaceBoard = (b: GameBoard): b is SurfaceBoard => 'surface' in b;
+const activeGraph = (): TileGraph =>
+  manifoldPreview !== 'off' ? SURFACE_GRAPHS[manifoldPreview] : graphOf(s);
+const renderState = (): GameState =>
+  manifoldTiles ? { ...s, tiles: manifoldTiles, ring: 99 } : s;
 let prevTiles: GameState['tiles'] = [], prevRing = s.ring; // FX diff: covers manual and automated changes once
 /** Prestige transition, driven by frame dt (no timers). The economy reset runs once, at the midpoint.
  *  total and reduced are captured at start, so a media-preference change mid-transition cannot desync the FX timeline. */
@@ -77,19 +95,28 @@ let fitD = 0; // distance that fits the current footprint into `free` (0 = not y
 let layoutDirty = true;
 /** Board footprint on the ground: hyper = whole disk incl. slab/rim; square = active cells + next ring. */
 function footprint(): [number, number][] {
+  if (manifoldPreview !== 'off' && board && isSurfaceBoard(board)) return board.bounds();
   if (s.geometry === 'hyper') return circlePts(DISK_R + 0.6);
   const g = graphOf(s) as SquareBoard;
   return cellCorners(g.xy.filter((_, i) => g.ring[i] <= s.ring + 1));
 }
-const solveFit = () => fitDistance({ pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar: POLAR, margin: MARGIN });
+const solveFit = () => {
+  if (manifoldPreview !== 'off' && board && isSurfaceBoard(board) && !board.isChartFlat()) {
+    const polar = board.surface === 'torus' ? config.manifold.torusImmersionPolar : 0;
+    return fitManifoldProjected(board, camera, controls.target, free, innerWidth, innerHeight, polar, manifoldAz);
+  }
+  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : MARGIN;
+  return fitDistance({ pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar: POLAR, margin });
+};
 /** Reads overlay rects (only when dirty) and shifts the projection via setViewOffset so the target sits at the
  *  free rect's centre. Raycasts stay exact: setFromCamera uses the offset projection and NDC spans the canvas.
  *  If already framed, rescales the current orbit distance by the new/old fit ratio (keeps the user's angle). */
 function layoutView() {
   layoutDirty = false;
   const W = innerWidth, H = innerHeight;
-  const overlays = [...document.querySelectorAll<HTMLElement>('#ui .hud, #ui .panel, #ui .dock')].map((el) => ({
-    role: (el.classList.contains('hud') ? 'hud' : el.classList.contains('dock') ? 'dock' : 'panel') as Role,
+  const overlays = [...document.querySelectorAll<HTMLElement>('#ui .hud, #ui .panel, #ui .dock, #ui .manifold-bar')].map((el) => ({
+    role: (el.classList.contains('hud') ? 'hud'
+      : (el.classList.contains('dock') || el.classList.contains('manifold-bar')) ? 'dock' : 'panel') as Role,
     rect: el.getBoundingClientRect(),
   }));
   free = freeRect(overlays, W, H);
@@ -97,8 +124,9 @@ function layoutView() {
   if (ink && ink.width > 0) inkTarget = [((ink.left + ink.width / 2) / W) * 2 - 1, 1 - ((ink.top + ink.height / 2) / H) * 2];
   camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);
   camera.updateProjectionMatrix();
+  const manifold3d = manifoldPreview !== 'off' && board && isSurfaceBoard(board) && !board.isChartFlat();
   const d = solveFit();
-  if (fitD > 0) setDistance(camera.position.distanceTo(controls.target) * (d / fitD));
+  if (fitD > 0 && !manifold3d) setDistance(camera.position.distanceTo(controls.target) * (d / fitD));
   fitD = d;
   controls.maxDistance = Math.max(40, d * 1.5);
 }
@@ -121,32 +149,121 @@ addEventListener('resize', () => ((layoutDirty = true), clearPreviewOnLayoutChan
 addEventListener('orientationchange', () => ((layoutDirty = true), clearPreviewOnLayoutChange(true)));
 // panel toggles (display:none) and dock growth show up as size changes; no per-frame DOM reads
 const ro = new ResizeObserver(() => (layoutDirty = true));
-const observeUI = () => document.querySelectorAll('#ui .hud, #ui .panel, #ui .dock').forEach((el) => ro.observe(el));
+const observeUI = () => document.querySelectorAll('#ui .hud, #ui .panel, #ui .dock, #ui .manifold-bar').forEach((el) => ro.observe(el));
 new MutationObserver(() => ((layoutDirty = true), observeUI())).observe(document.getElementById('ui')!, { childList: true });
 
+let manifoldAz = Math.PI * 0.32;
+let manifoldSpinOn = false;
+let kleinSpinPhase = 0;
 /** Full refit: default tilt, target at origin, distance solved from the footprint (initial UI, geometry, recenter). */
-const frameCamera = () => {
+const frameCamera = () => frameBoardCamera(POLAR);
+const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
+  const chart = isSurfaceBoard(board) && board.isChartFlat();
+  const klein3d = isSurfaceBoard(board) && board.surface === 'klein' && !board.isChartFlat();
+  const tY = chart ? 0 : isSurfaceBoard(board) && board.surface === 'torus' ? 0.1 : klein3d ? kleinImmersionTargetY() : 0;
+  controls.target.set(0, tY, 0);
   if (layoutDirty) layoutView();
-  controls.target.set(0, 0, 0);
-  fitD = solveFit();
+  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : MARGIN;
+  const surf = isSurfaceBoard(board) ? board : null;
+  const useProjected = manifoldPreview !== 'off' && surf && !surf.isChartFlat();
+  if (useProjected && surf) {
+    fitD = fitManifoldProjected(surf, camera, controls.target, free, innerWidth, innerHeight, polar, azimuth);
+  } else {
+    fitD = fitDistance({
+      pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar, margin,
+    }) / Math.max(0.35, fill);
+  }
   controls.maxDistance = Math.max(40, fitD * 1.5);
-  camera.position.set(0, Math.cos(POLAR) * fitD, Math.sin(POLAR) * fitD);
+  if (klein3d) {
+    const [ox, oy, oz] = kleinCameraOffset(fitD);
+    camera.position.set(controls.target.x + ox, controls.target.y + oy, controls.target.z + oz);
+  } else {
+    const cp = Math.cos(polar);
+    camera.position.set(
+      controls.target.x + Math.sin(azimuth) * cp * fitD,
+      controls.target.y + cp * fitD,
+      controls.target.z + Math.cos(azimuth) * cp * fitD,
+    );
+  }
+  camera.lookAt(controls.target);
+  const W = innerWidth, H = innerHeight;
+  camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);
+  camera.updateProjectionMatrix();
 };
+const applyManifoldCamera = () => {
+  if (!isSurfaceBoard(board)) return frameCamera();
+  if (board.isChartFlat()) return frameBoardCamera(config.manifold.chartPolar, 0, config.manifold.chartFill);
+  const polar = board.surface === 'torus' ? config.manifold.torusImmersionPolar : 0;
+  frameBoardCamera(polar, manifoldAz, 1);
+};
+function seedManifoldDemo(which: 'torus' | 'klein') {
+  const g = SURFACE_GRAPHS[which];
+  manifoldTiles = g.ring.map(() => null);
+  if (which === 'torus') {
+    const loop = g.cycleBasis[0];
+    for (let k = 0; k < loop.length - 1; k++) manifoldTiles[loop[k]] = k % 2 === 0 ? 'spring' : 'mill';
+  } else {
+    for (let i = 0; i < g.ring.length; i++) {
+      const [x] = g.xy[i];
+      if (x === 0) manifoldTiles[i] = 'spring';
+      if (x === g.width - 1) manifoldTiles[i] = 'mill';
+    }
+    const origin = g.xy.findIndex(([x, y]) => x === 0 && y === 0);
+    if (origin >= 0) {
+      manifoldTiles[origin] = 'spring';
+      const across = g.neighbours[origin].find((j) => g.xy[j][0] === g.width - 1);
+      if (across !== undefined) manifoldTiles[across] = 'mill';
+    }
+  }
+}
+function enterManifoldPreview(which: 'torus' | 'klein') {
+  manifoldPreview = which;
+  seedManifoldDemo(which);
+  syncBoard(true);
+  controls.enableRotate = true;
+  controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+  controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+  ui.setManifoldPreview(true, which);
+  manifoldSpinOn = true;
+  kleinSpinPhase = 0;
+  manifoldAz = which === 'klein' ? config.manifold.kleinImmersionAzimuth : Math.PI * 0.32;
+  if (which === 'klein' && isSurfaceBoard(board)) board.group.rotation.y = 0;
+  layoutDirty = true;
+  applyManifoldCamera();
+  if (isSurfaceBoard(board)) board.update(renderState(), [], -1, []);
+}
+function exitManifoldPreview() {
+  manifoldPreview = 'off';
+  manifoldTiles = null;
+  manifoldSpinOn = false;
+  syncBoard(true);
+  controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+  controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+  controls.enablePan = s.geometry === 'square';
+  ui.setManifoldPreview(false);
+  layoutDirty = true;
+  frameCamera();
+}
 /** `full` (imports, resets) kills every FX instance; the transition swap passes false and calls fx.clearAnchored itself. */
 function syncBoard(full = true) {
-  // Before the geometry check: a full swap on the same geometry (import or reset during a Drift fade) must still reset FX
-  if (full) (fx.clear(), fx.setAnchorFade(1)); // stale particles/endpoints belong to the old graph; a new board is shown
-  if (board?.geometry === s.geometry) return;
+  if (full) (fx.clear(), fx.setAnchorFade(1));
+  const wantSurface = manifoldPreview !== 'off';
+  if (!wantSurface && board && !isSurfaceBoard(board) && board.geometry === s.geometry) return;
+  if (wantSurface && board && isSurfaceBoard(board) && board.surface === manifoldPreview) return;
   if (board) {
     scene.remove(board.group);
     board.dispose();
   }
-  board = new Board(s.geometry, scene.environment);
-  tap.clearSelection(); // cell indices belong to the old graph
-  prevTiles = s.tiles.slice();
+  if (wantSurface) {
+    board = new SurfaceBoard(manifoldPreview as 'torus' | 'klein', SURFACE_GRAPHS[manifoldPreview as 'torus' | 'klein'], scene.environment);
+  } else {
+    board = new Board(s.geometry, scene.environment);
+  }
+  tap.clearSelection();
+  prevTiles = (manifoldTiles ?? s.tiles).slice();
   scene.add(board.group);
-  controls.enablePan = s.geometry === 'square';
-  frameCamera();
+  controls.enablePan = !wantSurface && s.geometry === 'square';
+  if (!wantSurface) frameCamera();
 }
 syncBoard();
 
@@ -155,8 +272,13 @@ let speed = 1;
 const tool: { current: Tool } = { current: 'spring' };
 /** Applies the current tool to cell i; toasts the reason and returns false when it can't. */
 function applyTool(i: number): boolean {
-  if (trans) return false; // board actions are locked while a prestige transition plays
+  if (trans) return false;
   const tl = tool.current;
+  if (manifoldTiles) {
+    if (tl === 'sell') manifoldTiles[i] = null;
+    else if (tl !== 'pin') manifoldTiles[i] = tl;
+    return true;
+  }
   const why = placeBlocked(s, i, tl);
   if (why) return ui.toast(why), false;
   if (tl === 'sell') return sell(s, i);
@@ -212,8 +334,30 @@ const ui = createUI(document.getElementById('ui')!, {
     },
     // keeps the preview and the camera zoom; only the disk view moves (no-op while a transition plays)
     centreSelected: () => {
-      if (!trans && tap.selected >= 0 && s.geometry === 'hyper') board.centreOn(tap.selected);
+      if (!trans && tap.selected >= 0 && s.geometry === 'hyper' && !isSurfaceBoard(board)) board.centreOn(tap.selected);
     },
+    enterManifoldPreview,
+    exitManifoldPreview,
+    toggleSurfaceChart: () => {
+      if (!isSurfaceBoard(board)) return;
+      board.chartMode = !board.chartMode;
+      board.invalidate();
+      layoutDirty = true;
+      applyManifoldCamera();
+    },
+    toggleSeamView: () => {
+      if (isSurfaceBoard(board)) (board.seamView = !board.seamView, board.invalidate());
+    },
+    toggleKleinImmersion: () => {
+      if (!isSurfaceBoard(board) || board.surface !== 'klein') return;
+      board.immersion3d = !board.immersion3d;
+      board.invalidate();
+      manifoldSpinOn = board.immersion3d;
+      layoutDirty = true;
+      applyManifoldCamera();
+    },
+    switchManifold: (which: 'torus' | 'klein') => enterManifoldPreview(which),
+    manifoldPreview: () => manifoldPreview,
   },
 });
 fx.onInkArrive = (w) => ui.bumpInk(w);
@@ -282,7 +426,7 @@ const viewportPx = () => innerWidth * innerHeight;
 /** Frame context for the FX. Built once per frame, so fx.prepare and fx.update see the same board, routes and budget. */
 function fxContext(perTile: readonly number[], routes: readonly Route[]): FxContext {
   return {
-    tops: board.tops, tiles: s.tiles, perTile, quality: getQuality().level as FxQuality, inkTargetNdc: inkTarget,
+    tops: board.tops, tiles: manifoldTiles ?? s.tiles, perTile, quality: getQuality().level as FxQuality, inkTargetNdc: inkTarget,
     embed: board.embed, routes, boardMatrix: board.group.matrixWorld, viewportPx: viewportPx(),
   };
 }
@@ -309,11 +453,13 @@ function flushDeferred() {
 /** One-shot FX from state diffs (manual taps and automation alike, so nothing fires twice). */
 function diffFx() {
   let n = 0;
-  if (s.ring > prevRing && s.geometry === board.geometry) revealRings(prevRing, s.ring), n++;
+  const rs = renderState();
+  const geomOk = !isSurfaceBoard(board) && s.geometry === board.geometry;
+  if (s.ring > prevRing && geomOk) revealRings(prevRing, s.ring), n++;
   prevRing = s.ring;
   const now = fx.now;
-  for (let i = 0; i < s.tiles.length; i++) {
-    const a = prevTiles[i], b = s.tiles[i];
+  for (let i = 0; i < rs.tiles.length; i++) {
+    const a = prevTiles[i], b = rs.tiles[i];
     if (a === b) continue;
     if (n < MAX_FX_EVENTS) {
       if (b) fx.placement(i, TILE_IDENTITIES[b].emissive), board.markPlaced(i, now);
@@ -321,11 +467,12 @@ function diffFx() {
       n++;
     } else if (b) board.markPlaced(i, now); // squash is free; particles are capped
   }
-  prevTiles = s.tiles.slice();
+  prevTiles = rs.tiles.slice();
 }
 observeUI();
 layoutDirty = true;
-frameCamera(); // re-fit now that the UI exists
+frameCamera();
+if (manifoldPreview !== 'off') enterManifoldPreview(manifoldPreview);
 
 // ---- input ----
 const ray = new THREE.Raycaster();
@@ -362,7 +509,7 @@ function cellHtml(i: number): string {
 
 const pickAt = (x: number, y: number) => {
   const w = worldAt(x, y);
-  return w ? board.pick(w.x, w.z, s) : -1;
+  return w ? board.pick(w.x, w.z, renderState()) : -1;
 };
 const kindOf = (e: PointerEvent): PointerKind => (e.pointerType === 'touch' ? 'touch' : e.pointerType === 'pen' ? 'pen' : 'mouse');
 const endPointer = () => {
@@ -371,6 +518,7 @@ const endPointer = () => {
 // Mouse: click applies at once (hover already previewed). Touch/pen: first tap previews, a second tap on the
 // same cell (or the Place button) confirms. Drags, pinches and cancelled pointers never place.
 canvas.addEventListener('pointerdown', (e) => {
+  if (manifoldPreview !== 'off') manifoldSpinOn = false;
   tap.down(e.pointerId, e.clientX, e.clientY, kindOf(e), e.button);
   panFrom = tap.active === 1 ? worldAt(e.clientX, e.clientY) : null;
 });
@@ -393,7 +541,7 @@ addEventListener('pointercancel', (e) => {
   ui.tooltip(0, 0, null);
 });
 canvas.addEventListener('pointermove', (e) => {
-  if (tap.move(e.pointerId, e.clientX, e.clientY) && s.geometry === 'hyper' && panFrom) {
+  if (tap.move(e.pointerId, e.clientX, e.clientY) && s.geometry === 'hyper' && panFrom && !isSurfaceBoard(board)) {
     const w = worldAt(e.clientX, e.clientY);
     if (w) board.pan(w.x - panFrom.x, w.z - panFrom.z, maxRing(s)), (panFrom = w);
   }
@@ -424,21 +572,33 @@ function frame(now: number) {
 
   if (s.ring !== lastRing) (lastRing = s.ring), (layoutDirty = true);
   if (shouldReframe(layoutDirty, tap.selected)) layoutView(); // a previewed touch cell holds the board still
-  if (board.geometry !== s.geometry) return renderFrame(dt); // mid-Projection swap
-  const p = prod(s), g = graphOf(s), reach = mods(s).reach;
-  // real graph paths through bridges (economy-matched pairs), cached on everything that changes them
-  const rKey = `${s.geometry}|${s.ring}|${reach}|${s.tiles.join()}`;
-  if (rKey !== routeKey) (routeKey = rKey), (routes = productionRoutes(g, s.tiles, reach));
+  if (!isSurfaceBoard(board) && board.geometry !== s.geometry) return renderFrame(dt);
+  const rs = renderState();
+  const p = prod(s), g = activeGraph(), reach = mods(s).reach;
+  const tiles = rs.tiles;
+  const rKey = `${manifoldPreview}|${s.geometry}|${rs.ring}|${reach}|${tiles.join()}`;
+  if (rKey !== routeKey) (routeKey = rKey), (routes = productionRoutes(g, tiles, reach));
   const focus = hover >= 0 ? hover : tap.selected;
-  const hoverAdj = focus >= 0 ? (s.tiles[focus] ? adjacency(g, s.tiles, focus, mods(s).reach) : g.neighbours[focus]) : [];
-  board.update(s, p.perTile, focus, hoverAdj);
+  const hoverAdj = focus >= 0 ? (tiles[focus] ? adjacency(g, tiles, focus, reach) : g.neighbours[focus]) : [];
+  const perTile = manifoldTiles
+    ? tiles.map((t) => (t === 'mill' ? config.manifold.demoMillOut : t === 'spring' ? 1 : 0))
+    : p.perTile;
+  board.update(rs, perTile, focus, hoverAdj);
   // prepare binds the new board's embedding before any spawn; update then advances time once
-  const ctx = fxContext(p.perTile, routes);
+  const ctx = fxContext(perTile, routes);
   fx.prepare(ctx);
   flushDeferred();
   if (!locked) diffFx();
   fx.update(dt, ctx);
   board.tick(fx.now, reduced.matches);
+  if (manifoldSpinOn && isSurfaceBoard(board) && !board.isChartFlat()) {
+    if (board.surface === 'klein' && board.immersion3d) {
+      kleinSpinPhase += dt * config.manifold.idleSpin;
+      board.group.rotation.y = Math.sin(kleinSpinPhase) * config.manifold.kleinSpinSway;
+    } else {
+      board.group.rotation.y += dt * config.manifold.idleSpin;
+    }
+  }
   controls.update();
   renderFrame(dt);
   if ((uiAcc += dt) > 0.1) (uiAcc = 0), ui.update();
@@ -588,6 +748,69 @@ if (dev) {
         tap.selected = i;
         ui.update();
         return true;
+      },
+      manifold: (which: 'torus' | 'klein' | 'off') => {
+        if (which === 'off') exitManifoldPreview();
+        else enterManifoldPreview(which);
+        ui.update();
+      },
+      manifoldProjectFit: () => {
+        if (!isSurfaceBoard(board) || board.isChartFlat()) return { ok: false, failures: ['not-3d'], fill: 0 };
+        const polar = board.surface === 'torus' ? config.manifold.torusImmersionPolar : 0;
+        const klein3d = board.surface === 'klein' && !board.isChartFlat();
+        const tY = board.surface === 'torus' ? 0.1 : klein3d ? kleinImmersionTargetY() : 0;
+        controls.target.set(0, tY, 0);
+        layoutDirty = true;
+        layoutView();
+        fitD = fitManifoldProjected(
+          board, camera, controls.target, free, innerWidth, innerHeight, polar, manifoldAz,
+        );
+        if (klein3d) {
+          const [ox, oy, oz] = kleinCameraOffset(fitD);
+          camera.position.set(controls.target.x + ox, controls.target.y + oy, controls.target.z + oz);
+        } else {
+          const cp = Math.cos(polar);
+          camera.position.set(
+            controls.target.x + Math.sin(manifoldAz) * cp * fitD,
+            controls.target.y + cp * fitD,
+            controls.target.z + Math.cos(manifoldAz) * cp * fitD,
+          );
+        }
+        camera.lookAt(controls.target);
+        const W = innerWidth, H = innerHeight;
+        camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);
+        camera.updateProjectionMatrix();
+        renderFrame(0);
+        return checkManifoldProjectFit(board, camera, free, innerWidth, innerHeight);
+      },
+      manifoldStats: () => {
+        if (!isSurfaceBoard(board)) return null;
+        let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity, cnt = 0;
+        for (const v of board.tops) {
+          minx = Math.min(minx, v.x); maxx = Math.max(maxx, v.x);
+          miny = Math.min(miny, v.y); maxy = Math.max(maxy, v.y);
+          cnt++;
+        }
+        return {
+          surface: board.surface, chartMode: board.chartMode, immersion3d: board.immersion3d, seamView: board.seamView,
+          minx, maxx, miny, maxy, cnt,
+        };
+      },
+      canvasSample: () => {
+        renderFrame(0);
+        const c = canvas;
+        const w = c.width, h = c.height;
+        const gl = c.getContext('webgl2') || c.getContext('webgl');
+        if (!gl || !(w > 0 && h > 0)) return { ok: false, mean: 0, chroma: 0, nonBackdrop: 0, reason: 'no-gl' };
+        const buf = new Uint8Array(w * h * 4);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+        const flipped = new Uint8ClampedArray(w * h * 4);
+        for (let y = 0; y < h; y++) {
+          const src = (h - 1 - y) * w * 4;
+          flipped.set(buf.subarray(src, src + w * 4), y * w * 4);
+        }
+        const s = analyseCanvasPixels(flipped, w, h);
+        return { ...s, reason: s.ok ? 'ok' : 'blank' };
       },
     };
     Object.assign(game, { qa: qaApi });

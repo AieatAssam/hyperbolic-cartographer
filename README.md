@@ -156,6 +156,7 @@ Changes from the original brief (all in `src/core/config.ts`; formulas unchanged
 - Hyperbolic survey: base 2e5, growth 12^ring; board starts at radius 2, base max radius 3, +1 via the "Deeper Horizon" Curvature upgrade (radius 4 = 232 tiles).
 - Offline base efficiency 50% (unspecified in brief).
 - Bot results with these numbers: Drift available ~11 min (bot drifts at ~14), Projection ~71 min, hyperbolic board fully built ~95 min (~24 min of hyperbolic play).
+- Manifold preview grids (visual only, not economy): torus **16×8**, Klein **8×8**; framing/spin/demo pulse rates in `config.manifold`.
 
 ## Credits and related works
 

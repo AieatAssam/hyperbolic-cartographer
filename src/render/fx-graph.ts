@@ -9,8 +9,10 @@ import type { TileType } from '../core/tiles';
 
 export type Tuple3 = [number, number, number];
 
-/** Floats per tile in Embedding.data: [x, y, z, s, nx, ny, nz, tx]. */
-export const EMBED_STRIDE = 8;
+/** Floats per tile in Embedding.data: [x, y, z, s, nx, ny, nz, tx, txx, txy, txz, chi]. */
+export const EMBED_STRIDE = 12;
+/** Samples per undirected edge in the edge-path LUT (K = 0 means shader analytic fallback). */
+export const EDGE_PATH_K = 8;
 /**
  * Former distance cutoff (in pitches). Not read by isSeam any more: length is not topology, and the length rule
  * flagged all 546 edges of the live hyper board. Kept exported so existing imports still compile.
@@ -38,12 +40,24 @@ export interface Embedding {
    * the hyperbolic disk, draw continuous world edges and leave it unset.
    */
   seam?: (a: number, b: number) => boolean;
+  /** Per-undirected-edge sampled path in local frame space (K samples × 3 floats per edge endpoint pair, undirected key a<b). */
+  edgePath?: Float32Array;
+  /** Packed edge-path row count (undirected edges with K > 0). */
+  edgePathRows?: number;
+  /** Seam portals: exit/entry across a cut with optional orientation flip. */
+  portals?: { a: number; b: number; portA: Tuple3; portB: Tuple3; flip: boolean }[];
+  /** Flat chart xy per tile for 2D picking fallback. */
+  chart2d?: Float32Array;
 }
 
 export interface Frame {
   p: Tuple3;
   s: number;
   n: Tuple3;
+  /** Unit tangent in the tile plane (optional; default +X in the Y-up frame). */
+  t?: Tuple3;
+  /** Chirality sign ±1 (motif handedness). */
+  chi?: number;
 }
 
 const UP: Tuple3 = [0, 1, 0];
@@ -82,16 +96,92 @@ export function writeFrame(e: Embedding, i: number, f: Frame): boolean {
   const L = len(n);
   if (!isFinite3(n) || !(L > 1e-6)) (n = UP), (ok = false);
   else if (Math.abs(L - 1) > 1e-6) (n = unit(n)), (ok = false);
+  const t = f.t ?? [1, 0, 0];
+  let tv = unit(t);
+  const chi = f.chi !== undefined && Number.isFinite(f.chi) ? (f.chi < 0 ? -1 : 1) : 1;
   const o = i * EMBED_STRIDE, d = e.data;
   d[o] = p[0]; d[o + 1] = p[1]; d[o + 2] = p[2]; d[o + 3] = s;
   d[o + 4] = n[0]; d[o + 5] = n[1]; d[o + 6] = n[2]; d[o + 7] = 0;
+  d[o + 8] = tv[0]; d[o + 9] = tv[1]; d[o + 10] = tv[2]; d[o + 11] = chi;
   return ok;
+}
+
+/** Alias for writeFrame with explicit tangent/chirality (C1 second frame texel). */
+export const writeFrameExt = writeFrame;
+
+/** Transport chirality across flip edges on a surface (Klein). Mutates chiMap in place. */
+export function transportChirality(chiMap: Int8Array, a: number, b: number, flip: boolean): void {
+  if (!flip) return;
+  chiMap[b] = (chiMap[a] > 0 ? -1 : 1) as 1 | -1;
+}
+
+const undirectedEdges = (g: TileGraph): [number, number][] => {
+  const out: [number, number][] = [];
+  g.neighbours.forEach((ns, i) => ns.forEach((j) => { if (j > i) out.push([i, j]); }));
+  return out;
+};
+
+export interface EdgeSample {
+  pa: Tuple3; pb: Tuple3; na: Tuple3; nb: Tuple3;
+}
+
+/** Sample K points along each graph edge into e.edgePath (C1 LUT). Pass K = 0 via buildEdgePaths with sample returning null to clear. */
+export function buildEdgePaths(
+  g: TileGraph,
+  e: Embedding,
+  sample: (a: number, b: number) => EdgeSample | null,
+  K: number = EDGE_PATH_K,
+): void {
+  const edges = undirectedEdges(g);
+  if (K <= 0 || edges.length === 0) {
+    e.edgePath = undefined;
+    e.edgePathRows = 0;
+    return;
+  }
+  const path = new Float32Array(edges.length * K * 3);
+  edges.forEach(([a, b], row) => {
+    const s = sample(a, b);
+    if (!s) return;
+    for (let k = 0; k < K; k++) {
+      const u = (k + 0.5) / K;
+      const lift = ROUTE_TIMING.lift * e.pitch * Math.sin(Math.PI * u);
+      const n = legNormal(e, a, b);
+      const base = [0, 1, 2].map((c) => s.pa[c] + (s.pb[c] - s.pa[c]) * u) as Tuple3;
+      const o = (row * K + k) * 3;
+      path[o] = base[0] + n[0] * lift;
+      path[o + 1] = base[1] + n[1] * lift;
+      path[o + 2] = base[2] + n[2] * lift;
+    }
+  });
+  e.edgePath = path;
+  e.edgePathRows = edges.length;
+}
+
+/** Sample a point on an edge path LUT at parameter u∈[0,1], or fall back to legPoint. */
+export function legPointPath(e: Embedding, g: TileGraph, a: number, b: number, u: number, lift = ROUTE_TIMING.lift): Tuple3 {
+  if (!e.edgePath || !e.edgePathRows) return legPoint(e, a, b, u, lift);
+  const lo = Math.min(a, b), hi = Math.max(a, b);
+  const edges = undirectedEdges(g);
+  let row = edges.findIndex(([i, j]) => i === lo && j === hi);
+  if (row < 0) return legPoint(e, a, b, u, lift);
+  const K = EDGE_PATH_K;
+  const k = clamp01(u) * (K - 1);
+  const k0 = Math.floor(k), k1 = Math.min(K - 1, k0 + 1), f = k - k0;
+  const o0 = (row * K + k0) * 3, o1 = (row * K + k1) * 3, d = e.edgePath;
+  return [
+    d[o0] * (1 - f) + d[o1] * f,
+    d[o0 + 1] * (1 - f) + d[o1 + 1] * f,
+    d[o0 + 2] * (1 - f) + d[o1 + 2] * f,
+  ];
 }
 
 /** Reads back tile i's frame (copies out of the buffer). */
 export function frameAt(e: Embedding, i: number): Frame {
   const o = i * EMBED_STRIDE, d = e.data;
-  return { p: [d[o], d[o + 1], d[o + 2]], s: d[o + 3], n: [d[o + 4], d[o + 5], d[o + 6]] };
+  return {
+    p: [d[o], d[o + 1], d[o + 2]], s: d[o + 3], n: [d[o + 4], d[o + 5], d[o + 6]],
+    t: [d[o + 8], d[o + 9], d[o + 10]], chi: d[o + 11] < 0 ? -1 : 1,
+  };
 }
 
 /** Marks a full rebuild. Call once per rebuild, not per tile. */
@@ -198,6 +288,13 @@ export function planEdge(e: Embedding, a: number, b: number, delay: number, life
   if (!(scaleOf(e, a) > 0 || scaleOf(e, b) > 0)) return [];
   const d0 = posTime(delay), L = posTime(life);
   if (!isSeam(e, a, b)) return [{ kind: 'leg', from: a, to: b, delay: d0, life: L }];
+  const portal = e.portals?.find((p) => (p.a === a && p.b === b) || (p.a === b && p.b === a));
+  if (portal) {
+    return [
+      { kind: 'stub', anchor: a, toward: b, phase: 'leave', delay: d0, life: L },
+      { kind: 'stub', anchor: b, toward: a, phase: 'arrive', delay: d0 + L, life: L },
+    ];
+  }
   return [
     { kind: 'stub', anchor: a, toward: b, phase: 'leave', delay: d0, life: L },
     { kind: 'stub', anchor: b, toward: a, phase: 'arrive', delay: d0 + L, life: L },

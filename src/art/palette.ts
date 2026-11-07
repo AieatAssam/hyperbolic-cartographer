@@ -230,6 +230,25 @@ export const hoverFace = (base: number) => lerpHex(base, BOARD.hover, MATERIAL.h
  * - legLife, stub, trail, waveStep: the graph timings. They match fx-graph ROUTE_TIMING and SURVEY_WAVE_STEP.
  * These are visual tokens, not balance.
  */
+/** Manifold preview tokens (seams, ghosts, portal glow). */
+export const SURFACE = {
+  seamA: 0xff6b9d,
+  seamB: 0x5fd4ff,
+  /** Klein vertical flip pair (distinct from orientable seamA/B). */
+  seamFlip: 0xe8c872,
+  ghost: 0x6a4e86,
+  ghostAlpha: 0.28,
+  edgeGhostAlpha: 0.35,
+  portalGlow: 0xe8c872,
+  /** Klein self-intersection ring: emissive just under bloom threshold. */
+  seamGlow: 0xe8c872,
+  seamGlowEmissive: 1.38,
+  dashPattern: [0.12, 0.08] as const,
+  skin: 0x4a3568,
+  skinInk: 0x8b6cc4,
+  skinGrid: 0x5fd4ff,
+} as const;
+
 export const FX = {
   ink: 0x6cc4ff, production: 0x8fe6ff, sell: 0xc9b8e8, ring: 0x5fd4ff, beacon: 0xff7a92, bridge: 0xb07cff,
   wash: 0x2a6bd6, vortex: 0xe8c872,

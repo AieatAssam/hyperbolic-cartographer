@@ -97,10 +97,11 @@ const float STUB = ${lit(FX.stub)};
 const float MOTE_P = ${lit(MOTE_ACCEL)};
 
 // Embedding texture, RGBA32F, 256 texels wide, read with texture2D and NEAREST (no texelFetch, so GLSL1 style works).
-// Tile i: texel 2i = (x, y, z, s) position and local scale; texel 2i+1 = (nx, ny, nz, tx) unit normal.
+// Tile i: texel 3i = (x,y,z,s); 3i+1 = (nx,ny,nz,0); 3i+2 = (tx,ty,tz,chi).
 vec4 texel(float k) { return texture2D(uEmbed, vec2((mod(k, 256.0) + 0.5) / 256.0, (floor(k / 256.0) + 0.5) / uEmbedH)); }
-vec4 tilePos(float i) { return texel(2.0 * i); }
-vec4 tileNrm(float i) { return texel(2.0 * i + 1.0); }
+vec4 tilePos(float i) { return texel(3.0 * i); }
+vec4 tileNrm(float i) { return texel(3.0 * i + 1.0); }
+vec4 tileTan(float i) { return texel(3.0 * i + 2.0); }
 
 // Same tangent rule as fx-graph tangentBasis: reference axis Y unless the normal is near-vertical.
 vec3 tangentX(vec3 n) { return normalize(cross(abs(n.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), n)); }
@@ -725,7 +726,7 @@ export class CartographyFX {
   /** Uploads the embedding to the texture once per rebuild (rev bump) or board change. Reallocates only if the height changes. */
   private syncTexture(e: Embedding) {
     if (e === this.texSrc && e.rev === this.texRev && e.count === this.texCount) return;
-    const h = Math.max(1, Math.ceil((e.count * 2) / TEX_W));
+    const h = Math.max(1, Math.ceil((e.count * 3) / TEX_W));
     if (h !== this.texH) {
       this.tex.dispose();
       this.texBuf = new Float32Array(TEX_W * h * 4);

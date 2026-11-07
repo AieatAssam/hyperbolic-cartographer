@@ -156,8 +156,6 @@ export class Board {
       const [u, w] = toDisk(c);
       return [u * DISK_R, w * DISK_R];
     });
-    // local scale at the identity view, the same s = 1 − |disk|² that outline() uses. Pitch is the chord at s = 1,
-    // so the shader's own multiply by s lands on the right size. Conformal, so it stays valid under boost-pan.
     const scale = this.square ? g.ring.map(() => 1) : xy.map(([x, z]) => Math.max(0, 1 - (x * x + z * z) / (DISK_R * DISK_R)));
     this.embed = createEmbedding(n);
     this.embed.pitch = medianEdgePitch(g, xy, scale);
@@ -343,7 +341,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       }
     }
     this.geom.computeVertexNormals(); // non-indexed: face normals, written in place
-    bumpRev(embed); // one bump per rebuild, after every tile's frame is written
+    bumpRev(embed);
     for (const name of ['position', 'normal', 'color', 'glow']) this.geom.attributes[name].needsUpdate = true;
     for (const t of TILE_TYPES) this.motifs[t].instanceMatrix.needsUpdate = true;
   }

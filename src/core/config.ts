@@ -17,6 +17,51 @@ export const config = {
   offline: { baseEff: 0.5, capHours: 8 },
   startInk: 10,
   autoSpringInterval: 1, // seconds between auto-placed Springs
+  /** Manifold preview (Layer 3): grid sizes, framing, skin. */
+  manifold: {
+    torusWidth: 16,
+    torusHeight: 8,
+    kleinWidth: 8,
+    kleinHeight: 8,
+    torusMajorR: 6.1,
+    torusMinorR: 1.65,
+    chartSpan: 8.8,
+    chartFill: 0.82,
+    boardFillTarget: 0.8,
+    boardFillMin: 0.55,
+    boardFillMax: 0.88,
+    /** Klein camera: radians, ~30° azimuth from +Z in XZ. */
+    kleinImmersionAzimuth: Math.PI / 6,
+    /** Elevation above XZ plane (~12°). */
+    kleinImmersionElev: (12 * Math.PI) / 180,
+    /** Idle Y-spin half-range for Klein immersion (±30°). */
+    kleinSpinSway: (30 * Math.PI) / 180,
+    kleinBoardFillMin: 0.6,
+    kleinBoardFillMax: 0.7,
+    chartPolar: 0.07,
+    frameMargin: 16,
+    fitSpinSteps: 16,
+    /** Spreads used only for fill measurement (best-spin), not for extent margin. */
+    fillMeasureSpins: 4,
+    manifoldLegLift: 0.1,
+    idleSpin: 0.09,
+    tileExtrude3d: 0.55,
+    skinLift: 0.016,
+    tileGap: 0.1,
+    skinAlpha: 0.5,
+    /** Klein immersion glass skin (torus keeps skinAlpha). */
+    kleinSkinAlpha: 0.32,
+    /** Klein tiles over the glass (placed + empty patches). */
+    kleinTileAlpha: 0.95,
+    /** Back-facing patch faces seen through the glass. */
+    kleinBackfaceDim: 0.4,
+    skinRimEmissive: 0.42,
+    demoMillOut: 8,
+    kleinImmersionScale: 2.8,
+    kleinSkinU: 96,
+    kleinSkinV: 48,
+    torusImmersionPolar: 1.08,
+  },
 };
 
 export type ChartUpgradeId =
