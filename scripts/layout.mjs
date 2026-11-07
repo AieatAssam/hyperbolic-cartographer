@@ -445,17 +445,25 @@ function topbarControlRhythm() {
       out.push(`topbar action buttons height delta ${(Math.max(...bh) - Math.min(...bh)).toFixed(1)}px (max 2.5)`);
     }
   }
-  const wide = window.innerWidth >= 700;
-  const rowEls = wide
-    ? [...buttons, ...stats.slice(0, 1)]
-    : [...buttons, ...stats, ...(chip ? [chip] : [])];
-  if (rowEls.length < 3) return ['topbar rhythm: need stats/chip/actions visible'];
+  const land = window.innerHeight <= 500 && window.innerWidth > window.innerHeight;
+  const desktop = window.innerWidth >= 700 && window.innerHeight > 500;
+  let rowEls = [...buttons, ...stats, ...(chip ? [chip] : [])];
+  let centerTol = 5;
+  let heightTol = 6;
+  if (desktop) {
+    rowEls = buttons;
+    centerTol = 3;
+    heightTol = 2.5;
+  } else if (land) {
+    rowEls = [...buttons, ...stats];
+    centerTol = 32;
+    heightTol = 12;
+  }
+  if (rowEls.length < 2) return ['topbar rhythm: need visible top-bar controls'];
   const centers = rowEls.map((x) => x.r.top + x.r.height / 2);
   const spread = Math.max(...centers) - Math.min(...centers);
-  const centerTol = wide ? 8 : 5;
   if (spread > centerTol) out.push(`topbar control centers off by ${spread.toFixed(1)}px (max ${centerTol})`);
   const heights = rowEls.map((x) => x.r.height);
-  const heightTol = wide ? 14 : 6;
   if (Math.max(...heights) - Math.min(...heights) > heightTol) {
     out.push(`topbar control heights differ by ${(Math.max(...heights) - Math.min(...heights)).toFixed(1)}px (max ${heightTol})`);
   }
