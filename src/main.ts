@@ -888,6 +888,7 @@ if (dev) {
         else enterManifoldPreview(which);
         ui.update();
       },
+      /** Idempotent: Klein preview + immersion mesh on; sets qaKleinImmersionReady after a painted frame. */
       enterKleinImmersion: async () => {
         if (manifoldPreview !== 'klein') enterManifoldPreview('klein');
         if (!isSurfaceBoard(board) || board.surface !== 'klein') return { ok: false, reason: 'not-klein' };
