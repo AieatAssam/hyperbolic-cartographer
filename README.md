@@ -117,6 +117,11 @@ One-time setup: in the repo's **Settings → Pages**, set **Source** to **GitHub
 - Needs Playwright's Chromium: `npx playwright install chromium`. The script uses [Playwright](https://playwright.dev) (Apache-2.0).
 - CI runs it after the build and uploads `layout-artifacts/` when it fails.
 
+## Design documents
+
+- [Full game design](docs/design/full-game-design.md): the complete design, including future layers; the playable slice does not implement it all.
+- [Geometry and rendering roadmap](docs/art/geometry-roadmap.md): proposed C0–C7 work for surfaces, particles, cameras and accessible picking. Documentation only; no new layer is implemented.
+
 ## Architecture
 
 ```

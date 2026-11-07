@@ -6,6 +6,11 @@
 - `npm run pacing` — headless greedy bot; asserts Drift < 15 min, Projection < 90 min (slow, opt-in)
 - `npm run typecheck`, `npm run build`
 
+## Design documents
+
+- [Full game design](docs/design/full-game-design.md): the complete design, including future layers; the playable slice does not implement it all.
+- [Geometry and rendering roadmap](docs/art/geometry-roadmap.md): proposed C0–C7 work for surfaces, particles, cameras and accessible picking. Documentation only; no new layer is implemented.
+
 ## Architecture rules
 - `src/core/` is pure and deterministic: no DOM, no Three imports. Must stay unit-testable in Node.
 - Game logic never knows its geometry; it only sees `TileGraph` (`ring[]`, `neighbours[][]`). Graphs are generated once at max size (`GRAPHS` in `state.ts`), so tile indices are stable; Survey just raises `state.ring`.
