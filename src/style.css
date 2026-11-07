@@ -505,8 +505,51 @@ ul.reset li::before {
     .hud:not(.hud-open) .goal-name { display: none; }
     .hud:not(.hud-open) .goal-icon { display: inline-block; }
   }
+  .hud:not(.hud-open) .goal-name {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+  }
+  .hud:not(.hud-open) .goal-short {
+    flex: 1 1 auto; min-width: 0; width: 100%;
+  }
   .hud:not(.hud-open) .goal-text {
     position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+
+  /* Narrow phones (360px): keep the HUD toggle reachable — compact stat pills, ellipsis goal chip. */
+  @media (max-width: 360px) {
+    .topbar { gap: 4px; }
+    .hud:not(.hud-open) {
+      gap: 4px;
+    }
+    .hud:not(.hud-open) > .stat {
+      padding: 1px 3px;
+      min-width: 0;
+    }
+    .hud:not(.hud-open) .stat {
+      min-width: 0;
+      max-width: 72px;
+      padding: 0;
+    }
+    .hud:not(.hud-open) .stat .label {
+      font-size: 8px;
+      letter-spacing: 0.02em;
+    }
+    .hud:not(.hud-open) .stat .value {
+      font-size: 15px;
+    }
+    .hud:not(.hud-open) .hud-seg {
+      min-width: 0;
+      flex: 1 1 0;
+    }
+    .hud:not(.hud-open) .goal {
+      min-width: 0;
+      flex: 1 1 auto;
+      padding: 0 4px;
+    }
+    .hud:not(.hud-open) button.hud-toggle {
+      flex: 0 0 var(--control-h);
+      flex-shrink: 0;
+    }
   }
   /* Expanded HUD: the full detail as before, scrolling inside its own box, with a full-width collapse control */
   .hud.hud-open { max-height: 42vh; overflow-y: auto; overscroll-behavior: contain; flex-wrap: wrap; }

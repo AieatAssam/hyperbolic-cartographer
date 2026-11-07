@@ -255,7 +255,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     this.constellationFaint = new THREE.LineSegments(
       new THREE.BufferGeometry(),
       new THREE.LineBasicMaterial({
-        color: gold, transparent: true, opacity: 0.2,
+        color: gold, transparent: true, opacity: 0.38,
         depthTest: false, depthWrite: false,
       }),
     );
@@ -276,7 +276,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     this.ghostLine = new THREE.LineSegments(
       new THREE.BufferGeometry(),
       new THREE.LineDashedMaterial({
-        color: gold, transparent: true, opacity: 0.72, dashSize: 0.18, gapSize: 0.11,
+        color: gold, transparent: true, opacity: 0.88, dashSize: 0.22, gapSize: 0.1,
         depthTest: false, depthWrite: false,
       }),
     );
@@ -350,8 +350,8 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     const ghost = hl?.constellationGhost;
     const mainOp = bright?.length ? 0.55 + 0.45 * pulse : 0;
     this.updateEdgeLines(bright, this.constellationLine, 0.42, mainOp, pulse);
-    this.updateEdgeLines(faint, this.constellationFaint, 0.26, 0.22, 0);
-    this.updateEdgeLines(ghost, this.ghostLine, 0.2, 0.7, 0);
+    this.updateEdgeLines(faint, this.constellationFaint, 0.26, 0.42, 0);
+    this.updateEdgeLines(ghost, this.ghostLine, 0.24, 0.92, 0);
     this.updateConstellationStars(bright, pulse);
   }
 
@@ -489,7 +489,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         }
         if (i === hover) {
           c.lerp(C.white, MATERIAL.hoverLerp);
-          if (nearGhost) border.copy(C.gold), trim.copy(C.gold).multiplyScalar(0.45);
+          if (nearGhost || ghostCells.has(i)) border.copy(C.gold), trim.copy(C.gold).multiplyScalar(0.5);
           else border.copy(C.adj), trim.copy(C.adj).multiplyScalar(0.25);
         }
         if (hl?.lit && hl.dim && hl.dim > 0 && !hl.lit.includes(i)) {
@@ -507,7 +507,9 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         const m = PREVIEW.bridgeMix + PREVIEW.bridgePulse * Math.sin(ph * Math.PI * 2);
         border.lerp(C.bridge, m), trim.lerp(C.bridge, 0.35);
       } else if (nearGhost) {
-        border.lerp(C.gold, 0.62), trim.lerp(C.gold, 0.38);
+        border.lerp(C.gold, 0.72), trim.lerp(C.gold, 0.45);
+      } else if (nearDirect && ghostCells.size > 0) {
+        border.lerp(C.gold, PREVIEW.directMix * 0.85), trim.lerp(C.gold, 0.3);
       } else if (nearDirect) border.lerp(C.adj, PREVIEW.directMix), trim.lerp(C.adj, 0.25);
       h *= o.scale;
       const [cx, cz] = o.c;
