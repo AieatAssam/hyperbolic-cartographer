@@ -58,15 +58,17 @@ describe('fitDistance', () => {
   };
 
   it('every footprint point lands inside the free rect, and the fit is tight', () => {
-    const d = fitDistance({ pts, W, H, free, fov, polar, margin });
+    const d = fitDistance({ pts, W, H, free, fov, polar, margin, portraitWidthFirst: true });
     expect(d).toBeGreaterThan(0);
     for (const p of pts) expect(inside(d, p)).toBe(true);
     expect(pts.some((p) => !inside(d * 0.97, p))).toBe(true);
   });
 
   it('grows when the free rect shrinks (panel open)', () => {
-    const d1 = fitDistance({ pts, W, H, free, fov, polar, margin });
-    const d2 = fitDistance({ pts, W, H, free: { left: 0, top: 60, right: 220, bottom: 520 }, fov, polar, margin });
+    const d1 = fitDistance({ pts, W, H, free, fov, polar, margin, portraitWidthFirst: true });
+    const d2 = fitDistance({
+      pts, W, H, free: { left: 0, top: 60, right: 220, bottom: 520 }, fov, polar, margin, portraitWidthFirst: true,
+    });
     expect(d2).toBeGreaterThan(d1);
   });
 

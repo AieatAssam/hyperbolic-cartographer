@@ -19,7 +19,9 @@ import { TILE_INFO, TILE_TYPES, type TileType } from './core/tiles';
 import { createScene, type QualityLevel } from './render/scene';
 import { Board, DISK_R } from './render/board';
 import { SurfaceBoard } from './render/surface-board';
-import { cellCorners, circlePts, fitDistance, freeRect, shouldReframe, type Rect, type Role } from './render/framing';
+import {
+  cellCorners, circlePts, fitDistance, freeRect, phonePortrait, shouldReframe, type Rect, type Role,
+} from './render/framing';
 import {
   fitManifoldProjected, checkManifoldProjectFit, kleinImmersionTargetY,
 } from './render/manifold-camera-fit';
@@ -116,7 +118,11 @@ const solveFit = () => {
     return fitManifoldProjected(board, camera, controls.target, free, innerWidth, innerHeight, polar, manifoldAz);
   }
   const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : MARGIN;
-  return fitDistance({ pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar: POLAR, margin });
+  const W = innerWidth, H = innerHeight;
+  const portraitWidthFirst = manifoldPreview === 'off' && phonePortrait(W, H);
+  return fitDistance({
+    pts: footprint(), W, H, free, fov: camera.fov, polar: POLAR, margin, portraitWidthFirst,
+  });
 };
 /** Reads overlay rects (only when dirty) and shifts the projection via setViewOffset so the target sits at the
  *  free rect's centre. Raycasts stay exact: setFromCamera uses the offset projection and NDC spans the canvas.
@@ -179,8 +185,10 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
   if (useProjected && surf) {
     fitD = fitManifoldProjected(surf, camera, controls.target, free, innerWidth, innerHeight, polar, azimuth);
   } else {
+    const W = innerWidth, H = innerHeight;
+    const portraitWidthFirst = manifoldPreview === 'off' && phonePortrait(W, H);
     fitD = fitDistance({
-      pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar, margin,
+      pts: footprint(), W, H, free, fov: camera.fov, polar, margin, portraitWidthFirst,
     }) / Math.max(1, Math.min(1.08, fill));
   }
   controls.maxDistance = Math.max(40, fitD * 1.5);

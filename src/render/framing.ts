@@ -48,7 +48,12 @@ export interface FitParams {
   polar: number;
   /** Pixel margin kept inside the free rect on every side. */
   margin: number;
+  /** Flat / hyperbolic portrait board only: keep full horizontal margin (no height-biased zoom-in). */
+  portraitWidthFirst?: boolean;
 }
+
+/** Phone portrait viewport (not landscape phones). */
+export const phonePortrait = (W: number, H: number): boolean => W < 520 && H > W;
 
 /** Smallest camera distance at which every footprint point lands inside the free rect (minus margin), assuming
  *  the projection is view-offset so the target sits at the free rect's centre. Camera at d·(0, cosφ, sinφ):
@@ -65,10 +70,11 @@ export function fitDistance(p: FitParams): number {
     dW = Math.max(dW, Math.abs(x) / a + z * sp);
     dH = Math.max(dH, (Math.abs(z) * cp) / b + z * sp);
   }
-  // Portrait: width-first — never zoom closer than the distance that clears horizontal margin.
   const d = Math.max(dW, dH);
-  const portrait = p.W < 520 && p.H > p.W;
-  if (portrait) return Math.max(d, dW);
+  const portrait = phonePortrait(p.W, p.H);
+  if (portrait && p.portraitWidthFirst) return Math.max(d, dW);
+  if (portrait && dW > dH * 1.01) return d;
+  if (portrait && dH > dW * 1.08) return Math.max(dW, dH * 0.94);
   return d;
 }
 
