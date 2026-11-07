@@ -65,10 +65,10 @@ export function fitDistance(p: FitParams): number {
     dW = Math.max(dW, Math.abs(x) / a + z * sp);
     dH = Math.max(dH, (Math.abs(z) * cp) / b + z * sp);
   }
+  // Portrait: width-first — never zoom closer than the distance that clears horizontal margin.
   const d = Math.max(dW, dH);
   const portrait = p.W < 520 && p.H > p.W;
-  if (portrait && dW > dH * 1.01) return d;
-  if (portrait && dH > dW * 1.08) return Math.max(dW, dH * 0.94);
+  if (portrait) return Math.max(d, dW);
   return d;
 }
 
