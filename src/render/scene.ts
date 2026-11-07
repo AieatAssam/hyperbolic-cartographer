@@ -95,21 +95,23 @@ void main() {
   float s = noise(d * 160.0);
   col += uStar * pow(s, 24.0) * 0.6 * smoothstep(-0.1, 0.3, h);
 
-  // Cartographic drift: compass rhumbs + latitude rings (Vagrus / map-table language).
+  // Cartographic overlay on the dark nebula (thin gold + teal, no grey wash).
   vec2 dir = normalize(d.xz + 1e-5);
   float lon = atan(dir.y, dir.x);
   float lat = asin(clamp(d.y, -1.0, 1.0));
-  float rhumb = abs(fract(lon * 2.618 + t * 0.015) - 0.5);
-  float parallel = abs(fract((lat + 1.0) * 5.5 - t * 0.008) - 0.5);
-  float gridA = smoothstep(0.48, 0.0, rhumb) * 0.14;
-  float gridB = smoothstep(0.46, 0.0, parallel) * 0.11;
-  col += mix(vec3(0.58, 0.76, 0.95), vec3(0.91, 0.79, 0.45), 0.35 + 0.65 * n1) * (gridA + gridB);
+  float rhumb = smoothstep(0.04, 0.0, abs(fract(lon * 4.0 + t * 0.01) - 0.5));
+  float parallel = smoothstep(0.038, 0.0, abs(fract((lat + 1.0) * 5.8 - t * 0.007) - 0.5));
+  float contour = smoothstep(0.036, 0.0, abs(fract(fbm(d * 3.2 + t * 0.004) * 3.0) - 0.5));
+  vec3 teal = vec3(0.22, 0.72, 0.82);
+  vec3 gold = vec3(0.91, 0.78, 0.45);
+  col += teal * parallel * 0.2;
+  col += gold * (rhumb * 0.22 + contour * 0.15);
 
-  // Parchment grain + screen-space vignette; floor keeps it from going dead black.
+  // Parchment grain + vignette; keep the fog floor plum-dark (no milky haze).
   vec2 uv = gl_FragCoord.xy / uRes;
   col += (hash(vec3(gl_FragCoord.xy, 0.0)) - 0.5) * uGrain;
-  col *= mix(1.0 - uVignette, 1.0, smoothstep(0.95, 0.2, length(uv - 0.5)));
-  col = max(col, uBottom * 0.55);
+  col *= mix(1.0 - uVignette, 1.0, smoothstep(0.92, 0.18, length(uv - 0.5)));
+  col = max(col, uBottom * 0.32);
 
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>

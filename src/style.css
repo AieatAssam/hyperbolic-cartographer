@@ -440,10 +440,17 @@ ul.reset li::before {
     height: var(--control-h); box-sizing: border-box;
   }
   .hud:not(.hud-open) .stat .label {
-    font-size: 10px; line-height: 1; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+    font-size: 10px; font-weight: 600; line-height: 1; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--cyan);
   }
   .hud:not(.hud-open) .stat .value {
-    font-size: 16px; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums;
+    font-size: 17px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+  }
+  .hud:not(.hud-open) > .stat {
+    border: 1px solid rgba(95, 212, 255, 0.35); border-radius: var(--control-r); background: rgba(8, 14, 28, 0.82);
+    padding: 2px 6px;
   }
   .hud:not(.hud-open) .stat .muted { display: none; }
   .hud:not(.hud-open) .hud-seg {

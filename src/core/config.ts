@@ -24,7 +24,7 @@ export const config = {
     millwheel: { name: 'Millwheel', bonusInk: 80, blurb: 'A Mill ringed by Springs on three sides.' },
     twinmills: { name: 'Twin Mills', bonusInk: 150, blurb: 'A Bridge linking two Mills.' },
   },
-  camera: { polarY: 13, polarZ: 9, margin: 16, phoneFill: 1.28, desktopFill: 1.1 },
+  camera: { polarY: 13, polarZ: 9, margin: 12, phoneFill: 1.0, desktopFill: 1.0 },
   ui: { inspectFadeMs: 300 },
   autoSpringInterval: 1, // seconds between auto-placed Springs
   /** Manifold preview (Layer 3): grid sizes, framing, skin. */

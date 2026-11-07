@@ -54,12 +54,21 @@ export interface FitParams {
  *  the projection is view-offset so the target sits at the free rect's centre. Camera at d·(0, cosφ, sinφ):
  *  a ground point (x, z) has depth d − z·sinφ, screen x = x / depth, screen y = −z·cosφ / depth (tan units). */
 export function fitDistance(p: FitParams): number {
+  const margin = Math.max(12, p.margin);
   const t = Math.tan((p.fov * Math.PI) / 360);
-  const a = t * (p.W / p.H) * Math.max(1, (p.free.right - p.free.left) / 2 - p.margin) / (p.W / 2);
-  const b = t * Math.max(1, (p.free.bottom - p.free.top) / 2 - p.margin) / (p.H / 2);
+  const a = t * (p.W / p.H) * Math.max(1, (p.free.right - p.free.left) / 2 - margin) / (p.W / 2);
+  const b = t * Math.max(1, (p.free.bottom - p.free.top) / 2 - margin) / (p.H / 2);
   const sp = Math.sin(p.polar), cp = Math.cos(p.polar);
-  let d = 0;
-  for (const [x, z] of p.pts) d = Math.max(d, Math.abs(x) / a + z * sp, (Math.abs(z) * cp) / b + z * sp);
+  let dW = 0;
+  let dH = 0;
+  for (const [x, z] of p.pts) {
+    dW = Math.max(dW, Math.abs(x) / a + z * sp);
+    dH = Math.max(dH, (Math.abs(z) * cp) / b + z * sp);
+  }
+  const d = Math.max(dW, dH);
+  const portrait = p.W < 520 && p.H > p.W;
+  if (portrait && dW > dH * 1.01) return d;
+  if (portrait && dH > dW * 1.08) return Math.max(dW, dH * 0.94);
   return d;
 }
 

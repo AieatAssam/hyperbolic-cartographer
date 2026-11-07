@@ -66,10 +66,16 @@ if (cells?.springAt >= 0) {
   await qa(page, 'clearBoardFocus');
 }
 
-if (cells?.bridgeAt >= 0) {
-  await hideDock(page);
-  await qa(page, 'previewAt', cells.bridgeAt, 'bridge');
-  await page.waitForTimeout(950);
+await waitReady(page, 'bridge-gain');
+await hideDock(page);
+const bridgeCell = await qa(page, 'bridgeGainCell');
+if (bridgeCell >= 0) {
+  await qa(page, 'previewAt', bridgeCell, 'bridge');
+  await page.waitForFunction(() => {
+    const el = document.querySelector('.board-gain-label');
+    return el && !el.classList.contains('hidden') && /Ink\/s/.test(el.textContent ?? '');
+  });
+  await page.waitForTimeout(400);
   await page.screenshot({ path: join(ART, 'balance-bridge-gain-390.png') });
   await qa(page, 'clearBoardFocus');
 }

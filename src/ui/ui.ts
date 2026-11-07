@@ -61,6 +61,8 @@ export interface UICtx {
 }
 export interface UI {
   update(): void; // called ~10x per second; cheap. Rebuilds panel body only on tab/state-key change.
+  /** Repositions the floating bridge +Ink/s label (call every frame while previewing). */
+  syncBridgeGain(): void;
   tooltip(x: number, y: number, html: string | null): void; // null hides
   showOffline(r: OfflineReport): void;
   toast(msg: string): void;
@@ -1011,6 +1013,13 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       );
       infoActs.hidden = true;
     }
+    syncBridgeGainLabel();
+  }
+
+  function syncBridgeGainLabel() {
+    const s = get();
+    const sel = ctx.selected();
+    const tl = ctx.tool.current;
     const focus = ctx.boardFocus?.() ?? (sel >= 0 ? sel : -1);
     const previewInk = ctx.bridgePreviewDelta?.() ?? null;
     const pos = focus >= 0 ? ctx.cellScreenPos?.(focus) ?? null : null;
@@ -1019,7 +1028,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     if (previewInk != null && focus >= 0 && pos && bridgeOn && (!surf || surf === 'off')) {
       boardGain.textContent = `+${fmt(previewInk, s.notation)} Ink/s`;
       boardGain.style.left = `${Math.round(pos.x)}px`;
-      boardGain.style.top = `${Math.round(pos.y - 36)}px`;
+      boardGain.style.top = `${Math.round(pos.y - 40)}px`;
       boardGain.classList.remove('hidden');
     } else boardGain.classList.add('hidden');
   }
@@ -1113,10 +1122,11 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   });
 
   // ---- Mount ----
-  root.append(topbar, panel, dock, palette, manifoldBar, tip, boardGain, toastEl, dev, backdrop);
+  root.append(topbar, panel, dock, palette, manifoldBar, tip, toastEl, dev, backdrop);
+  document.body.append(boardGain);
   update();
   return {
-    update, tooltip, showOffline, toast, flash, bumpInk, setTransition, setManifoldPreview,
+    update, syncBridgeGain: syncBridgeGainLabel, tooltip, showOffline, toast, flash, bumpInk, setTransition, setManifoldPreview,
     qa: {
       tab: (id: string) => tabBtns.has(id as Tab) && openTab(id as Tab),
       openImport: (text?: string) => openImport(text),

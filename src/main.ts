@@ -99,7 +99,7 @@ const tap = new TapController(); // tap/drag/pinch classification; holds the tou
 // ---- UI-aware framing: centre the board in the screen area not covered by HUD/panels/dock ----
 const POLAR = Math.atan2(config.camera.polarY, config.camera.polarZ);
 const MARGIN = config.camera.margin;
-const boardFill = () => (innerWidth < 520 && innerHeight > innerWidth ? config.camera.phoneFill : config.camera.desktopFill);
+const boardFill = () => config.camera.phoneFill;
 let free: Rect = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
 let fitD = 0; // distance that fits the current footprint into `free` (0 = not yet framed)
 let layoutDirty = true;
@@ -181,7 +181,7 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
   } else {
     fitD = fitDistance({
       pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar, margin,
-    }) / Math.max(0.35, fill);
+    }) / Math.max(1, Math.min(1.08, fill));
   }
   controls.maxDistance = Math.max(40, fitD * 1.5);
   if (klein3d) {
@@ -331,8 +331,9 @@ function applyTool(i: number): boolean {
     applyConstellationRewards(s, events);
     for (const e of events) {
       ui.toast(`★ ${e.name} — +${fmt(e.bonusInk, s.notation)} Ink & pattern bonus`);
-      constellationEdges = e.edges;
-      constellationUntil = performance.now() / 1000 + 9;
+      constellationBurstEdges = e.edges;
+      constellationPermanent = mergeEdges(constellationPermanent, e.edges);
+      constellationPulseUntil = performance.now() / 1000 + 1.5;
       fx.celebrateConstellation(e.cells);
       playChime('constellation');
     }
@@ -570,8 +571,20 @@ let inspectCell = -1;
 let inspectBlend = 0;
 let inspectTarget = 0;
 let bridgePulse = 0;
-let constellationUntil = 0;
-let constellationEdges: [number, number][] = [];
+let constellationPulseUntil = 0;
+let constellationBurstEdges: [number, number][] = [];
+let constellationPermanent: [number, number][] = [];
+let lastDriftCount = 0;
+const edgeKey = ([a, b]: [number, number]) => (a < b ? `${a}:${b}` : `${b}:${a}`);
+const mergeEdges = (base: [number, number][], add: [number, number][]) => {
+  const seen = new Set(base.map(edgeKey));
+  const out = base.slice();
+  for (const e of add) {
+    const k = edgeKey(e);
+    if (!seen.has(k)) (seen.add(k), out.push(e));
+  }
+  return out;
+};
 
 function bridgeArcEnds(g: TileGraph, tiles: (TileType | null)[], i: number): [number, number] | null {
   const nb = g.neighbours[i];
@@ -708,6 +721,12 @@ function frame(now: number) {
   while (acc >= STEP && steps++ < 1000) simulate(s, STEP), (acc -= STEP);
   if (steps >= 1000) acc = 0;
 
+  if (s.drifts !== lastDriftCount) {
+    lastDriftCount = s.drifts;
+    constellationPermanent = [];
+    constellationBurstEdges = [];
+    constellationPulseUntil = 0;
+  }
   if (s.ring !== lastRing) (lastRing = s.ring), (layoutDirty = true);
   if (shouldReframe(layoutDirty, tap.selected)) layoutView(); // a previewed touch cell holds the board still
   if (!isSurfaceBoard(board) && board.geometry !== s.geometry) return renderFrame(dt);
@@ -744,11 +763,17 @@ function frame(now: number) {
     hoverAdj = tiles[focus] ? adjacency(g, tiles, focus, reach) : g.neighbours[focus];
   }
   const nowSec = now / 1000;
-  if (nowSec < constellationUntil && constellationEdges.length) hl.constellation = constellationEdges;
+  if (constellationPermanent.length) hl.constellationPermanent = constellationPermanent;
+  if (constellationPulseUntil > nowSec && constellationBurstEdges.length) {
+    const pulse = Math.min(1, Math.max(0, (constellationPulseUntil - nowSec) / 1.5));
+    hl.constellationPulse = pulse;
+    hl.constellation = constellationBurstEdges;
+  }
   const perTile = manifoldTiles
     ? tiles.map((t) => (t === 'mill' ? config.manifold.demoMillOut : t === 'spring' ? 1 : 0))
     : p.perTile;
   board.update(rs, perTile, focus, hoverAdj, hl);
+  if (!isSurfaceBoard(board)) board.overlayConstellations(hl);
   // prepare binds the new board's embedding before any spawn; update then advances time once
   const ctx = fxContext(perTile, routes);
   fx.prepare(ctx);
@@ -766,12 +791,22 @@ function frame(now: number) {
   }
   controls.update();
   renderFrame(dt);
+  if (tool.current === 'bridge' || constellationPulseUntil > now / 1000) ui.syncBridgeGain();
   if ((uiAcc += dt) > 0.1) (uiAcc = 0), ui.update();
 }
 requestAnimationFrame(frame);
 
 // ---- QA fixtures (?dev&qa only): deterministic states, no randomness ----
-type QaSeed = 'fresh' | 'midgame' | 'drift-ready' | 'projection-ready' | 'hyper' | 'ux-demo' | 'constellation-demo' | 'network-demo';
+type QaSeed =
+  | 'fresh'
+  | 'midgame'
+  | 'drift-ready'
+  | 'projection-ready'
+  | 'hyper'
+  | 'ux-demo'
+  | 'constellation-demo'
+  | 'network-demo'
+  | 'bridge-gain';
 /** Tiles on every `every`-th active cell, alternating Mill and Spring. */
 function sprinkle(g: GameState, every: number) {
   g.tiles = g.tiles.map((_, i): TileType | null => (!isActive(g, i) || i % every ? null : (i / every) % 2 ? 'mill' : 'spring'));
@@ -795,6 +830,19 @@ function fixture(name: QaSeed): GameState {
   } else if (name === 'projection-ready') {
     Object.assign(g, { ink: d(1e6), runInk: d(1e5), lifetimeInk: d(3e6), charts: d(30), cycleCharts: d(30), drifts: 1, runTime: 300, totalTime: 3600 });
     sprinkle(g, 4);
+  } else if (name === 'bridge-gain') {
+    g.ring = 3;
+    Object.assign(g, { ink: d(8e4), runInk: d(5e5), totalTime: 400, runTime: 400 });
+    g.tiles[0] = 'mill';
+    g.tiles[1] = 'spring';
+    g.tiles[4] = 'mill';
+    g.tiles[5] = 'spring';
+    const graph = graphOf(g);
+    for (let i = 0; i < g.tiles.length; i++) {
+      if (!isActive(g, i) || g.tiles[i]) continue;
+      const occ = graph.neighbours[i].filter((n) => g.tiles[n]);
+      if (occ.length >= 2 && previewDelta(g, i, 'bridge') > 0) break;
+    }
   } else if (name === 'network-demo') {
     g.ring = 2;
     Object.assign(g, { ink: d(500), runInk: d(100), totalTime: 60, runTime: 60 });
@@ -1026,6 +1074,13 @@ if (dev) {
           surface: board.surface, chartMode: board.chartMode, immersion3d: board.immersion3d, seamView: board.seamView,
           minx, maxx, miny, maxy, cnt,
         };
+      },
+      bridgeGainCell: () => {
+        for (let i = 0; i < s.tiles.length; i++) {
+          if (!isActive(s, i) || s.tiles[i]) continue;
+          if (previewDelta(s, i, 'bridge') > 0) return i;
+        }
+        return -1;
       },
       networkLinkCell: () => {
         const g = graphOf(s);

@@ -142,6 +142,9 @@ export class Board {
   private tileType: GameState['tiles'] = [];
   private previewLine: THREE.Line;
   private constellationLine: THREE.LineSegments;
+  private constellationGlow: THREE.LineSegments;
+  private constellationFaint: THREE.LineSegments;
+  private constellationStars: THREE.InstancedMesh;
   private ghostLine: THREE.LineSegments;
 
   constructor(readonly geometry: Geometry, env: THREE.Texture | null = null) {
@@ -238,12 +241,42 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     );
     this.constellationLine.visible = false;
     this.constellationLine.frustumCulled = false;
-    this.constellationLine.renderOrder = 7;
+    this.constellationLine.renderOrder = 8;
     this.group.add(this.constellationLine);
+    const glowMat = new THREE.LineBasicMaterial({
+      color: gold, transparent: true, opacity: 0.45,
+      depthTest: false, depthWrite: false,
+    });
+    this.constellationGlow = new THREE.LineSegments(new THREE.BufferGeometry(), glowMat);
+    this.constellationGlow.visible = false;
+    this.constellationGlow.frustumCulled = false;
+    this.constellationGlow.renderOrder = 7.5;
+    this.group.add(this.constellationGlow);
+    this.constellationFaint = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({
+        color: gold, transparent: true, opacity: 0.2,
+        depthTest: false, depthWrite: false,
+      }),
+    );
+    this.constellationFaint.visible = false;
+    this.constellationFaint.frustumCulled = false;
+    this.constellationFaint.renderOrder = 5;
+    this.group.add(this.constellationFaint);
+    const starCap = GRAPHS[geometry].ring.length;
+    this.constellationStars = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(0.11, 10, 8),
+      new THREE.MeshBasicMaterial({ color: 0xfff0c8, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false }),
+      starCap,
+    );
+    this.constellationStars.count = 0;
+    this.constellationStars.frustumCulled = false;
+    this.constellationStars.renderOrder = 9;
+    this.group.add(this.constellationStars);
     this.ghostLine = new THREE.LineSegments(
       new THREE.BufferGeometry(),
       new THREE.LineDashedMaterial({
-        color: gold, transparent: true, opacity: 0.5, dashSize: 0.22, gapSize: 0.14,
+        color: gold, transparent: true, opacity: 0.72, dashSize: 0.18, gapSize: 0.11,
         depthTest: false, depthWrite: false,
       }),
     );
@@ -253,21 +286,73 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     this.group.add(this.ghostLine);
   }
 
-  private updateEdgeLines(edges: readonly [number, number][] | undefined, mesh: THREE.LineSegments, lift: number) {
+  private updateEdgeLines(
+    edges: readonly [number, number][] | undefined,
+    mesh: THREE.LineSegments,
+    lift: number,
+    opacity = 1,
+    glowMul = 0,
+  ) {
+    const mat = mesh.material as THREE.LineBasicMaterial | THREE.LineDashedMaterial;
+    mat.opacity = opacity;
     if (!edges?.length) {
       mesh.visible = false;
       return;
     }
     const pts: number[] = [];
+    const glowPts: number[] = [];
     for (const [a, b] of edges) {
       const ta = this.tops[a], tb = this.tops[b];
       if (!ta || !tb) continue;
       const y = Math.max(ta.y, tb.y) + lift;
       pts.push(ta.x, y, ta.z, tb.x, y, tb.z);
+      if (glowMul > 0) {
+        const g = glowMul * 0.08;
+        glowPts.push(ta.x + g, y + 0.02, ta.z, tb.x - g, y + 0.02, tb.z);
+      }
     }
     mesh.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
     if (mesh.material instanceof THREE.LineDashedMaterial) (mesh as THREE.Line).computeLineDistances();
     mesh.visible = pts.length > 0;
+    if (glowMul > 0 && this.constellationGlow) {
+      (this.constellationGlow.material as THREE.LineBasicMaterial).opacity = opacity * 0.55;
+      this.constellationGlow.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(glowPts), 3));
+      this.constellationGlow.visible = glowPts.length > 0;
+    } else if (this.constellationGlow) this.constellationGlow.visible = false;
+  }
+
+  private updateConstellationStars(edges: readonly [number, number][] | undefined, pulse: number) {
+    if (!edges?.length || pulse <= 0) {
+      this.constellationStars.count = 0;
+      return;
+    }
+    const cells = [...new Set(edges.flat())];
+    const m4 = new THREE.Matrix4();
+    const sc = 0.65 + 0.55 * pulse;
+    let i = 0;
+    for (const c of cells) {
+      const t = this.tops[c];
+      if (!t) continue;
+      m4.makeTranslation(t.x, t.y + 0.38 * sc, t.z);
+      m4.scale(new THREE.Vector3(sc, sc, sc));
+      this.constellationStars.setMatrixAt(i++, m4);
+    }
+    this.constellationStars.count = i;
+    this.constellationStars.instanceMatrix.needsUpdate = true;
+    (this.constellationStars.material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.65 * pulse;
+  }
+
+  /** Constellation overlays: update every frame (pulse animation). */
+  overlayConstellations(hl?: BoardHighlight) {
+    const pulse = hl?.constellationPulse ?? 0;
+    const bright = hl?.constellation;
+    const faint = hl?.constellationPermanent;
+    const ghost = hl?.constellationGhost;
+    const mainOp = bright?.length ? 0.55 + 0.45 * pulse : 0;
+    this.updateEdgeLines(bright, this.constellationLine, 0.42, mainOp, pulse);
+    this.updateEdgeLines(faint, this.constellationFaint, 0.26, 0.22, 0);
+    this.updateEdgeLines(ghost, this.ghostLine, 0.2, 0.7, 0);
+    this.updateConstellationStars(bright, pulse);
   }
 
   private updatePreviewArc(arc: readonly [number, number] | undefined) {
@@ -343,8 +428,9 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       this.glowQ[i] = qv;
       glowSig = (glowSig * 31 + qv) | 0;
     }
+    const ghostCells = new Set(hl?.constellationGhost?.flat() ?? []);
     const hlKey = hl
-      ? `${hl.dim ?? 0}|${hl.pulse ?? 0}|${hl.direct?.join() ?? ''}|${hl.bridge?.join() ?? ''}|${hl.lit?.join() ?? ''}|${hl.arc?.join() ?? ''}|${hl.constellation?.map((e) => e.join(':')).join() ?? ''}|${hl.constellationGhost?.map((e) => e.join(':')).join() ?? ''}`
+      ? `${hl.dim ?? 0}|${hl.pulse ?? 0}|${hl.direct?.join() ?? ''}|${hl.bridge?.join() ?? ''}|${hl.lit?.join() ?? ''}|${hl.arc?.join() ?? ''}`
       : '';
     const key = `${s.tiles.join()}|${s.ring}|${s.pinned}|${hover}|${hoverAdj}|${this.viewRev}|${glowSig}|${hlKey}`;
     if (key === this.key) return;
@@ -363,7 +449,8 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       const bridgeSet = hl?.bridge ?? [];
       const nearDirect = i !== hover && directSet.includes(i);
       const nearBridge = i !== hover && !nearDirect && bridgeSet.includes(i);
-      const near = nearDirect || nearBridge;
+      const nearGhost = ghostCells.has(i);
+      const near = nearDirect || nearBridge || nearGhost;
       // output level 0..1 (log decades / heightLogFull), quantised by glowQ
       const L = Math.min(1, this.glowQ[i] / GLOW_STEPS / MATERIAL.heightLogFull);
       const pinned = s.pinned.includes(i);
@@ -400,7 +487,11 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
           border.copy(edge).lerp(face, EMPTY_SLOT.restRimMix);
           trim.copy(glow).multiplyScalar(EMPTY_SLOT.restTrim);
         }
-        if (i === hover) c.lerp(C.white, MATERIAL.hoverLerp), border.copy(C.adj), trim.copy(C.adj).multiplyScalar(0.25);
+        if (i === hover) {
+          c.lerp(C.white, MATERIAL.hoverLerp);
+          if (nearGhost) border.copy(C.gold), trim.copy(C.gold).multiplyScalar(0.45);
+          else border.copy(C.adj), trim.copy(C.adj).multiplyScalar(0.25);
+        }
         if (hl?.lit && hl.dim && hl.dim > 0 && !hl.lit.includes(i)) {
           const d = PREVIEW.inspectDim * hl.dim;
           const sat = 1 - PREVIEW.inspectSatMul * hl.dim;
@@ -415,6 +506,8 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         const ph = hl?.pulse ?? 0;
         const m = PREVIEW.bridgeMix + PREVIEW.bridgePulse * Math.sin(ph * Math.PI * 2);
         border.lerp(C.bridge, m), trim.lerp(C.bridge, 0.35);
+      } else if (nearGhost) {
+        border.lerp(C.gold, 0.62), trim.lerp(C.gold, 0.38);
       } else if (nearDirect) border.lerp(C.adj, PREVIEW.directMix), trim.lerp(C.adj, 0.25);
       h *= o.scale;
       const [cx, cz] = o.c;
@@ -451,8 +544,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     for (const name of ['position', 'normal', 'color', 'glow']) this.geom.attributes[name].needsUpdate = true;
     for (const t of TILE_TYPES) this.motifs[t].instanceMatrix.needsUpdate = true;
     this.updatePreviewArc(hl?.arc);
-    this.updateEdgeLines(hl?.constellation, this.constellationLine, 0.38);
-    this.updateEdgeLines(hl?.constellationGhost, this.ghostLine, 0.22);
+    this.overlayConstellations(hl);
   }
 
   /** Starts a squash-settle on tile i at fx time `now` (writes only that tile's vertex span). */

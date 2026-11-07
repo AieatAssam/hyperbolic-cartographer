@@ -34,7 +34,7 @@ export const LIGHTS = {
 export const BACKDROP = {
   top: 0x2a1850, horizon: 0x6a3a78, bottom: 0x14343e,
   nebulaA: 0x3fb8c4, nebulaB: 0xd0709a, star: 0xfff0d0,
-  vignette: 0.32, grain: 0.004, drift: 1.18,
+  vignette: 0.35, grain: 0.004, drift: 1.0,
 } as const;
 
 /**

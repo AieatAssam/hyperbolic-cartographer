@@ -1010,6 +1010,26 @@ const CASES = [
     },
     expect: async (p) => p.evaluate(topbarControlRhythm),
   },
+  {
+    name: 'bridge-gain-label',
+    setup: async (p) => {
+      await qa(p, 'seed', 'bridge-gain');
+      await qa(p, 'dismissTutorial');
+      const i = await qa(p, 'bridgeGainCell');
+      if (i < 0) throw new Error('bridge-gain fixture: no bridge cell');
+      await qa(p, 'previewAt', i, 'bridge');
+      await rafTwice(p);
+      await p.waitForTimeout(350);
+    },
+    expect: async (p) => {
+      const ok = await p.locator('.board-gain-label:not(.hidden)').evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const st = getComputedStyle(el);
+        return r.width > 40 && r.height > 14 && st.visibility !== 'hidden' && /Ink\/s/.test(el.textContent ?? '');
+      }).catch(() => false);
+      return ok ? [] : ['bridge +Ink/s gain label not visible during bridge preview'];
+    },
+  },
   boardCase('board-free-55', 'midgame', false),
   boardCase('board-free-55-preview', 'midgame', true),
   boardCase('board-free-55-hyper-preview', 'hyper', true, true),
