@@ -1047,6 +1047,8 @@ if (dev) {
         const klein3d = board.surface === 'klein' && !board.isChartFlat();
         const tY = board.surface === 'torus' ? 0.1 : klein3d ? kleinImmersionTargetY() : 0;
         controls.target.set(0, tY, 0);
+        ui.update();
+        renderFrame(0);
         layoutDirty = true;
         layoutView();
         fitD = fitManifoldProjected(
@@ -1068,7 +1070,12 @@ if (dev) {
         camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);
         camera.updateProjectionMatrix();
         renderFrame(0);
-        return checkManifoldProjectFit(board, camera, free, innerWidth, innerHeight);
+        return checkManifoldProjectFit(board, camera, free, innerWidth, innerHeight, {
+          target: controls.target,
+          polar,
+          azimuth: manifoldAz,
+          distance: fitD,
+        });
       },
       manifoldStats: () => {
         if (!isSurfaceBoard(board)) return null;

@@ -1100,7 +1100,10 @@ const CASES = [
     expect: async (p) => {
       const r = await qa(p, 'manifoldProjectFit');
       if (r?.ok) return [];
-      return (r?.failures ?? [`manifoldProjectFit failed: ${JSON.stringify(r)}`]).slice(0, 5);
+      const extra = r?.cameraDistance != null
+        ? [`cameraDistance=${Number(r.cameraDistance).toFixed(2)} fill=${Number(r.fill).toFixed(3)} canZoomIn=${r.canZoomIn}`]
+        : [];
+      return [...extra, ...(r?.failures ?? [`manifoldProjectFit failed: ${JSON.stringify(r)}`])].slice(0, 5);
     },
   },
   {

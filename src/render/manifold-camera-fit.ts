@@ -223,6 +223,39 @@ function setOrbitCamera(
   camera.updateProjectionMatrix();
 }
 
+/** Pull camera in/out so projected fill sits in [fillMin, fillMax] while samples stay in the board rect. */
+function tuneManifoldFillDistance(
+  board: SurfaceBoard,
+  samples: [number, number, number][],
+  camera: THREE.PerspectiveCamera,
+  target: THREE.Vector3,
+  free: Rect,
+  W: number,
+  H: number,
+  polar: number,
+  azimuth: number,
+  boardRect: BoardScreenRect,
+  d0: number,
+  fillMin: number,
+  fillMax: number,
+): number {
+  const corners = manifoldFitCorners(board);
+  let d = d0;
+  const measure = () => worstSpinFill(samples, corners, board, camera, W, H, boardRect).fill;
+  for (let i = 0; i < 32 && measure() > fillMax && allSamplesInsideAllSpins(samples, board, camera, W, H, boardRect); i++) {
+    d *= 1.012;
+    setOrbitCamera(camera, target, d, polar, azimuth, free, W, H, board);
+  }
+  for (let i = 0; i < 32 && measure() < fillMin; i++) {
+    const trial = d * 0.985;
+    setOrbitCamera(camera, target, trial, polar, azimuth, free, W, H, board);
+    if (!allSamplesInsideAllSpins(samples, board, camera, W, H, boardRect)) break;
+    d = trial;
+  }
+  setOrbitCamera(camera, target, d, polar, azimuth, free, W, H, board);
+  return d;
+}
+
 function tuneKleinFillDistance(
   board: SurfaceBoard,
   samples: [number, number, number][],
@@ -236,23 +269,10 @@ function tuneKleinFillDistance(
   boardRect: BoardScreenRect,
   d0: number,
 ): number {
-  const corners = manifoldFitCorners(board);
-  let d = d0;
-  const bandLo = config.manifold.kleinBoardFillMin;
-  const bandHi = config.manifold.kleinBoardFillMax;
-  const measure = () => worstSpinFill(samples, corners, board, camera, W, H, boardRect).fill;
-  for (let i = 0; i < 32 && measure() > bandHi && allSamplesInsideAllSpins(samples, board, camera, W, H, boardRect); i++) {
-    d *= 1.012;
-    setOrbitCamera(camera, target, d, polar, azimuth, free, W, H, board);
-  }
-  for (let i = 0; i < 32 && measure() < bandLo; i++) {
-    const trial = d * 0.988;
-    setOrbitCamera(camera, target, trial, polar, azimuth, free, W, H, board);
-    if (!allSamplesInsideAllSpins(samples, board, camera, W, H, boardRect)) break;
-    d = trial;
-  }
-  setOrbitCamera(camera, target, d, polar, azimuth, free, W, H, board);
-  return d;
+  return tuneManifoldFillDistance(
+    board, samples, camera, target, free, W, H, polar, azimuth, boardRect, d0,
+    config.manifold.kleinBoardFillMin, config.manifold.kleinBoardFillMax,
+  );
 }
 
 export function fitManifoldProjected(
@@ -285,10 +305,22 @@ export function fitManifoldProjected(
   }
   if (board.surface === 'klein' && !board.isChartFlat()) {
     d = tuneKleinFillDistance(board, samples, camera, target, free, W, H, polar, azimuth, boardRect, d);
+  } else if (board.surface === 'torus' && !board.isChartFlat()) {
+    d = tuneManifoldFillDistance(
+      board, samples, camera, target, free, W, H, polar, azimuth, boardRect, d,
+      config.manifold.boardFillMin, config.manifold.boardFillMax,
+    );
   }
 
   board.group.rotation.y = savedRotY;
   return d;
+}
+
+export interface OrbitFitContext {
+  target: THREE.Vector3;
+  polar: number;
+  azimuth: number;
+  distance: number;
 }
 
 export interface ProjectFitReport {
@@ -296,6 +328,29 @@ export interface ProjectFitReport {
   failures: string[];
   rect: BoardScreenRect;
   fill: number;
+  /** Orbit distance after fit (QA / layout diagnostics). */
+  cameraDistance?: number;
+  canZoomIn?: boolean;
+}
+
+/** True if an orbit zoom-in step keeps samples inside (same model as fit tuning, not a camera lerp hack). */
+function orbitCanZoomInWhileInside(
+  samples: [number, number, number][],
+  board: SurfaceBoard,
+  camera: THREE.PerspectiveCamera,
+  ctx: OrbitFitContext,
+  free: Rect,
+  W: number,
+  H: number,
+  rect: BoardScreenRect,
+): boolean {
+  for (let k = 0; k < 12; k++) {
+    const trial = ctx.distance * (0.985 ** (k + 1));
+    setOrbitCamera(camera, ctx.target, trial, ctx.polar, ctx.azimuth, free, W, H, board);
+    if (allSamplesInsideAllSpins(samples, board, camera, W, H, rect)) return true;
+  }
+  setOrbitCamera(camera, ctx.target, ctx.distance, ctx.polar, ctx.azimuth, free, W, H, board);
+  return false;
 }
 
 export function checkManifoldProjectFit(
@@ -304,6 +359,7 @@ export function checkManifoldProjectFit(
   free: Rect,
   W: number,
   H: number,
+  orbit?: OrbitFitContext,
 ): ProjectFitReport {
   const samples = manifoldFitSamples(board);
   const corners = manifoldFitCorners(board);
@@ -324,30 +380,16 @@ export function checkManifoldProjectFit(
     ? config.manifold.kleinBoardFillMin : config.manifold.boardFillMin;
   const fillMax = board.surface === 'klein' && !board.isChartFlat()
     ? config.manifold.kleinBoardFillMax : config.manifold.boardFillMax;
-  if (fill < fillMin && inside) {
-    const viewDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-    const focus = camera.position.clone().add(viewDir.multiplyScalar(24));
-    const offset = camera.position.clone().sub(focus);
-    const savedPos = camera.position.clone();
-    let canZoomIn = false;
-    for (let k = 0; k < 8; k++) {
-      camera.position.copy(focus).add(offset.multiplyScalar(0.985));
-      offset.multiplyScalar(0.985);
-      camera.updateMatrixWorld();
-      camera.updateProjectionMatrix();
-      if (allSamplesInsideAllSpins(samples, board, camera, W, H, rect)) {
-        canZoomIn = true;
-        break;
-      }
-    }
-    camera.position.copy(savedPos);
-    camera.updateMatrixWorld();
-    camera.updateProjectionMatrix();
+  const targetY = board.surface === 'torus' ? 0.1 : !board.isChartFlat() ? kleinImmersionTargetY() : 0;
+  const cameraDistance = camera.position.distanceTo(new THREE.Vector3(0, targetY, 0));
+  let canZoomIn = false;
+  if (fill < fillMin && inside && orbit) {
+    canZoomIn = orbitCanZoomInWhileInside(samples, board, camera, orbit, free, W, H, rect);
     if (canZoomIn) {
       failures.push(`projected fill ${fill.toFixed(3)} < min ${fillMin}`);
     }
   } else if (fill > fillMax && inside && board.surface === 'klein' && !board.isChartFlat()) {
     failures.push(`projected fill ${fill.toFixed(3)} > max ${fillMax}`);
   }
-  return { ok: failures.length === 0, failures, rect, fill };
+  return { ok: failures.length === 0, failures, rect, fill, cameraDistance, canZoomIn };
 }
