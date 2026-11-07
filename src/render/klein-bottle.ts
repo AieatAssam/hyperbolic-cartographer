@@ -1,21 +1,19 @@
-/** Wikipedia “bottle shape” Klein immersion (u ∈ [0, π), v ∈ [0, 2π)). */
+/** Wikipedia “bottle shape” Klein immersion (u ∈ [0, π], v ∈ [0, 2π]). */
 import { config } from '../core/config';
 
 export type Tuple3 = [number, number, number];
 
-/** Tile chart covers half the u period; full skin uses u ∈ [0, 2π) per Wikipedia bottle. */
-export const KLEIN_GRID_U_MAX = Math.PI;
-export const KLEIN_SKIN_U_MAX = Math.PI * 2;
+export const KLEIN_U_MAX = Math.PI;
 export const KLEIN_V_MAX = Math.PI * 2;
 
 export function kleinGridToUv(gx: number, gy: number, w: number, h: number): [number, number] {
-  const u = Math.min(KLEIN_GRID_U_MAX - 1e-6, (gx / w) * KLEIN_GRID_U_MAX);
+  const u = Math.min(KLEIN_U_MAX, (gx / w) * KLEIN_U_MAX);
   const v = (gy / h) * KLEIN_V_MAX;
   return [u, v];
 }
 
 export function kleinMeshUv(ui: number, uSteps: number, vi: number, vSteps: number): [number, number] {
-  const u = (ui / uSteps) * KLEIN_SKIN_U_MAX;
+  const u = (ui / uSteps) * KLEIN_U_MAX;
   const v = (vi / vSteps) * KLEIN_V_MAX;
   return [u, v];
 }
@@ -36,21 +34,9 @@ export function kleinBottleRaw(u: number, v: number): Tuple3 {
   return [x, y, z];
 }
 
-function rotX(p: Tuple3, a: number): Tuple3 {
-  const c = Math.cos(a), s = Math.sin(a);
-  return [p[0], p[1] * c - p[2] * s, p[1] * s + p[2] * c];
-}
-
-function rotZ(p: Tuple3, a: number): Tuple3 {
-  const c = Math.cos(a), s = Math.sin(a);
-  return [p[0] * c - p[1] * s, p[0] * s + p[1] * c, p[2]];
-}
-
-function posePoint(p: Tuple3, scale: number): Tuple3 {
-  let q: Tuple3 = [p[0] * scale, p[1] * scale, p[2] * scale];
-  q = rotX(q, config.manifold.kleinPoseRotX);
-  q = rotZ(q, config.manifold.kleinPoseRotZ);
-  return q;
+/** Formula frame → world: X=x, Y=y, Z=z (view the loop along +Z). */
+function toWorld(raw: Tuple3, scale: number): Tuple3 {
+  return [raw[0] * scale, raw[1] * scale, raw[2] * scale];
 }
 
 let center: Tuple3 = [0, 0, 0];
@@ -62,9 +48,9 @@ function refreshCenter(scale: number) {
   const hi: Tuple3 = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i <= 48; i++) {
     for (let j = 0; j <= 48; j++) {
-      const u = (i / 48) * KLEIN_SKIN_U_MAX;
+      const u = (i / 48) * KLEIN_U_MAX;
       const v = (j / 48) * KLEIN_V_MAX;
-      const q = posePoint(kleinBottleRaw(u, v), scale);
+      const q = toWorld(kleinBottleRaw(u, v), scale);
       for (let k = 0; k < 3; k++) {
         lo[k] = Math.min(lo[k], q[k]);
         hi[k] = Math.max(hi[k], q[k]);
@@ -77,14 +63,14 @@ function refreshCenter(scale: number) {
 
 export function kleinImmersionPos(u: number, v: number, scale = config.manifold.kleinImmersionScale): Tuple3 {
   refreshCenter(scale);
-  const q = posePoint(kleinBottleRaw(u, v), scale);
+  const q = toWorld(kleinBottleRaw(u, v), scale);
   return [q[0] - center[0], q[1] - center[1], q[2] - center[2]];
 }
 
 export function kleinImmersionFrame(u: number, v: number, scale = config.manifold.kleinImmersionScale) {
   const epsU = 1e-4;
   const epsV = 1e-4;
-  const u1 = Math.min(KLEIN_SKIN_U_MAX - epsU, u + epsU);
+  const u1 = Math.min(KLEIN_U_MAX - epsU, u + epsU);
   const v1 = v + epsV >= KLEIN_V_MAX ? v - epsV : v + epsV;
   const p = kleinImmersionPos(u, v, scale);
   const pu = kleinImmersionPos(u1, v, scale);
@@ -101,8 +87,8 @@ export function kleinImmersionFrame(u: number, v: number, scale = config.manifol
   return { p, n, t };
 }
 
-/** Self-intersection locus (neck through wall): u = π circle in v. */
-export const KLEIN_SELF_INTERSECT_U = Math.PI;
+/** Self-intersection locus (neck through wall): u ≈ π/2 circle in v. */
+export const KLEIN_SELF_INTERSECT_U = Math.PI / 2;
 
 export function kleinBottleAabb(scale = config.manifold.kleinImmersionScale): { lo: Tuple3; hi: Tuple3 } {
   refreshCenter(scale);
@@ -110,7 +96,7 @@ export function kleinBottleAabb(scale = config.manifold.kleinImmersionScale): { 
   const hi: Tuple3 = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i <= 48; i++) {
     for (let j = 0; j <= 48; j++) {
-      const u = (i / 48) * KLEIN_SKIN_U_MAX;
+      const u = (i / 48) * KLEIN_U_MAX;
       const v = (j / 48) * KLEIN_V_MAX;
       const p = kleinImmersionPos(u, v, scale);
       for (let k = 0; k < 3; k++) {
@@ -120,4 +106,13 @@ export function kleinBottleAabb(scale = config.manifold.kleinImmersionScale): { 
     }
   }
   return { lo, hi };
+}
+
+/** Camera on +Z with azimuth / elevation (radians); distance d from target. */
+export function kleinCameraOffset(d: number): Tuple3 {
+  const az = config.manifold.kleinImmersionAzimuth;
+  const elev = config.manifold.kleinImmersionElev;
+  const ce = Math.cos(elev), se = Math.sin(elev);
+  const ca = Math.cos(az), sa = Math.sin(az);
+  return [d * sa * ce, d * se, d * ca * ce];
 }

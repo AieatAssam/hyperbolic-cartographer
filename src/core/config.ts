@@ -30,7 +30,14 @@ export const config = {
     boardFillTarget: 0.8,
     boardFillMin: 0.55,
     boardFillMax: 0.88,
-    kleinImmersionAzimuth: 0.42,
+    /** Klein camera: radians, ~30° azimuth from +Z in XZ. */
+    kleinImmersionAzimuth: Math.PI / 6,
+    /** Elevation above XZ plane (~12°). */
+    kleinImmersionElev: (12 * Math.PI) / 180,
+    /** Idle Y-spin half-range for Klein immersion (±30°). */
+    kleinSpinSway: (30 * Math.PI) / 180,
+    kleinBoardFillMin: 0.6,
+    kleinBoardFillMax: 0.7,
     chartPolar: 0.07,
     frameMargin: 16,
     fitSpinSteps: 16,
@@ -45,12 +52,8 @@ export const config = {
     skinRimEmissive: 0.42,
     demoMillOut: 8,
     kleinImmersionScale: 2.8,
-    /** Radians: rotate centred bottle so the long axis is +Y (Wikipedia raw frame). */
-    kleinPoseRotX: 0,
-    kleinPoseRotZ: Math.PI / 4,
     kleinSkinU: 96,
     kleinSkinV: 48,
-    kleinImmersionPolar: 0.72,
     torusImmersionPolar: 1.08,
   },
 };

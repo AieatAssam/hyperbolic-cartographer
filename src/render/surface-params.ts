@@ -69,7 +69,7 @@ export function torusFrameAtGrid(gx: number, gy: number, w: number, h: number, l
   return { p, n, t, u, v };
 }
 
-export { kleinGridToUv } from './klein-bottle';
+export { kleinCameraOffset, kleinGridToUv } from './klein-bottle';
 export const kleinImmersionPos = kleinImmersionPosImpl;
 export const kleinImmersionFrame = kleinImmersionFrameImpl;
 export const kleinBottleAabb = kleinBottleAabbImpl;

@@ -15,6 +15,7 @@ import { cellCorners, circlePts, fitDistance, freeRect, shouldReframe, type Rect
 import {
   fitManifoldProjected, checkManifoldProjectFit, kleinImmersionTargetY,
 } from './render/manifold-camera-fit';
+import { kleinCameraOffset } from './render/surface-params';
 import type { SquareBoard } from './core/geometry/square';
 import { CartographyFX, type FxContext, type FxQuality } from './render/fx';
 import { analyseCanvasPixels } from './render/canvas-check';
@@ -101,7 +102,7 @@ function footprint(): [number, number][] {
 }
 const solveFit = () => {
   if (manifoldPreview !== 'off' && board && isSurfaceBoard(board) && !board.isChartFlat()) {
-    const polar = board.surface === 'torus' ? config.manifold.torusImmersionPolar : config.manifold.kleinImmersionPolar;
+    const polar = board.surface === 'torus' ? config.manifold.torusImmersionPolar : 0;
     return fitManifoldProjected(board, camera, controls.target, free, innerWidth, innerHeight, polar, manifoldAz);
   }
   const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : MARGIN;
@@ -153,6 +154,7 @@ new MutationObserver(() => ((layoutDirty = true), observeUI())).observe(document
 
 let manifoldAz = Math.PI * 0.32;
 let manifoldSpinOn = false;
+let kleinSpinPhase = 0;
 /** Full refit: default tilt, target at origin, distance solved from the footprint (initial UI, geometry, recenter). */
 const frameCamera = () => frameBoardCamera(POLAR);
 const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
@@ -172,12 +174,17 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
     }) / Math.max(0.35, fill);
   }
   controls.maxDistance = Math.max(40, fitD * 1.5);
-  const cp = Math.cos(polar);
-  camera.position.set(
-    controls.target.x + Math.sin(azimuth) * cp * fitD,
-    controls.target.y + cp * fitD,
-    controls.target.z + Math.cos(azimuth) * cp * fitD,
-  );
+  if (klein3d) {
+    const [ox, oy, oz] = kleinCameraOffset(fitD);
+    camera.position.set(controls.target.x + ox, controls.target.y + oy, controls.target.z + oz);
+  } else {
+    const cp = Math.cos(polar);
+    camera.position.set(
+      controls.target.x + Math.sin(azimuth) * cp * fitD,
+      controls.target.y + cp * fitD,
+      controls.target.z + Math.cos(azimuth) * cp * fitD,
+    );
+  }
   camera.lookAt(controls.target);
   const W = innerWidth, H = innerHeight;
   camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);
@@ -186,7 +193,7 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
 const applyManifoldCamera = () => {
   if (!isSurfaceBoard(board)) return frameCamera();
   if (board.isChartFlat()) return frameBoardCamera(config.manifold.chartPolar, 0, config.manifold.chartFill);
-  const polar = board.surface === 'torus' ? config.manifold.torusImmersionPolar : config.manifold.kleinImmersionPolar;
+  const polar = board.surface === 'torus' ? config.manifold.torusImmersionPolar : 0;
   frameBoardCamera(polar, manifoldAz, 1);
 };
 function seedManifoldDemo(which: 'torus' | 'klein') {
@@ -218,7 +225,9 @@ function enterManifoldPreview(which: 'torus' | 'klein') {
   controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
   ui.setManifoldPreview(true, which);
   manifoldSpinOn = true;
-  manifoldAz = which === 'klein' ? Math.PI * config.manifold.kleinImmersionAzimuth : Math.PI * 0.32;
+  kleinSpinPhase = 0;
+  manifoldAz = which === 'klein' ? config.manifold.kleinImmersionAzimuth : Math.PI * 0.32;
+  if (which === 'klein' && isSurfaceBoard(board)) board.group.rotation.y = 0;
   layoutDirty = true;
   applyManifoldCamera();
   if (isSurfaceBoard(board)) board.update(renderState(), [], -1, []);
@@ -583,7 +592,12 @@ function frame(now: number) {
   fx.update(dt, ctx);
   board.tick(fx.now, reduced.matches);
   if (manifoldSpinOn && isSurfaceBoard(board) && !board.isChartFlat()) {
-    board.group.rotation.y += dt * config.manifold.idleSpin;
+    if (board.surface === 'klein' && board.immersion3d) {
+      kleinSpinPhase += dt * config.manifold.idleSpin;
+      board.group.rotation.y = Math.sin(kleinSpinPhase) * config.manifold.kleinSpinSway;
+    } else {
+      board.group.rotation.y += dt * config.manifold.idleSpin;
+    }
   }
   controls.update();
   renderFrame(dt);
@@ -742,8 +756,7 @@ if (dev) {
       },
       manifoldProjectFit: () => {
         if (!isSurfaceBoard(board) || board.isChartFlat()) return { ok: false, failures: ['not-3d'], fill: 0 };
-        const polar = board.surface === 'torus'
-          ? config.manifold.torusImmersionPolar : config.manifold.kleinImmersionPolar;
+        const polar = board.surface === 'torus' ? config.manifold.torusImmersionPolar : 0;
         const klein3d = board.surface === 'klein' && !board.isChartFlat();
         const tY = board.surface === 'torus' ? 0.1 : klein3d ? kleinImmersionTargetY() : 0;
         controls.target.set(0, tY, 0);
@@ -752,12 +765,17 @@ if (dev) {
         fitD = fitManifoldProjected(
           board, camera, controls.target, free, innerWidth, innerHeight, polar, manifoldAz,
         );
-        const cp = Math.cos(polar);
-        camera.position.set(
-          controls.target.x + Math.sin(manifoldAz) * cp * fitD,
-          controls.target.y + cp * fitD,
-          controls.target.z + Math.cos(manifoldAz) * cp * fitD,
-        );
+        if (klein3d) {
+          const [ox, oy, oz] = kleinCameraOffset(fitD);
+          camera.position.set(controls.target.x + ox, controls.target.y + oy, controls.target.z + oz);
+        } else {
+          const cp = Math.cos(polar);
+          camera.position.set(
+            controls.target.x + Math.sin(manifoldAz) * cp * fitD,
+            controls.target.y + cp * fitD,
+            controls.target.z + Math.cos(manifoldAz) * cp * fitD,
+          );
+        }
         camera.lookAt(controls.target);
         const W = innerWidth, H = innerHeight;
         camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);

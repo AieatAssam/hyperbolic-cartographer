@@ -2,7 +2,10 @@
 import * as THREE from 'three';
 import type { Rect } from './framing';
 import type { SurfaceBoard } from './surface-board';
-import { kleinBottleAabb, kleinImmersionPos, KLEIN_SCALE, torusPosFromUv, torusFitAabb } from './surface-params';
+import {
+  kleinBottleAabb, kleinCameraOffset, kleinImmersionPos, KLEIN_SCALE,
+  torusFitAabb, torusPosFromUv,
+} from './surface-params';
 import { boxCorners } from './projected-fit';
 import { config } from '../core/config';
 
@@ -45,7 +48,7 @@ function kleinFitSamples(): [number, number, number][] {
   const pts: [number, number, number][] = [];
   for (let i = 0; i <= 48; i++) {
     for (let j = 0; j <= 48; j++) {
-      const u = (i / 48) * Math.PI * 2;
+      const u = (i / 48) * Math.PI;
       const v = (j / 48) * Math.PI * 2;
       pts.push(kleinImmersionPos(u, v, scale));
     }
@@ -88,6 +91,16 @@ function rotateYp(x: number, y: number, z: number, ang: number): [number, number
   return [x * c + z * s, y, -x * s + z * c];
 }
 
+function idleSpinAngles(board: SurfaceBoard, steps: number, fullCycle: boolean): number[] {
+  const spin0 = board.group.rotation.y;
+  if (board.surface === 'klein' && !board.isChartFlat() && !fullCycle) {
+    const sway = config.manifold.kleinSpinSway;
+    if (steps <= 1) return [spin0];
+    return Array.from({ length: steps }, (_, s) => spin0 + ((s / (steps - 1)) * 2 - 1) * sway);
+  }
+  return Array.from({ length: steps }, (_, s) => (s / steps) * Math.PI * 2 + spin0);
+}
+
 function projectExtent(
   samples: [number, number, number][],
   camera: THREE.PerspectiveCamera,
@@ -128,10 +141,8 @@ function allSamplesInsideAllSpins(
   boardRect: BoardScreenRect,
 ): boolean {
   const steps = config.manifold.fitSpinSteps;
-  const spin0 = board.group.rotation.y;
   const tmp = new THREE.Vector3();
-  for (let s = 0; s < steps; s++) {
-    const ang = (s / steps) * Math.PI * 2 + spin0;
+  for (const ang of idleSpinAngles(board, steps, false)) {
     for (const sv of samples) {
       const [x, y, z] = rotateYp(sv[0], sv[1], sv[2], ang);
       tmp.set(x, y, z);
@@ -170,12 +181,11 @@ function worstSpinFill(
   H: number,
   boardRect: BoardScreenRect,
 ): { fill: number; inside: boolean; extent: ProjectedExtent } {
-  const spin0 = board.group.rotation.y;
   let bestFill = 0;
   let bestExt = { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
   const fillSteps = config.manifold.fillMeasureSpins;
-  for (let s = 0; s < fillSteps; s++) {
-    const ang = (s / fillSteps) * Math.PI * 2 + spin0;
+  const kleinSway = board.surface === 'klein' && !board.isChartFlat();
+  for (const ang of idleSpinAngles(board, fillSteps, !kleinSway)) {
     const ext = mergeExtents(
       projectExtent(samples, camera, W, H, ang),
       projectExtent(corners, camera, W, H, ang),
@@ -196,15 +206,53 @@ function setOrbitCamera(
   free: Rect,
   W: number,
   H: number,
+  board?: SurfaceBoard,
 ) {
-  const cp = Math.cos(polar), sa = Math.sin(azimuth), ca = Math.cos(azimuth);
-  camera.position.set(target.x + sa * cp * d, target.y + cp * d, target.z + ca * cp * d);
+  if (board?.surface === 'klein' && !board.isChartFlat()) {
+    const [ox, oy, oz] = kleinCameraOffset(d);
+    camera.position.set(target.x + ox, target.y + oy, target.z + oz);
+  } else {
+    const cp = Math.cos(polar), sa = Math.sin(azimuth), ca = Math.cos(azimuth);
+    camera.position.set(target.x + sa * cp * d, target.y + cp * d, target.z + ca * cp * d);
+  }
   camera.lookAt(target);
   const viewOffX = W / 2 - (free.left + free.right) / 2;
   const viewOffY = H / 2 - (free.top + free.bottom) / 2;
   camera.setViewOffset(W, H, viewOffX, viewOffY, W, H);
   camera.updateMatrixWorld();
   camera.updateProjectionMatrix();
+}
+
+function tuneKleinFillDistance(
+  board: SurfaceBoard,
+  samples: [number, number, number][],
+  camera: THREE.PerspectiveCamera,
+  target: THREE.Vector3,
+  free: Rect,
+  W: number,
+  H: number,
+  polar: number,
+  azimuth: number,
+  boardRect: BoardScreenRect,
+  d0: number,
+): number {
+  const corners = manifoldFitCorners(board);
+  let d = d0;
+  const bandLo = config.manifold.kleinBoardFillMin;
+  const bandHi = config.manifold.kleinBoardFillMax;
+  const measure = () => worstSpinFill(samples, corners, board, camera, W, H, boardRect).fill;
+  for (let i = 0; i < 32 && measure() > bandHi && allSamplesInsideAllSpins(samples, board, camera, W, H, boardRect); i++) {
+    d *= 1.012;
+    setOrbitCamera(camera, target, d, polar, azimuth, free, W, H, board);
+  }
+  for (let i = 0; i < 32 && measure() < bandLo; i++) {
+    const trial = d * 0.988;
+    setOrbitCamera(camera, target, trial, polar, azimuth, free, W, H, board);
+    if (!allSamplesInsideAllSpins(samples, board, camera, W, H, boardRect)) break;
+    d = trial;
+  }
+  setOrbitCamera(camera, target, d, polar, azimuth, free, W, H, board);
+  return d;
 }
 
 export function fitManifoldProjected(
@@ -225,15 +273,18 @@ export function fitManifoldProjected(
   let lo = 1.5, hi = 80;
   for (let iter = 0; iter < 40; iter++) {
     const d = (lo + hi) / 2;
-    setOrbitCamera(camera, target, d, polar, azimuth, free, W, H);
+    setOrbitCamera(camera, target, d, polar, azimuth, free, W, H, board);
     if (allSamplesInsideAllSpins(samples, board, camera, W, H, boardRect)) hi = d;
     else lo = d;
   }
   let d = hi;
-  setOrbitCamera(camera, target, d, polar, azimuth, free, W, H);
+  setOrbitCamera(camera, target, d, polar, azimuth, free, W, H, board);
   for (let guard = 0; guard < 48 && !allSamplesInsideAllSpins(samples, board, camera, W, H, boardRect); guard++) {
     d *= 1.008;
-    setOrbitCamera(camera, target, d, polar, azimuth, free, W, H);
+    setOrbitCamera(camera, target, d, polar, azimuth, free, W, H, board);
+  }
+  if (board.surface === 'klein' && !board.isChartFlat()) {
+    d = tuneKleinFillDistance(board, samples, camera, target, free, W, H, polar, azimuth, boardRect, d);
   }
 
   board.group.rotation.y = savedRotY;
@@ -269,8 +320,11 @@ export function checkManifoldProjectFit(
   if (!inside) {
     failures.push('sample projected extent outside board at some spin');
   }
-  // In-bounds wins over fill: flag low fill only if zooming in slightly would still stay in-bounds.
-  if (fill < config.manifold.boardFillMin && inside) {
+  const fillMin = board.surface === 'klein' && !board.isChartFlat()
+    ? config.manifold.kleinBoardFillMin : config.manifold.boardFillMin;
+  const fillMax = board.surface === 'klein' && !board.isChartFlat()
+    ? config.manifold.kleinBoardFillMax : config.manifold.boardFillMax;
+  if (fill < fillMin && inside) {
     const viewDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
     const focus = camera.position.clone().add(viewDir.multiplyScalar(24));
     const offset = camera.position.clone().sub(focus);
@@ -290,8 +344,10 @@ export function checkManifoldProjectFit(
     camera.updateMatrixWorld();
     camera.updateProjectionMatrix();
     if (canZoomIn) {
-      failures.push(`projected fill ${fill.toFixed(3)} < min ${config.manifold.boardFillMin}`);
+      failures.push(`projected fill ${fill.toFixed(3)} < min ${fillMin}`);
     }
+  } else if (fill > fillMax && inside && board.surface === 'klein' && !board.isChartFlat()) {
+    failures.push(`projected fill ${fill.toFixed(3)} > max ${fillMax}`);
   }
   return { ok: failures.length === 0, failures, rect, fill };
 }

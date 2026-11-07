@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { BOARD, SURFACE } from '../art/palette';
 import { config } from '../core/config';
 import type { SurfaceGraph } from '../core/geometry/quotient';
-import { KLEIN_SKIN_U_MAX, KLEIN_V_MAX, KLEIN_SELF_INTERSECT_U, kleinImmersionFrame } from './klein-bottle';
+import { KLEIN_U_MAX, KLEIN_V_MAX, KLEIN_SELF_INTERSECT_U, kleinImmersionFrame } from './klein-bottle';
 import {
   KLEIN_SCALE, kleinImmersionPos, torusPosFromUv,
 } from './surface-params';
@@ -100,7 +100,7 @@ function kleinParametricMesh(
   const scale = KLEIN_SCALE();
   for (let yi = 0; yi <= vSteps; yi++) {
     for (let xi = 0; xi <= uSteps; xi++) {
-      const u = (xi / uSteps) * KLEIN_SKIN_U_MAX;
+      const u = (xi / uSteps) * KLEIN_U_MAX;
       const v = (yi / vSteps) * KLEIN_V_MAX;
       const [px, py, pz] = posAt(u, v);
       pos.push(px, py, pz);
