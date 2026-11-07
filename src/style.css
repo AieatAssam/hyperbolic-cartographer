@@ -86,6 +86,7 @@ input[type=checkbox] {
 .goal { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 13px; min-width: 0; }
 .goal .label { flex: 0 0 auto; }
 .goal-text { flex: 1 1 auto; min-width: 0; }
+.goal-short { display: none; }
 .goal-eta { white-space: nowrap; font-size: 12px; }
 .goal .bar { flex: 1 0 100%; margin-top: 2px; }
 .explain {
@@ -352,16 +353,34 @@ ul.reset li::before {
   .hud:not(.hud-open) .goal .label,
   .hud:not(.hud-open) .goal-eta { display: none; }
   .hud:not(.hud-open) .goals { flex: 1 1 0; min-width: 0; flex-direction: row; gap: 0; }
-  /* The goal is one chip: its progress bar fills it behind the (ellipsised) text; full text is in the expanded HUD */
+  /* The goal is one chip: its progress bar fills it behind the name or glyph; full text is in the expanded HUD */
   .hud:not(.hud-open) .goal {
     position: relative; flex: 1 1 0; min-width: 0; height: 32px; padding: 0 8px;
     flex-wrap: nowrap; overflow: hidden; font-size: 12px; border-radius: 8px;
+    container: goal / inline-size;
   }
   .hud:not(.hud-open) .goal .bar {
     position: absolute; inset: 0; flex: none; height: auto; margin: 0; opacity: 0.3; border-radius: 8px;
   }
+  /* Compact name in the chip; the full sentence stays in the DOM (live region) but is visually hidden.
+     Names are <= 7 characters and sized to fit 42px, so they are never cut. Below 42px of chip content the
+     name gives way to its glyph (the progress fill still shows); the glyph is aria-hidden like the name. */
+  .hud:not(.hud-open) .goal-short {
+    display: flex; align-items: center; justify-content: center; position: relative; z-index: 1; min-width: 0;
+    overflow: hidden; white-space: nowrap;
+  }
+  .hud:not(.hud-open) .goal-name { white-space: nowrap; }
+  .hud:not(.hud-open) .goal-icon { display: none; width: 18px; height: 18px; flex: none; }
+  .hud:not(.hud-open) .goal-icon svg {
+    display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  @container goal (max-width: 41.9px) {
+    .hud:not(.hud-open) .goal-name { display: none; }
+    .hud:not(.hud-open) .goal-icon { display: inline-block; }
+  }
   .hud:not(.hud-open) .goal-text {
-    position: relative; z-index: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
   }
   /* Expanded HUD: the full detail as before, scrolling inside its own box, with a full-width collapse control */
   .hud.hud-open { max-height: 42vh; overflow-y: auto; overscroll-behavior: contain; }

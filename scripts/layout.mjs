@@ -350,28 +350,33 @@ function layoutScan() {
   for (const [p, [x, y]] of scrolled) { p.scrollLeft = x; p.scrollTop = y; }
   window.scrollTo(winScroll[0], winScroll[1]);
 
-  // (e) HUD goal: visible with text, inside viewport and uncovered (skipped while a modal is open).
+  // (e) HUD goal: the presentation the user sees must be visible, inside viewport and uncovered (skipped while a
+  // modal is open). Collapsed phone HUD: the compact chip. Otherwise: the full sentence. The full sentence is
+  // 1px visually hidden while the chip shows, so it must not be the target then.
   if (!modalOpen) {
-    const huds = [...document.querySelectorAll('[data-qa="hud-goal"]')]
-      .filter((el) => shown(el) && el.textContent.trim().length > 0);
-    if (huds.length === 0) {
-      failures.push('no visible [data-qa=hud-goal] with non-empty text');
+    const chip = document.querySelector('[data-qa="hud-goal-short"]');
+    const target = shown(chip) ? chip : document.querySelector('[data-qa="hud-goal"]');
+    const GLYPH = 'path, circle, rect, line, polyline, polygon, ellipse';
+    // Chip textContent still holds the name when CSS hides it, so check what is drawn: name text or glyph shapes.
+    const drawn = (el) => {
+      if (el !== chip) return el.textContent.trim().length > 0;
+      const name = el.querySelector('.goal-name');
+      const icon = el.querySelector('.goal-icon');
+      return (!!name && shown(name) && name.textContent.trim().length > 0) ||
+        (!!icon && [...icon.querySelectorAll(GLYPH)].some(shown));
+    };
+    if (!target || !shown(target) || !drawn(target)) {
+      failures.push(target === chip
+        ? 'no visible HUD goal: [data-qa=hud-goal-short] has no drawn name or glyph'
+        : 'no visible [data-qa=hud-goal] with non-empty text');
     } else {
-      const problems = [];
-      const ok = huds.some((el) => {
-        const r = el.getBoundingClientRect();
-        if (!inside(r)) {
-          problems.push(`${label(el)} outside viewport ${rs(r)}`);
-          return false;
-        }
-        const h = hitOk(el, r);
-        if (h) {
-          problems.push(`${label(el)} ${h}`);
-          return false;
-        }
-        return true;
-      });
-      if (!ok) failures.push(`no HUD goal visible, inside viewport and uncovered: ${problems.join('; ')}`);
+      const r = target.getBoundingClientRect();
+      if (!inside(r)) {
+        failures.push(`no HUD goal visible, inside viewport and uncovered: ${label(target)} outside viewport ${rs(r)}`);
+      } else {
+        const h = hitOk(target, r);
+        if (h) failures.push(`no HUD goal visible, inside viewport and uncovered: ${label(target)} ${h}`);
+      }
     }
   }
 
@@ -412,7 +417,15 @@ function hudState() {
   const topbar = document.querySelector('.topbar');
   const shownEl = (el) => !!el && el.getClientRects().length > 0 && getComputedStyle(el).display !== 'none';
   const explain = document.querySelector('.explain');
+  const short = document.querySelector('[data-qa="hud-goal-short"]');
+  const full = document.querySelector('[data-qa="hud-goal"]');
   return {
+    shortShown: shownEl(short),
+    shortFits: !!short && short.scrollWidth <= short.clientWidth,
+    shortText: short ? short.textContent.trim() : null,
+    fullText: full ? full.textContent.trim() : null,
+    fullDisplay: full ? getComputedStyle(full).display : null,
+    fullRectShown: shownEl(full),
     toggleShown: shownEl(toggle),
     expanded: toggle?.getAttribute('aria-expanded') ?? null,
     toggleBox: toggle ? toggle.getBoundingClientRect().toJSON() : null,
@@ -570,6 +583,16 @@ function calMutate(kind) {
     if (!shownEl(panel) || !ctl) return 'needs visible panel with a control';
     set(panel, { overflow: 'hidden' });
     set(ctl, { marginTop: '4000px' });
+  } else if (kind === 'goal-covered') {
+    // Lift a top-actions button onto the compact goal chip's centre; z-index beats the chip's own z-index 1.
+    const chip = document.querySelector('[data-qa="hud-goal-short"]');
+    const btn = ui?.querySelector('.top-actions button');
+    if (!shownEl(chip) || !shownEl(btn)) return 'needs visible compact goal chip and a top-actions button';
+    const a = chip.getBoundingClientRect();
+    const b = btn.getBoundingClientRect();
+    const dx = (a.left + a.right) / 2 - (b.left + b.right) / 2;
+    const dy = (a.top + a.bottom) / 2 - (b.top + b.bottom) / 2;
+    set(btn, { position: 'relative', zIndex: '50', translate: `${dx}px ${dy}px` });
   } else if (kind === 'dock-tall') {
     // min-height beats the 36vh max-height, so the dock eats board space the band check must catch
     const dock = ui?.querySelector('.dock');
@@ -682,6 +705,13 @@ const hudCollapsedCase = {
     if (!st.inkShown) out.push('#ink-counter not visible in collapsed HUD');
     if (!st.rateShown) out.push('Ink/s stat not visible in collapsed HUD');
     if (st.topbarHeight === null || st.topbarHeight > 72) out.push(`collapsed HUD is not one row: top bar ${st.topbarHeight}px tall (need <=72px)`);
+    // Compact chip: real rendered fit (no clipping), a short name with no ellipsis, the full sentence kept for screen readers
+    if (!st.shortShown) out.push('compact goal label [data-qa="hud-goal-short"] not visible in collapsed HUD');
+    if (st.shortShown && !st.shortFits) out.push(`compact goal label "${st.shortText}" overflows its chip (scrollWidth > clientWidth)`);
+    if (st.shortText !== null && /…|\.\.\./.test(st.shortText)) out.push(`compact goal label is ellipsised: "${st.shortText}"`);
+    if (!st.fullText || st.fullText.length <= (st.shortText ?? '').length) out.push('full goal sentence missing from [data-qa="hud-goal"]');
+    if (st.fullDisplay === 'none') out.push('full goal sentence is display:none (screen readers need it)');
+    if (st.toggleBox && (st.toggleBox.width < 44 || st.toggleBox.height < 44)) out.push(`hud-toggle is ${Math.round(st.toggleBox.width)}x${Math.round(st.toggleBox.height)}, need at least 44x44`);
     return out;
   },
 };
@@ -698,6 +728,8 @@ const hudExpandedCase = {
     if (st.expanded !== 'true') out.push(`hud-toggle aria-expanded should be "true" when expanded, got ${st.expanded}`);
     if (!st.explainShown) out.push('expanded HUD does not show the goal explanation (.explain)');
     if (!st.rateShown) out.push('expanded HUD lost the Ink/s stat');
+    if (st.shortShown) out.push('compact goal label still shown in expanded HUD (full sentence must show)');
+    if (!st.fullRectShown) out.push('full goal sentence not shown in expanded HUD');
     if (await phonePortrait(p)) {
       if (!st.toggleShown) out.push('hud-toggle not visible in expanded phone HUD (it must collapse by touch)');
       const vh = (await p.viewportSize()).height;
@@ -837,6 +869,8 @@ const CASES = [
   calibrationCase('scroll-clip', 'projection-ready', 'tab', /^control not reachable: .*clipped/),
   calibrationCase('foot-size', 'midgame', 'openReset', /^modal-foot control too small/),
   calibrationCase('foot-offscreen', 'midgame', 'openReset', /^modal-foot (not fully inside|control .*outside)/),
+  // Phone portrait only: the collapsed HUD's compact goal chip must be uncovered (desktop shows no chip).
+  calibrationCase('goal-covered', 'midgame', null, /^no HUD goal visible, inside viewport and uncovered: .*hud-goal-short.*covered by/, undefined, phonePortrait),
   {
     name: 'hyperboard',
     setup: async (p) => {

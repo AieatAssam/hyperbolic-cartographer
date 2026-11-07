@@ -14,7 +14,7 @@ import {
   driftBlocked, placeBlocked, projectBlocked, projectionCompare, surveyBlocked, upgradeBlocked,
   type Tab, type Tool,
 } from './help';
-import { explainNow, immediateGoal, longGoal } from './goals';
+import { explainNow, immediateGoal, longGoal, type GoalIcon } from './goals';
 import {
   STEPS, currentStep, dismissTutorial, nextStep, parseTutorial, prevStep, reopenTutorial, restartTutorial, serializeTutorial, syncTutorial,
   type TutorialState,
@@ -52,8 +52,8 @@ export interface UI {
   flash(): void;
   /** Visual-only pulse on the HUD Ink counter (GPU mote arrival). */
   bumpInk(weight: number): void;
-  /** Plain-words goal override while a prestige transition plays; null restores the normal goal. */
-  setTransition(text: string | null): void;
+  /** Plain-words goal override while a prestige transition plays; null restores the normal goal. `short` is its compact chip label, `icon` its glyph (default 'project'). */
+  setTransition(text: string | null, short?: string, icon?: GoalIcon): void;
   /** Dev/QA hooks (main.ts exposes them only under ?dev&qa). Each one calls an existing internal. */
   qa: {
     tab(id: string): void; openImport(text?: string): void; checkImport(): void; showExport(): void; openReset(): void;
@@ -123,6 +123,15 @@ const ctl = (b: HTMLElement, name: string, text: string) => {
 const clamp = (x: number) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0);
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 const narrow = () => innerWidth < 700 || innerHeight <= 500;
+/** Compact-chip glyphs (24x24 stroke icons), shown when the chip is too narrow for its short name. Semantic per branch, not parsed from text. */
+const GOAL_ICON_SVG: Record<GoalIcon, string> = {
+  spring: '<path d="M12 3 6.5 10.5a6 6 0 1 0 11 0Z"/>', // drop: a Spring
+  mill: '<circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>', // gear: a Mill
+  survey: '<circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>', // crosshair: Survey
+  boost: '<path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H13Z"/>', // bolt: Boost Mill
+  drift: '<path d="M4 12h15M13 6l6 6-6 6"/>', // arrow: Drift
+  project: '<path d="M12 3 21 12 12 21 3 12Z"/>', // diamond: Project
+};
 
 export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const get = () => ctx.state();
@@ -170,11 +179,19 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const goalText = el('span', 'goal-text');
   goalText.setAttribute('aria-live', 'polite');
   goalText.dataset.qa = 'hud-goal';
+  // Compact chip for the collapsed phone HUD: a short name, or its glyph when the chip is too narrow (CSS container query).
+  // Screen readers get the full sentence from goalText instead.
+  const goalShort = el('span', 'goal-short');
+  goalShort.setAttribute('aria-hidden', 'true');
+  goalShort.dataset.qa = 'hud-goal-short';
+  const goalName = el('span', 'goal-name');
+  const goalIcon = el('span', 'goal-icon');
+  goalShort.append(goalName, goalIcon);
   const goalEta = el('span', 'goal-eta muted');
   const goalFill = el('div', 'fill');
   const goalBar = el('div', 'bar');
   goalBar.append(goalFill);
-  goal.append(el('span', 'label', 'Now'), goalText, goalEta, goalBar);
+  goal.append(el('span', 'label', 'Now'), goalText, goalShort, goalEta, goalBar);
   const explain = el('p', 'explain');
   const nextLabel = el('span', 'label');
   const fill = el('div', 'fill');
@@ -762,7 +779,11 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     requestAnimationFrame(() => b.classList.add('ink-bump'));
   };
   let transitionText: string | null = null;
-  const setTransition = (t: string | null) => ((transitionText = t), update());
+  let transitionShort = '';
+  let transitionIcon: GoalIcon = 'project';
+  const setTransition = (t: string | null, short = '', icon: GoalIcon = 'project') => (
+    (transitionText = t), (transitionShort = short || 'Mapping'), (transitionIcon = icon), update()
+  );
   const showOffline = (r: OfflineReport) => {
     if (r.seconds < 10) return;
     const content = el('div');
@@ -851,8 +872,16 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     const cod = chartsOnDrift(s);
     sCod.v.textContent = fmt(cod, s.notation);
     sCod.sub.textContent = `${fmt(s.runTime > 0 ? cod.toNumber() / (s.runTime / 60) : 0, s.notation)}/min`;
-    const g = transitionText ? { text: transitionText, eta: '', progress: 0 } : immediateGoal(s);
+    const g = transitionText
+      ? { text: transitionText, short: transitionShort, icon: transitionIcon, eta: '', progress: 0 }
+      : immediateGoal(s);
     if (goalText.textContent !== g.text) goalText.textContent = g.text;
+    if (goalName.textContent !== g.short) goalName.textContent = g.short;
+    if (goalIcon.dataset.icon !== g.icon) {
+      goalIcon.dataset.icon = g.icon;
+      goalIcon.innerHTML = `<svg viewBox="0 0 24 24" focusable="false">${GOAL_ICON_SVG[g.icon]}</svg>`;
+    }
+    goal.title = g.text;
     goalEta.textContent = g.eta;
     goalFill.style.width = `${Math.round(clamp(g.progress) * 100)}%`;
     explain.textContent = explainNow(s);

@@ -6,8 +6,14 @@ import { graphOf, type GameState } from '../core/state';
 import { fmt, fmtTime } from './format';
 import { hasBoostedMill } from './tutorial';
 
+/** Semantic glyph for the compact HUD chip; the UI maps each one to a small symbol shown when the chip is too narrow for `short`. */
+export const GOAL_ICONS = ['spring', 'mill', 'survey', 'boost', 'drift', 'project'] as const;
+export type GoalIcon = (typeof GOAL_ICONS)[number];
+
 export interface Goal {
   text: string;
+  short: string; // compact HUD chip label, at most 7 characters: a fixed name built alongside text, never cut from it
+  icon: GoalIcon; // explicit per branch, never parsed from text
   progress: number; // 0..1, clamped and finite
   eta: string; // '' or 'ready' or '~2m 10s'
 }
@@ -55,23 +61,33 @@ export function immediateGoal(s: GameState): Goal {
   const surveyable = s.ring < maxRing(s);
 
   if (s.projections === 0 && canProject(s))
-    return { text: 'Projection is ready: open the Projection tab', progress: 1, eta: 'ready' };
+    return { text: 'Projection is ready: open the Projection tab', short: 'Project', icon: 'project', progress: 1, eta: 'ready' };
   if (s.drifts === 0 && canDrift(s))
     return {
       text: `Drift is ready for ${fmt(chartsOnDrift(s), s.notation)} Charts: open the Drift tab`,
+      short: 'Drift',
+      icon: 'drift',
       progress: 1,
       eta: 'ready',
     };
 
   if (owned(s, 'spring') === 0 && !hasTiles) {
     const cost = tileCost(s, 'spring');
-    return { text: `Place a Spring (${money(cost, s)} Ink)`, progress: ratio(s.ink, cost), eta: etaFor(s, cost) };
+    return {
+      text: `Place a Spring (${money(cost, s)} Ink)`,
+      short: 'Spring',
+      icon: 'spring',
+      progress: ratio(s.ink, cost),
+      eta: etaFor(s, cost),
+    };
   }
 
   if (emptyActive === 0 && surveyable) {
     const cost = surveyCost(s);
     return {
       text: `Survey ring ${s.ring + 1} for more cells`,
+      short: 'Survey',
+      icon: 'survey',
       progress: ratio(s.ink, cost),
       eta: etaFor(s, cost),
     };
@@ -81,6 +97,8 @@ export function immediateGoal(s: GameState): Goal {
     const cost = tileCost(s, 'mill');
     return {
       text: `Save ${money(cost, s)} Ink for a Mill, next to a Spring`,
+      short: 'Mill',
+      icon: 'mill',
       progress: ratio(s.ink, cost),
       eta: etaFor(s, cost),
     };
@@ -88,18 +106,27 @@ export function immediateGoal(s: GameState): Goal {
 
   if (!hasBoostedMill(s)) {
     const cost = tileCost(s, 'spring');
-    return { text: 'Place a Spring touching your Mill', progress: ratio(s.ink, cost), eta: etaFor(s, cost) };
+    return {
+      text: 'Place a Spring touching your Mill',
+      short: 'Boost',
+      icon: 'boost',
+      progress: ratio(s.ink, cost),
+      eta: etaFor(s, cost),
+    };
   }
 
   // Cheapest of: next Spring, next Mill, Survey (only while ring is open and few empty cells remain).
-  const options: { name: string; cost: Decimal }[] = [
-    { name: 'Spring', cost: tileCost(s, 'spring') },
-    { name: 'Mill', cost: tileCost(s, 'mill') },
+  const options: { name: string; short: string; icon: GoalIcon; cost: Decimal }[] = [
+    { name: 'Spring', short: 'Spring', icon: 'spring', cost: tileCost(s, 'spring') },
+    { name: 'Mill', short: 'Mill', icon: 'mill', cost: tileCost(s, 'mill') },
   ];
-  if (surveyable && emptyActive < 3) options.push({ name: `Survey ring ${s.ring + 1}`, cost: surveyCost(s) });
+  if (surveyable && emptyActive < 3)
+    options.push({ name: `Survey ring ${s.ring + 1}`, short: 'Survey', icon: 'survey', cost: surveyCost(s) });
   const best = options.reduce((a, b) => (b.cost.lt(a.cost) ? b : a));
   return {
     text: `Save for ${best.name} (${money(best.cost, s)} Ink)`,
+    short: best.short,
+    icon: best.icon,
     progress: ratio(s.ink, best.cost),
     eta: etaFor(s, best.cost),
   };

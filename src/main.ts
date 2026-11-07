@@ -238,7 +238,11 @@ function startTransition(kind: Trans['kind']) {
   trans = { kind, t: 0, swapped: false, total, reduced: rm };
   tap.clearSelection();
   document.body.classList.add('transitioning');
-  ui.setTransition(kind === 'drift' ? 'Drifting: the ink washes the old map away…' : 'Projecting: the square map folds into the hyperbolic disk…');
+  ui.setTransition(
+    kind === 'drift' ? 'Drifting: the ink washes the old map away…' : 'Projecting: the square map folds into the hyperbolic disk…',
+    kind === 'drift' ? 'Drift' : 'Project',
+    kind === 'drift' ? 'drift' : 'project',
+  );
   fx.prestige(kind, 'out', total, rm);
 }
 /** Advances the transition; returns true while board input/actions must stay blocked. */

@@ -40,7 +40,7 @@ jobs:
   layout:
     name: layout (${{ matrix.viewport }})
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy:
@@ -57,7 +57,32 @@ jobs:
 
       - run: npm ci
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - name: Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # Headless shell only (the layout script launches without a channel); key is OS + arch + installed Playwright version
+      - name: Cache Chromium headless shell
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ runner.arch }}-${{ steps.pw.outputs.version }}-chromium-shell
+
+      - name: Install Chromium headless shell
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 12
+        run: |
+          for i in 1 2 3; do
+            npx playwright install --only-shell chromium && exit 0
+            echo "install attempt $i failed"; sleep $((i * 10))
+          done
+          exit 1
+
+      # OS packages are not restorable from the browser cache, so this always runs
+      - name: Install Chromium system deps
+        timeout-minutes: 6
+        run: npx playwright install-deps chromium
 
       - name: Layout QA (${{ matrix.viewport }})
         run: npm run layout

@@ -4,7 +4,7 @@ import { config } from '../src/core/config';
 import { graphOf, initialState, type GameState } from '../src/core/state';
 import { place } from '../src/core/economy';
 import type { TileType } from '../src/core/tiles';
-import { explainNow, immediateGoal, longGoal } from '../src/ui/goals';
+import { explainNow, GOAL_ICONS, immediateGoal, longGoal } from '../src/ui/goals';
 import { fmt } from '../src/ui/format';
 
 const fill = (s: GameState, types: TileType[]) => {
@@ -56,6 +56,122 @@ describe('immediateGoal', () => {
     expect(Number.isFinite(g.progress)).toBe(true);
     expect(g.progress).toBeLessThanOrEqual(1);
     expect(g.eta).not.toMatch(/NaN|Infinity/);
+  });
+});
+
+describe('immediateGoal short label', () => {
+  // Names must fit the 42px chip without ellipsis: at most 7 characters, never cut
+  const shortOk = (g: { short: string; icon: string }) => {
+    expect(g.short.length).toBeGreaterThan(0);
+    expect(g.short.length).toBeLessThanOrEqual(7);
+    expect(g.short).not.toMatch(/…|\.\.\.|\s/);
+    expect(GOAL_ICONS).toContain(g.icon);
+  };
+
+  it('fresh state: compact Spring, full sentence unchanged', () => {
+    const g = immediateGoal(initialState());
+    shortOk(g);
+    expect(g.short).toBe('Spring');
+    expect(g.icon).toBe('spring');
+    expect(g.text).toContain('Place a Spring');
+  });
+
+  it('Mill branch after the first Spring', () => {
+    const s = initialState();
+    place(s, 0, 'spring');
+    const g = immediateGoal(s);
+    shortOk(g);
+    expect(g.short).toBe('Mill');
+    expect(g.icon).toBe('mill');
+  });
+
+  it('Drift and Projection readiness', () => {
+    const drift = initialState();
+    drift.tiles[0] = 'spring';
+    drift.runInk = new Decimal(1e7);
+    expect(immediateGoal(drift).short).toBe('Drift');
+    expect(immediateGoal(drift).icon).toBe('drift');
+
+    const proj = initialState();
+    proj.tiles[0] = 'spring';
+    proj.drifts = 1;
+    proj.cycleCharts = new Decimal(config.projection.minCharts);
+    const g = immediateGoal(proj);
+    shortOk(g);
+    expect(g.short).toBe('Project');
+    expect(g.icon).toBe('project');
+  });
+
+  it('Survey branch carries the ring number', () => {
+    const s = initialState();
+    s.ring = 0;
+    fill(s, ['spring', 'mill']);
+    s.projections = 1;
+    s.drifts = 1;
+    const g = immediateGoal(s);
+    expect(g.text).toBe(`Survey ring ${s.ring + 1} for more cells`);
+    shortOk(g);
+    expect(g.short).toBe('Survey');
+    expect(g.icon).toBe('survey');
+  });
+
+  it('Boost Mill branch: a Mill exists but no Spring touches one', () => {
+    const s = initialState();
+    const g0 = graphOf(s);
+    const far = g0.neighbours[0].concat(0);
+    const k = s.tiles.findIndex((_, i) => !far.includes(i));
+    s.tiles[0] = 'spring';
+    s.tiles[k] = 'mill';
+    s.drifts = 1;
+    s.projections = 1;
+    const g = immediateGoal(s);
+    expect(g.text).toBe('Place a Spring touching your Mill');
+    shortOk(g);
+    expect(g.short).toBe('Boost');
+    expect(g.icon).toBe('boost');
+  });
+
+  it('cheapest-option branch: a boosted Mill, so compare Spring and Mill', () => {
+    const s = initialState();
+    const adj = graphOf(s).neighbours[0][0];
+    s.tiles[0] = 'spring';
+    s.tiles[adj] = 'mill';
+    s.drifts = 1;
+    s.projections = 1;
+    const g = immediateGoal(s);
+    expect(g.text).toMatch(/^Save for (Spring|Mill) \(/);
+    shortOk(g);
+    expect(['Spring', 'Mill']).toContain(g.short);
+    expect(g.icon).toBe(g.short.toLowerCase());
+    expect(g.text).toContain(g.short);
+  });
+});
+
+describe('immediateGoal short label across every branch', () => {
+  it('each reachable state has a short name of 7 characters or fewer and a semantic icon', () => {
+    const states: GameState[] = [initialState()];
+    const placed = initialState();
+    place(placed, 0, 'spring');
+    states.push(placed);
+    const drift = initialState();
+    drift.tiles[0] = 'spring';
+    drift.runInk = new Decimal(1e7);
+    states.push(drift);
+    const proj = initialState();
+    proj.tiles[0] = 'spring';
+    proj.drifts = 1;
+    proj.cycleCharts = new Decimal(config.projection.minCharts);
+    states.push(proj);
+    const survey = initialState();
+    fill(survey, ['spring', 'mill']);
+    survey.projections = 1;
+    survey.drifts = 1;
+    states.push(survey);
+    for (const s of states) {
+      const g = immediateGoal(s);
+      expect(g.short.length).toBeLessThanOrEqual(7);
+      expect(GOAL_ICONS).toContain(g.icon);
+    }
   });
 });
 
