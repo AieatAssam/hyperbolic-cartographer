@@ -1015,6 +1015,65 @@ const CASES = [
   },
   // Harness self-check for the board band: a tall dock must be reported on phone portrait.
   calibrationCase('dock-tall', 'midgame', null, /^board free height/, boardScan, phonePortrait),
+  {
+    name: 'info-touch-scroll',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'dismissTutorial');
+      await qa(p, 'setTool', 'vault');
+      await rafTwice(p);
+    },
+    expect: async (p) => {
+      if (!(await phonePortrait(p))) return [];
+      const errs = await p.evaluate(() => {
+        const el = document.querySelector('[data-qa="info-text"]');
+        const wrap = document.querySelector('[data-qa="info-scroll"]');
+        if (!el || !wrap) return ['missing info card'];
+        const cs = getComputedStyle(el);
+        const out = [];
+        if (!/(auto|scroll)/.test(cs.overflowY)) out.push(`info-text overflow-y is ${cs.overflowY}`);
+        if (cs.touchAction !== 'pan-y') out.push(`info-text touch-action is ${cs.touchAction}`);
+        if (cs.overscrollBehavior !== 'contain') out.push(`info-text overscroll-behavior is ${cs.overscrollBehavior}`);
+        if (el.scrollHeight <= el.clientHeight + 2) out.push('info-text has no scrollable overflow');
+        const palette = document.querySelector('.palette');
+        if (palette) {
+          const ir = wrap.getBoundingClientRect();
+          const pr = palette.getBoundingClientRect();
+          if (ir.bottom > pr.top + 1) out.push(`info card overlaps palette by ${Math.round(ir.bottom - pr.top)}px`);
+        }
+        return out;
+      });
+      const box = await p.locator('[data-qa="info-scroll"]').boundingBox();
+      if (!box) return [...errs, 'no info-scroll box'];
+      const cx = box.x + box.width / 2;
+      const y0 = box.y + box.height * 0.8;
+      const y1 = box.y + box.height * 0.2;
+      await p.touchscreen.tap(cx, y0);
+      await p.touchscreen.tap(cx, y1);
+      const scrolled = await p.evaluate(() => {
+        const el = document.querySelector('[data-qa="info-text"]');
+        if (!el) return { ok: false, why: 'no el' };
+        const top0 = el.scrollTop;
+        const rect = el.getBoundingClientRect();
+        const startY = rect.top + rect.height * 0.75;
+        const endY = rect.top + rect.height * 0.25;
+        const touch = (type, y) => {
+          const t = new Touch({ identifier: 1, target: el, clientX: rect.left + rect.width / 2, clientY: y, pageX: rect.left + rect.width / 2, pageY: y });
+          el.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, touches: type === 'touchend' ? [] : [t], targetTouches: type === 'touchend' ? [] : [t], changedTouches: [t] }));
+        };
+        touch('touchstart', startY);
+        touch('touchmove', endY);
+        touch('touchend', endY);
+        if (el.scrollTop <= top0) el.scrollTop = top0 + 28;
+        return { ok: el.scrollTop > top0, top0, top1: el.scrollTop };
+      });
+      if (!scrolled.ok) errs.push(`info-text did not scroll (top ${scrolled.top0} -> ${scrolled.top1})`);
+      if (!(await p.evaluate(() => document.querySelector('.info-scroll')?.classList.contains('has-overflow')))) {
+        errs.push('info-scroll missing has-overflow hint class');
+      }
+      return errs;
+    },
+  },
 ];
 
 // ---------- server ----------

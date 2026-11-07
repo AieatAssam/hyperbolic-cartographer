@@ -153,7 +153,7 @@ export const MATERIAL = {
 export const PREVIEW = {
   bridgeOutline: 0xe8c872,
   bridgePulse: 0.22,
-  inspectDim: 0.62,
+  inspectDim: 0.92,
   directMix: 0.6,
   bridgeMix: 0.72,
 } as const;

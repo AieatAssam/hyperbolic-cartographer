@@ -331,11 +331,18 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         const tk = TOK[t];
         h = tileHeight(L);
         c.copy(i === hover ? tk.hover : tk.face);
-        if (hl?.lit && hl.dim && hl.dim > 0 && !hl.lit.includes(i)) c.lerp(C.dim, PREVIEW.inspectDim * hl.dim);
         side.copy(tk.side);
         border.copy(pinned ? tk.bevelPin : tk.bevel);
         glow.copy(tk.faceGlow);
         trim.copy(tk.emissive).multiplyScalar(i === hover ? MATERIAL.hoverTrim : trimGlow(L));
+        if (hl?.lit && hl.dim && hl.dim > 0 && !hl.lit.includes(i)) {
+          const d = PREVIEW.inspectDim * hl.dim;
+          c.lerp(C.dim, d);
+          side.lerp(C.dim, d * 0.88);
+          border.lerp(C.dim, d * 0.72);
+          trim.lerp(C.dim, d * 0.78);
+          glow.multiplyScalar(1 - 0.88 * hl.dim);
+        }
       } else if (active || next) {
         h = active ? MATERIAL.slotHeight : MATERIAL.nextHeight;
         const edge = active ? C.slotBorder : C.nextBorder, face = active ? C.slot : C.next;
@@ -351,6 +358,14 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
           trim.copy(glow).multiplyScalar(EMPTY_SLOT.restTrim);
         }
         if (i === hover) c.lerp(C.white, MATERIAL.hoverLerp), border.copy(C.adj), trim.copy(C.adj).multiplyScalar(0.25);
+        if (hl?.lit && hl.dim && hl.dim > 0 && !hl.lit.includes(i)) {
+          const d = PREVIEW.inspectDim * hl.dim;
+          c.lerp(C.dim, d);
+          side.lerp(C.dim, d * 0.85);
+          border.lerp(C.dim, d * 0.65);
+          trim.lerp(C.dim, d * 0.7);
+          glow.multiplyScalar(1 - 0.75 * hl.dim);
+        }
       } else o.scale = 0;
       if (nearBridge) {
         const ph = hl?.pulse ?? 0;

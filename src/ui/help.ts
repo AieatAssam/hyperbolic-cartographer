@@ -27,6 +27,17 @@ export const TOOL_HELP: Record<Tool, string> = {
   pin: 'Tap or click a tile to pin it. Pinned tiles survive Drift. Slots are limited; Brass Pins adds more.',
 };
 
+/** One-line effect copy for the phone info card (cost/meta sit on their own lines). */
+export const TOOL_EFFECT: Record<Tool, string> = {
+  spring: `Produces ${fmt(T.spring.out)} Ink/s.`,
+  mill: `Produces ${fmt(T.mill.out)} Ink/s; +${pct(T.mill.perSpring)} per adjacent Spring.`,
+  beacon: `Adjacent tiles output ×${T.beacon.mult} (stacks).`,
+  bridge: 'Neighbours link through the Bridge; routes cross it.',
+  vault: `+${pct(T.vault.offline)} offline efficiency; +${pct(T.vault.global)} global Ink each.`,
+  sell: `${pct(config.sellRefund)} refund on removed tiles.`,
+  pin: 'Pinned tiles survive Drift; slots are limited.',
+};
+
 export const TAB_HELP: Record<Tab, string> = {
   map: 'Your board. Pick a tool from the palette (keys 1-5, S, P), then tap or click a cell. Survey adds rings of cells to build on.',
   drift: 'Drift ends the current run and turns its Ink into Charts. Charts buy permanent upgrades. Only pinned tiles survive.',
