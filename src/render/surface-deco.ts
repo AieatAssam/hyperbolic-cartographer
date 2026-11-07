@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { SurfaceGraph } from '../core/geometry/quotient';
 import { SURFACE } from '../art/palette';
-import { chartCell, chartOffset } from './surface-params';
+import { chartCell, chartCellCenter } from './surface-params';
 const col = (h: number) => new THREE.Color(h);
 
 function dashMat(color: number, opacity = 0.9) {
@@ -43,12 +43,13 @@ export function buildChartSeams(
   flipVertical: boolean,
 ): THREE.Group {
   const cell = chartCell(g.width, g.height);
-  const [ox, , oz] = chartOffset(g.width, g.height, cell);
+  const w = g.width, h = g.height;
   const box = new THREE.Group();
   const y = 0.05;
-  const w = g.width, h = g.height;
-  const left = ox - cell * 0.5, right = ox + (w - 0.5) * cell;
-  const top = oz - cell * 0.5, bottom = oz + (h - 0.5) * cell;
+  const left = chartCellCenter(0, 0, w, h, cell)[0] - cell * 0.5;
+  const right = chartCellCenter(w - 1, 0, w, h, cell)[0] + cell * 0.5;
+  const top = chartCellCenter(0, 0, w, h, cell)[2] - cell * 0.5;
+  const bottom = chartCellCenter(0, h - 1, w, h, cell)[2] + cell * 0.5;
   lineAlong(box, new THREE.Vector3(left, y, top), new THREE.Vector3(left, y, bottom), SURFACE.seamA, y);
   lineAlong(box, new THREE.Vector3(right, y, top), new THREE.Vector3(right, y, bottom), SURFACE.seamA, y);
   lineAlong(box, new THREE.Vector3(left, y, top), new THREE.Vector3(right, y, top), SURFACE.seamB, y);
@@ -85,7 +86,7 @@ function chartGhostSpecs(g: SurfaceGraph, klein: boolean): GhostSpec[] {
 
 export function buildEdgeGhosts(g: SurfaceGraph, klein: boolean): THREE.Group {
   const cell = chartCell(g.width, g.height);
-  const [ox, , oz] = chartOffset(g.width, g.height, cell);
+  const w = g.width, h = g.height;
   const grp = new THREE.Group();
   const mat = new THREE.MeshBasicMaterial({
     color: col(SURFACE.ghost),
@@ -94,15 +95,13 @@ export function buildEdgeGhosts(g: SurfaceGraph, klein: boolean): THREE.Group {
     depthWrite: false,
     side: THREE.DoubleSide,
   });
-  const w = g.width, h = g.height;
   for (const spec of chartGhostSpecs(g, klein)) {
     const [x, y] = g.xy[spec.i];
     const gy = klein && spec.flipY ? h - 1 - y : y;
-    const cx = (x + spec.ox * w) * cell + ox;
-    const cz = (gy + spec.oy * h) * cell + oz;
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(cell * 0.82, cell * 0.82), mat);
+    const c = chartCellCenter(x + spec.ox, gy + spec.oy, w, h, cell);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(cell * (1 - 0.12), cell * (1 - 0.12)), mat);
     m.rotation.x = -Math.PI / 2;
-    m.position.set(cx, 0.02, cz);
+    m.position.set(c[0], 0.018, c[2]);
     grp.add(m);
   }
   return grp;

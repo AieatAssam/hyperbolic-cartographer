@@ -3,7 +3,7 @@ import { BOARD, SURFACE } from '../art/palette';
 import { config } from '../core/config';
 import type { SurfaceGraph } from '../core/geometry/quotient';
 import {
-  KLEIN_SCALE, TORUS_R, TORUS_r, kleinImmersionPos, torusPos,
+  KLEIN_SCALE, kleinImmersionPos, torusPosFromUv,
 } from './surface-params';
 
 const col = (h: number) => new THREE.Color(h);
@@ -27,15 +27,6 @@ function skinTexture(uSeg: number, vSeg: number): THREE.CanvasTexture {
   for (let j = 0; j <= vSeg; j++) {
     g.beginPath(); g.moveTo(0, j * dv); g.lineTo(N, j * dv); g.stroke();
   }
-  g.strokeStyle = 'rgba(95,212,255,0.14)';
-  for (let i = 0; i < 6; i++) {
-    g.beginPath();
-    for (let a = 0; a <= 64; a++) {
-      const th = (a / 64) * Math.PI * 2, rr = (N / 2) * (0.15 + i * 0.12);
-      g.lineTo(N / 2 + Math.cos(th) * rr, N / 2 + Math.sin(th) * rr);
-    }
-    g.stroke();
-  }
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -56,33 +47,21 @@ function skinMaterial(uSeg: number, vSeg: number, env: THREE.Texture | null) {
     side: THREE.DoubleSide,
     depthWrite: false,
     polygonOffset: true,
-    polygonOffsetFactor: 1,
-    polygonOffsetUnits: 1,
+    polygonOffsetFactor: 2,
+    polygonOffsetUnits: 2,
   });
 }
 
-export function buildTorusSkin(g: SurfaceGraph, env: THREE.Texture | null): THREE.Mesh {
-  const R = TORUS_R(), r = TORUS_r();
-  const mat = skinMaterial(g.width, g.height, env);
-  const mesh = new THREE.Mesh(
-    new THREE.TorusGeometry(R, r * 0.98, g.height * 3, g.width * 3),
-    mat,
-  );
-  mesh.name = 'torus-skin';
-  mesh.renderOrder = -2;
-  return mesh;
-}
-
-/** Parametric Klein fig-8 immersion skin aligned with tile UVs. */
-export function buildKleinImmersionSkin(g: SurfaceGraph, env: THREE.Texture | null): THREE.Mesh {
-  const w = g.width, h = g.height, scale = KLEIN_SCALE();
+function parametricMesh(
+  w: number, h: number, posAt: (u: number, v: number) => [number, number, number], env: THREE.Texture | null, name: string,
+) {
   const uSteps = w * 4, vSteps = h * 4;
   const pos: number[] = [], idx: number[] = [], uvs: number[] = [];
   for (let yi = 0; yi <= vSteps; yi++) {
     for (let xi = 0; xi <= uSteps; xi++) {
       const u = (xi / uSteps) * Math.PI * 2;
       const v = (yi / vSteps) * Math.PI * 2;
-      const [px, py, pz] = kleinImmersionPos(u, v, scale);
+      const [px, py, pz] = posAt(u, v);
       pos.push(px, py, pz);
       uvs.push(xi / uSteps, yi / vSteps);
     }
@@ -99,14 +78,21 @@ export function buildKleinImmersionSkin(g: SurfaceGraph, env: THREE.Texture | nu
   geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geom.setIndex(idx);
   geom.computeVertexNormals();
-  const mat = skinMaterial(w, h, env);
-  const mesh = new THREE.Mesh(geom, mat);
-  mesh.name = 'klein-skin';
+  const mesh = new THREE.Mesh(geom, skinMaterial(w, h, env));
+  mesh.name = name;
   mesh.renderOrder = -2;
   return mesh;
 }
 
-/** Self-intersection locus (u = π) of the fig-8 immersion. */
+export function buildTorusSkin(g: SurfaceGraph, env: THREE.Texture | null): THREE.Mesh {
+  return parametricMesh(g.width, g.height, (u, v) => torusPosFromUv(u, v), env, 'torus-skin');
+}
+
+export function buildKleinImmersionSkin(g: SurfaceGraph, env: THREE.Texture | null): THREE.Mesh {
+  const scale = KLEIN_SCALE();
+  return parametricMesh(g.width, g.height, (u, v) => kleinImmersionPos(u, v, scale), env, 'klein-skin');
+}
+
 export function buildSelfIntersectionLine(scale = KLEIN_SCALE()): THREE.Line {
   const pts: number[] = [];
   const n = 96;
@@ -130,14 +116,15 @@ export function buildSelfIntersectionLine(scale = KLEIN_SCALE()): THREE.Line {
   return line;
 }
 
-/** Closed seam loop on the torus (u = 0 cut). */
 export function buildTorusSeamRing(g: SurfaceGraph): THREE.Line {
   const pts: number[] = [];
-  const n = 64;
+  const n = g.height * 8;
   for (let i = 0; i <= n; i++) {
-    const y = Math.floor((i / n) * g.height) % g.height;
-    const [x, yy, z] = torusPos(0, y, g.width, g.height);
-    pts.push(x, yy, z);
+    const gy = (i / n) * g.height;
+    const u = (0.5 / g.width) * Math.PI * 2;
+    const v = (gy / g.height) * Math.PI * 2;
+    const [x, y, z] = torusPosFromUv(u, v);
+    pts.push(x, y, z);
   }
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
@@ -147,7 +134,6 @@ export function buildTorusSeamRing(g: SurfaceGraph): THREE.Line {
     opacity: 0.85,
     dashSize: SURFACE.dashPattern[0] * 1.2,
     gapSize: SURFACE.dashPattern[1],
-    linewidth: 2,
   });
   const line = new THREE.Line(geom, mat);
   line.computeLineDistances();

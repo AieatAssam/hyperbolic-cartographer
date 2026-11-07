@@ -146,10 +146,11 @@ const frameCamera = () => frameBoardCamera(POLAR);
 const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
   if (layoutDirty) layoutView();
   const chart = isSurfaceBoard(board) && board.isChartFlat();
-  const tY = chart ? 0 : isSurfaceBoard(board) && board.surface === 'torus' ? 0.12 : 0;
+  const tY = chart ? 0 : isSurfaceBoard(board) && board.surface === 'torus' ? 0.1 : 0;
   controls.target.set(0, tY, 0);
+  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : MARGIN;
   fitD = fitDistance({
-    pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar, margin: MARGIN,
+    pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar, margin,
   }) / Math.max(0.35, fill);
   controls.maxDistance = Math.max(40, fitD * 1.5);
   const cp = Math.cos(polar);
@@ -157,8 +158,8 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
 };
 const applyManifoldCamera = () => {
   if (!isSurfaceBoard(board)) return frameCamera();
-  if (board.isChartFlat()) return frameBoardCamera(POLAR, 0, config.manifold.chartFill);
-  const polar = board.surface === 'torus' ? 1.02 : 0.86;
+  if (board.isChartFlat()) return frameBoardCamera(config.manifold.chartPolar, 0, config.manifold.chartFill);
+  const polar = board.surface === 'torus' ? 1.08 : 0.92;
   frameBoardCamera(polar, manifoldAz, config.manifold.boardFill3d);
 };
 function seedManifoldDemo(which: 'torus' | 'klein') {

@@ -236,7 +236,7 @@ export const SURFACE = {
   seamB: 0x5fd4ff,
   ghost: 0x6a4e86,
   ghostAlpha: 0.28,
-  edgeGhostAlpha: 0.22,
+  edgeGhostAlpha: 0.35,
   portalGlow: 0xe8c872,
   dashPattern: [0.12, 0.08] as const,
   skin: 0x4a3568,

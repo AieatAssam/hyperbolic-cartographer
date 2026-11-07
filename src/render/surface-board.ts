@@ -12,7 +12,10 @@ import { embedKlein, embedKleinImmersion, embedTorus } from './embed-providers';
 import type { TileType } from '../core/tiles';
 import { TILE_TYPES } from '../core/tiles';
 import { config } from '../core/config';
-import { chartCell, chartOffset, KLEIN_SCALE, TORUS_R, TORUS_r } from './surface-params';
+import {
+  chartCell, kleinBoundingRadius, kleinPatchCorners, TILE_GAP,
+  torusBoundingRadius, torusPatchCorners,
+} from './surface-params';
 import {
   buildKleinImmersionSkin, buildSelfIntersectionLine, buildTorusSeamRing, buildTorusSkin,
 } from './surface-skin';
@@ -127,17 +130,11 @@ export class SurfaceBoard {
     const chart = this.surface === 'klein' ? !this.immersion3d : this.chartMode;
     if (chart) {
       const cell = chartCell(g.width, g.height);
-      const [ox, , oz] = chartOffset(g.width, g.height, cell);
-      const hw = g.width * cell * 0.52, hh = g.height * cell * 0.52;
-      const cx = (g.width - 1) * cell * 0.5 + ox, cz = (g.height - 1) * cell * 0.5 + oz;
-      return [[cx - hw, cz - hh], [cx + hw, cz - hh], [cx + hw, cz + hh], [cx - hw, cz + hh]];
+      const hw = g.width * cell * 0.55, hh = g.height * cell * 0.55;
+      return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]];
     }
-    if (this.surface === 'torus') {
-      const R = TORUS_R(), r = TORUS_r();
-      return [...circlePts(R + r, 56), ...circlePts(Math.max(0.5, R - r * 0.85), 40)];
-    }
-    const sc = KLEIN_SCALE() * 1.05;
-    return circlePts(sc * 1.15, 52);
+    if (this.surface === 'torus') return circlePts(torusBoundingRadius(), 64);
+    return circlePts(kleinBoundingRadius(), 64);
   }
 
   isChartFlat() {
@@ -188,14 +185,37 @@ export class SurfaceBoard {
   invalidate() { this.meshKey = ''; }
 
   private tileCorners(i: number): { c: THREE.Vector3; n: THREE.Vector3; t: THREE.Vector3; pts: THREE.Vector3[]; scale: number } {
+    const [x, y] = this.graph.xy[i];
+    const g = this.graph;
+    const flat = this.isChartFlat();
+    if (!flat && this.surface === 'torus') {
+      const patch = torusPatchCorners(x, y, g.width, g.height);
+      return {
+        c: new THREE.Vector3(...patch.p),
+        n: new THREE.Vector3(...patch.n),
+        t: new THREE.Vector3(...patch.t),
+        pts: patch.corners.map((p) => new THREE.Vector3(...p)),
+        scale: 1,
+      };
+    }
+    if (!flat && this.surface === 'klein' && this.immersion3d) {
+      const patch = kleinPatchCorners(x, y, g.width, g.height);
+      return {
+        c: new THREE.Vector3(...patch.p),
+        n: new THREE.Vector3(...patch.n),
+        t: new THREE.Vector3(...patch.t),
+        pts: patch.corners.map((p) => new THREE.Vector3(...p)),
+        scale: 1,
+      };
+    }
     const f = frameAt(this.embed, i);
     const n = new THREE.Vector3(...f.n).normalize();
     const t = new THREE.Vector3(...(f.t ?? [1, 0, 0])).normalize();
     const b = new THREE.Vector3().crossVectors(n, t).normalize();
     t.crossVectors(b, n).normalize();
     const c = new THREE.Vector3(...f.p);
-    const flat = this.isChartFlat();
-    const half = (flat ? GAP * 0.42 : GAP * 0.28) * Math.max(0.05, f.s);
+    const cell = chartCell(g.width, g.height);
+    const half = (flat ? cell * 0.5 * (1 - TILE_GAP()) : GAP * 0.28) * Math.max(0.05, f.s);
     const pts = [
       c.clone().addScaledVector(t, -half).addScaledVector(b, -half),
       c.clone().addScaledVector(t, half).addScaledVector(b, -half),
