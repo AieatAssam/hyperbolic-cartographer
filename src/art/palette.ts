@@ -34,7 +34,7 @@ export const LIGHTS = {
 export const BACKDROP = {
   top: 0x2a1850, horizon: 0x6a3a78, bottom: 0x14343e,
   nebulaA: 0x3fb8c4, nebulaB: 0xd0709a, star: 0xfff0d0,
-  vignette: 0.35, grain: 0.004, drift: 1,
+  vignette: 0.35, grain: 0.004, drift: 1.0,
 } as const;
 
 /**
@@ -102,7 +102,7 @@ export interface EmptySlotToken extends MaterialToken {
 }
 export const EMPTY_SLOT: EmptySlotToken = {
   base: 0x1c1430, emissive: 0x3a2e60, emissiveIntensity: 0.12, roughness: 0.9, metalness: 0, accent: 0x54467a,
-  restInset: 0.9, restRimMix: 0.55, restTrim: 0.4,
+  restInset: 0.88, restRimMix: 0.38, restTrim: 0.55,
 };
 
 /**
@@ -152,10 +152,11 @@ export const MATERIAL = {
 /** Placement / inspect highlight strengths (board vertex colours, not DOM). */
 export const PREVIEW = {
   bridgeOutline: 0xe8c872,
-  bridgePulse: 0.22,
-  inspectDim: 0.92,
-  directMix: 0.6,
-  bridgeMix: 0.72,
+  bridgePulse: 0.32,
+  inspectDim: 0.97,
+  inspectSatMul: 0.28,
+  directMix: 0.68,
+  bridgeMix: 0.78,
 } as const;
 
 export const BOARD = {

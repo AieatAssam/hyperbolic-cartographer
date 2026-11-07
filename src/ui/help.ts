@@ -11,7 +11,7 @@ import { fmt } from './format';
  */
 
 export type Tool = TileType | 'sell' | 'pin';
-export type Tab = 'map' | 'drift' | 'charts' | 'proj' | 'miles' | 'save' | 'guide';
+export type Tab = 'map' | 'constellations' | 'drift' | 'charts' | 'proj' | 'miles' | 'save' | 'guide';
 type Dec = GameState['ink'];
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -40,6 +40,7 @@ export const TOOL_EFFECT: Record<Tool, string> = {
 
 export const TAB_HELP: Record<Tab, string> = {
   map: 'Your board. Pick a tool from the palette (keys 1-5, S, P), then tap or click a cell. Survey adds rings of cells to build on.',
+  constellations: 'Named tile patterns on the board. Complete one to earn Ink and see gold lines. Each unique shape counts once per run.',
   drift: 'Drift ends the current run and turns its Ink into Charts. Charts buy permanent upgrades. Only pinned tiles survive.',
   charts: 'Charts buy permanent upgrades. Each upgrade has levels, and the button shows the cost of the next one.',
   proj: 'Projection is the next step after Drift. It spends this cycle\'s Charts on Curvature, moves you to the hyperbolic board, and resets the run.',

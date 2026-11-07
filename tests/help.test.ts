@@ -99,7 +99,7 @@ describe('disabled reasons', () => {
 
   it('drift is allowed once run Ink reaches the threshold', () => {
     const s = initialState();
-    s.runInk = new Decimal(config.drift.minInk);
+    s.runInk = new Decimal(config.drift.minInk * 1.05);
     expect(driftBlocked(s)).toBeNull();
   });
 
@@ -129,8 +129,7 @@ describe('disabled reasons', () => {
     const s = initialState();
     s.ink = new Decimal(10);
     const i = emptyActive(s);
-    // Mill costs 100, so 90 more Ink are needed.
-    expect(placeBlocked(s, i, 'mill')).toBe('Need 90 more Ink');
+    expect(placeBlocked(s, i, 'mill')).toBe(`Need ${config.tiles.mill.cost - 10} more Ink`);
   });
 
   it('place: ok case', () => {

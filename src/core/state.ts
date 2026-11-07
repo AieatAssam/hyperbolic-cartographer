@@ -1,6 +1,7 @@
 import Decimal from 'break_eternity.js';
 import { chartUpgrades, config, curvUpgrades, type ChartUpgradeId, type CurvUpgradeId } from './config';
 import type { TileType } from './tiles';
+import type { ConstellationId } from './constellations';
 import { squareGraph } from './geometry/square';
 import { hyperGraph } from './geometry/hyperbolic';
 import type { TileGraph } from './geometry/graph';
@@ -32,6 +33,10 @@ export interface GameState {
   totalTime: number;
   autoSpringTimer: number;
   notation: 'suffix' | 'sci';
+  /** Unique pattern keys claimed this run (cleared on Drift). */
+  constellationKeys: string[];
+  /** Log of completed patterns (persists across Drift). */
+  constellationLog: { id: ConstellationId; bonusInk: number; at: number }[];
 }
 
 // Generated once at max size (hyper radius 4 = 232 tiles).
@@ -72,5 +77,7 @@ export function initialState(): GameState {
     totalTime: 0,
     autoSpringTimer: 0,
     notation: 'suffix',
+    constellationKeys: [],
+    constellationLog: [],
   };
 }

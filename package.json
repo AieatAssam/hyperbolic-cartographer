@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "pacing": "PACING=1 vitest run tests/pacing.test.ts",
+    "sim-economy": "npx tsx scripts/sim-economy.ts",
     "layout": "node scripts/layout.mjs"
   },
   "dependencies": {

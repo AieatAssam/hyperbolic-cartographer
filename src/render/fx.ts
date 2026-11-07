@@ -836,6 +836,23 @@ export class CartographyFX {
     this.dirtyMax = MAX_CAPACITY - 1;
   }
 
+  /** Gold legs when a placement joins separate occupied groups. */
+  networkLink(edges: readonly [number, number][]): void {
+    edges.forEach(([a, b], k) => this.pulse(a, b, 0xffbe55, FX.coreR * 1.45, k * 0.11, 0));
+  }
+
+  /** Constellation complete: rings and sparks on each cell. */
+  celebrateConstellation(cells: readonly number[]): void {
+    cells.forEach((i, k) => {
+      this.ringAt(i, 0.1, 0.36, 0.055, 0xe8c872, FX.sparkLife * 1.1, k * 0.05, 1.15);
+      const a = this.rnd() * Math.PI * 2;
+      this.put({
+        mode: Mode.Spark, a: i, A: [0.1, 0, 0], B: [Math.cos(a), Math.sin(a), 0.45], col: 0xe8c872,
+        size: FX.sparkR * 1.15, life: FX.sparkLife, delay: k * 0.05, add: FX.addSpark,
+      });
+    });
+  }
+
   private flush() {
     if (this.dirtyMax < 0) return;
     const lo = this.dirtyMin, count = this.dirtyMax - lo + 1;

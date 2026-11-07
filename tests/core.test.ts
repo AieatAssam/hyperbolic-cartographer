@@ -22,8 +22,9 @@ describe('production', () => {
     const sq = layout('square'), hy = layout('hyper');
     const ps = production(sq.g, sq.tiles, m).total, ph = production(hy.g, hy.tiles, m).total;
     const M = config.tiles.mill.out;
-    expect(ps).toBe(M * 5 + 4);
-    expect(ph).toBe(M * 8 + 7);
+    const S = config.tiles.spring.out;
+    expect(ps).toBeCloseTo(M * 5 + 4 * S);
+    expect(ph).toBeCloseTo(M * 8 + 7 * S);
     expect(ph).toBeGreaterThan(ps * 1.5);
   });
   it('beacon multiplies, bridge propagates adjacency', () => {
@@ -34,9 +35,10 @@ describe('production', () => {
     tiles[a] = 'mill';
     tiles[b] = 'spring';
     const M = config.tiles.mill.out;
-    expect(production(g, tiles, m).total).toBe(M * 2 + 1);
+    const S = config.tiles.spring.out;
+    expect(production(g, tiles, m).total).toBe(M * 2 + S);
     tiles[0] = 'beacon';
-    expect(production(g, tiles, m).total).toBeCloseTo(M * 1.5 + 1.5);
+    expect(production(g, tiles, m).total).toBeCloseTo(M * 1.5 + S * 1.5);
   });
 });
 
@@ -77,7 +79,8 @@ describe('offline + prestige', () => {
     s.tiles[0] = 'mill';
     for (const n of GRAPHS.square.neighbours[0]) s.tiles[n] = 'spring';
     const before = s.ink;
-    const rate = config.tiles.mill.out * 5 + 4, expected = rate * 3600 * config.offline.baseEff;
+    const rate = config.tiles.mill.out * 5 + 4 * config.tiles.spring.out;
+    const expected = rate * 3600 * config.offline.baseEff;
     const r = applyOffline(s, 3600);
     expect(r.ink.toNumber()).toBeCloseTo(expected, 6);
     expect(s.ink.sub(before).toNumber()).toBeCloseTo(expected, 6);
