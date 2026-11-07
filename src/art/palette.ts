@@ -235,9 +235,13 @@ export const SURFACE = {
   seamA: 0xff6b9d,
   seamB: 0x5fd4ff,
   ghost: 0x6a4e86,
-  ghostAlpha: 0.35,
+  ghostAlpha: 0.28,
+  edgeGhostAlpha: 0.22,
   portalGlow: 0xe8c872,
   dashPattern: [0.12, 0.08] as const,
+  skin: 0x4a3568,
+  skinInk: 0x8b6cc4,
+  skinGrid: 0x5fd4ff,
 } as const;
 
 export const FX = {

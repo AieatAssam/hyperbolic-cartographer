@@ -17,6 +17,23 @@ export const config = {
   offline: { baseEff: 0.5, capHours: 8 },
   startInk: 10,
   autoSpringInterval: 1, // seconds between auto-placed Springs
+  /** Manifold preview (Layer 3): grid sizes, framing, skin. */
+  manifold: {
+    torusWidth: 16,
+    torusHeight: 8,
+    kleinWidth: 8,
+    kleinHeight: 8,
+    torusMajorR: 5.5,
+    torusMinorR: 1.55,
+    kleinImmersionScale: 3.4,
+    chartSpan: 8.8,
+    chartFill: 0.85,
+    boardFill3d: 0.7,
+    idleSpin: 0.09,
+    tileExtrude3d: 0.55,
+    skinAlpha: 0.38,
+    demoMillOut: 8,
+  },
 };
 
 export type ChartUpgradeId =

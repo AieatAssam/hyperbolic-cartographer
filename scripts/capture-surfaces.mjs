@@ -33,7 +33,7 @@ async function snap(page, url, which, steps, fileBase) {
   await qa(page, 'dismissTutorial');
   await qa(page, 'manifold', which);
   for (const step of steps) await step(page);
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(2800);
   await raf(page);
   const sample = await qa(page, 'canvasSample');
   if (!sample?.ok) console.warn(fileBase, 'canvas check failed', sample);

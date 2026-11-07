@@ -11,6 +11,13 @@ import { bumpRev, createEmbedding, frameAt, writeFrame, type Embedding } from '.
 import { embedKlein, embedKleinImmersion, embedTorus } from './embed-providers';
 import type { TileType } from '../core/tiles';
 import { TILE_TYPES } from '../core/tiles';
+import { config } from '../core/config';
+import { chartCell, chartOffset, KLEIN_SCALE, TORUS_R, TORUS_r } from './surface-params';
+import {
+  buildKleinImmersionSkin, buildSelfIntersectionLine, buildTorusSeamRing, buildTorusSkin,
+} from './surface-skin';
+import { buildChartSeams, buildEdgeGhosts } from './surface-deco';
+import { circlePts } from './framing';
 
 const GAP = 0.85;
 const INSET = 0.8;
@@ -56,6 +63,9 @@ export class SurfaceBoard {
   private glow = new THREE.Color();
   private trim = new THREE.Color();
   private ghostGroup = new THREE.Group();
+  private skinGroup = new THREE.Group();
+  private decoGroup = new THREE.Group();
+  private readonly envMap: THREE.Texture | null;
 
   constructor(
     readonly surface: SurfacePreview,
@@ -63,8 +73,8 @@ export class SurfaceBoard {
     env: THREE.Texture | null = null,
   ) {
     this.graph = graph;
-    const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-    this.chartMode = surface === 'klein' || (surface === 'torus' && coarse);
+    this.envMap = env;
+    this.chartMode = surface === 'klein';
     const n = graph.ring.length;
     const verts = n * K * PER_K;
     this.embed = createEmbedding(n);
@@ -89,7 +99,7 @@ export class SurfaceBoard {
     };
     const mesh = new THREE.Mesh(this.geom, mat);
     mesh.frustumCulled = false;
-    this.group.add(mesh);
+    this.group.add(this.skinGroup, mesh, this.decoGroup);
     this.motifs = {} as Record<TileType, THREE.InstancedMesh>;
     for (const t of TILE_TYPES) {
       const tk = TILE_IDENTITIES[t];
@@ -113,33 +123,59 @@ export class SurfaceBoard {
 
   /** Ground-plane footprint for camera framing. */
   bounds(): [number, number][] {
-    const pts: [number, number][] = [];
     const g = this.graph;
     const chart = this.surface === 'klein' ? !this.immersion3d : this.chartMode;
-    const cell = GAP;
     if (chart) {
-      for (const [x, y] of g.xy) {
-        const cx = x * cell, cz = y * cell, h = cell * 0.45;
-        pts.push([cx - h, cz - h], [cx + h, cz - h], [cx + h, cz + h], [cx - h, cz + h]);
-      }
-      return pts;
+      const cell = chartCell(g.width, g.height);
+      const [ox, , oz] = chartOffset(g.width, g.height, cell);
+      const hw = g.width * cell * 0.52, hh = g.height * cell * 0.52;
+      const cx = (g.width - 1) * cell * 0.5 + ox, cz = (g.height - 1) * cell * 0.5 + oz;
+      return [[cx - hw, cz - hh], [cx + hw, cz - hh], [cx + hw, cz + hh], [cx - hw, cz + hh]];
     }
     if (this.surface === 'torus') {
-      for (const [x] of g.xy) {
-        const u = (x / g.width) * Math.PI * 2;
-        const R = 5, r = 1.8;
-        pts.push([(R + r) * Math.cos(u), (R + r) * Math.sin(u)]);
+      const R = TORUS_R(), r = TORUS_r();
+      return [...circlePts(R + r, 56), ...circlePts(Math.max(0.5, R - r * 0.85), 40)];
+    }
+    const sc = KLEIN_SCALE() * 1.05;
+    return circlePts(sc * 1.15, 52);
+  }
+
+  isChartFlat() {
+    return this.surface === 'klein' ? !this.immersion3d : this.chartMode;
+  }
+
+  private clearGroup(g: THREE.Group) {
+    while (g.children.length) {
+      const ch = g.children[0];
+      g.remove(ch);
+      if (ch instanceof THREE.Mesh || ch instanceof THREE.Line) {
+        ch.geometry.dispose();
+        const m = ch.material;
+        (Array.isArray(m) ? m : [m]).forEach((x) => x.dispose());
       }
-      return pts;
     }
-    for (const [x, y] of g.xy) {
-      const u = (x / g.width) * Math.PI * 2, v = (y / g.height) * Math.PI * 2;
-      const sc = 2.4;
-      pts.push(
-        [sc * (Math.cos(u / 2) * Math.sin(v) - Math.sin(u / 2) * Math.sin(2 * v)), sc * (Math.sin(u / 2) * Math.sin(v) + Math.cos(u / 2) * Math.sin(2 * v))],
-      );
+  }
+
+  private syncSkin() {
+    this.clearGroup(this.skinGroup);
+    const g = this.graph;
+    if (this.surface === 'torus' && !this.chartMode) {
+      this.skinGroup.add(buildTorusSkin(g, this.envMap));
+      if (this.seamView) this.skinGroup.add(buildTorusSeamRing(g));
+    } else if (this.surface === 'klein' && this.immersion3d) {
+      this.skinGroup.add(buildKleinImmersionSkin(g, this.envMap));
+      this.skinGroup.add(buildSelfIntersectionLine());
     }
-    return pts;
+  }
+
+  private syncDeco() {
+    this.clearGroup(this.decoGroup);
+    const g = this.graph;
+    if (!this.seamView) return;
+    if (this.isChartFlat()) {
+      this.decoGroup.add(buildChartSeams(g, this.surface === 'klein'));
+      this.decoGroup.add(buildEdgeGhosts(g, this.surface === 'klein'));
+    }
   }
 
   private syncEmbedding() {
@@ -158,7 +194,8 @@ export class SurfaceBoard {
     const b = new THREE.Vector3().crossVectors(n, t).normalize();
     t.crossVectors(b, n).normalize();
     const c = new THREE.Vector3(...f.p);
-    const half = GAP * 0.42 * Math.max(0.05, f.s);
+    const flat = this.isChartFlat();
+    const half = (flat ? GAP * 0.42 : GAP * 0.28) * Math.max(0.05, f.s);
     const pts = [
       c.clone().addScaledVector(t, -half).addScaledVector(b, -half),
       c.clone().addScaledVector(t, half).addScaledVector(b, -half),
@@ -208,6 +245,7 @@ export class SurfaceBoard {
         trim.copy(glow).multiplyScalar(EMPTY_SLOT.restTrim);
         if (!active) ins = EMPTY_SLOT.restInset;
       } else o.scale = 0;
+      if (!this.isChartFlat()) h *= config.manifold.tileExtrude3d;
       h *= o.scale;
       const norm = o.n;
       const topC = o.c.clone().addScaledVector(norm, h);
@@ -292,6 +330,8 @@ export class SurfaceBoard {
     bumpRev(embed);
     for (const name of ['position', 'normal', 'color', 'glow']) this.geom.attributes[name].needsUpdate = true;
     for (const t of TILE_TYPES) this.motifs[t].instanceMatrix.needsUpdate = true;
+    this.syncSkin();
+    this.syncDeco();
   }
 
   update(s: GameState, _perTile: number[], hover: number, hoverAdj?: number[]) {
@@ -313,7 +353,8 @@ export class SurfaceBoard {
         if (this.graph.ring[i] > s.ring + 1) continue;
         const cx = chart[i * 2], cz = chart[i * 2 + 1];
         const d = Math.hypot(cx - x, cz - z);
-        if (d < bd && d < GAP * 0.55) (bd = d), (best = i);
+        const pickR = chartCell(this.graph.width, this.graph.height) * 0.48;
+        if (d < bd && d < pickR) (bd = d), (best = i);
       }
       return best;
     }

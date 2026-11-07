@@ -16,9 +16,23 @@ import {
   type Embedding,
   type Tuple3,
 } from './fx-graph';
+import {
+  KLEIN_SCALE, TORUS_R, TORUS_r, chartCell, chartOffset, kleinImmersionFrame, torusNormal, torusPos, torusTangent,
+} from './surface-params';
 
 export const DISK_R = 9;
-const GAP = 0.9;
+
+function fillPortals(g: SurfaceGraph, out: Embedding, at: (i: number) => Tuple3) {
+  out.seam = (a, b) => g.seamEdge(a, b);
+  if (!out.portals) out.portals = [];
+  else out.portals.length = 0;
+  g.neighbours.forEach((ns, a) => {
+    for (const b of ns) {
+      if (b <= a || !g.seamEdge(a, b)) continue;
+      out.portals!.push({ a, b, portA: at(a), portB: at(b), flip: g.flipEdge(a, b) });
+    }
+  });
+}
 
 export interface PlaneEmbedParams {
   gap?: number;
@@ -40,34 +54,6 @@ export interface KleinEmbedParams {
   chart?: boolean;
   cell?: number;
 }
-
-const torusPos = (x: number, y: number, w: number, h: number, R: number, r: number): Tuple3 => {
-  const u = (x / w) * Math.PI * 2;
-  const v = (y / h) * Math.PI * 2;
-  const cx = (R + r * Math.cos(v)) * Math.cos(u);
-  const cz = (R + r * Math.cos(v)) * Math.sin(u);
-  const cy = r * Math.sin(v);
-  return [cx, cy, cz];
-};
-
-const torusNormal = (x: number, y: number, w: number, h: number): Tuple3 => {
-  const u = (x / w) * Math.PI * 2;
-  const v = (y / h) * Math.PI * 2;
-  const nx = Math.cos(v) * Math.cos(u);
-  const ny = Math.sin(v);
-  const nz = Math.cos(v) * Math.sin(u);
-  const L = Math.hypot(nx, ny, nz);
-  return [nx / L, ny / L, nz / L];
-};
-
-const torusTangent = (n: Tuple3): [Tuple3, 1] => {
-  const ref: Tuple3 = Math.abs(n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
-  const tx = ref[1] * n[2] - ref[2] * n[1];
-  const ty = ref[2] * n[0] - ref[0] * n[2];
-  const tz = ref[0] * n[1] - ref[1] * n[0];
-  const L = Math.hypot(tx, ty, tz);
-  return L > 1e-9 ? [[tx / L, ty / L, tz / L], 1] : [[1, 0, 0], 1];
-};
 
 /** C0: square tabletop frames (matches board.ts outline at identity view). */
 export function embedPlane(g: SquareBoard, out: Embedding, _params: PlaneEmbedParams = {}): Embedding {
@@ -115,50 +101,50 @@ export function embedDisk(g: HyperBoard, out: Embedding, params: DiskEmbedParams
 
 /** C3: 3D torus or fundamental-square chart. */
 export function embedTorus(g: SurfaceGraph, out: Embedding, params: TorusEmbedParams = {}): Embedding {
-  const R = params.majorR ?? 5;
-  const r = params.minorR ?? 1.8;
+  const R = params.majorR ?? TORUS_R();
+  const r = params.minorR ?? TORUS_r();
   const chart = params.chart ?? false;
-  const gap = GAP * (chart ? 0.85 : 0.3);
+  const cell = chartCell(g.width, g.height);
+  const [ox, , oz] = chartOffset(g.width, g.height, cell);
+  const at = (i: number): Tuple3 => {
+    const [x, y] = g.xy[i];
+    return chart
+      ? [x * cell + ox, 0, y * cell + oz]
+      : torusPos(x, y, g.width, g.height, R, r);
+  };
   if (chart) {
-    const xy = g.xy.map(([x, y]) => [x * gap, y * gap] as [number, number]);
+    const xy = g.xy.map(([x, y]) => [x * cell + ox, y * cell + oz] as [number, number]);
     out.pitch = medianEdgePitch(g, xy);
-    out.seam = (a, b) => g.seamEdge(a, b);
     out.chart2d = new Float32Array(g.ring.length * 2);
     for (let i = 0; i < g.ring.length; i++) {
-      const [x, y] = g.xy[i];
-      out.chart2d[i * 2] = x * gap;
-      out.chart2d[i * 2 + 1] = y * gap;
-      writeFrameExt(out, i, { p: [x * gap, 0, y * gap], s: 1, n: [0, 1, 0], t: [1, 0, 0], chi: 1 });
+      const f = at(i);
+      out.chart2d[i * 2] = f[0];
+      out.chart2d[i * 2 + 1] = f[2];
+      writeFrameExt(out, i, { p: f, s: 1, n: [0, 1, 0], t: [1, 0, 0], chi: 1 });
     }
+    fillPortals(g, out, at);
   } else {
     const flat: [number, number][] = g.xy.map(([x, y]) => {
       const p = torusPos(x, y, g.width, g.height, R, r);
       return [p[0], p[2]];
     });
     out.pitch = medianEdgePitch(g, flat, g.ring.map(() => 1));
-    delete out.seam;
     out.chart2d = new Float32Array(g.ring.length * 2);
     for (let i = 0; i < g.ring.length; i++) {
       const [x, y] = g.xy[i];
       const p = torusPos(x, y, g.width, g.height, R, r);
       const n = torusNormal(x, y, g.width, g.height);
-      const [t, chi] = torusTangent(n);
-      out.chart2d[i * 2] = x * GAP;
-      out.chart2d[i * 2 + 1] = y * GAP;
-      writeFrameExt(out, i, { p, s: 1, n, t, chi });
+      const t = torusTangent(n);
+      out.chart2d[i * 2] = x * cell;
+      out.chart2d[i * 2 + 1] = y * cell;
+      writeFrameExt(out, i, { p, s: 1, n, t, chi: 1 });
     }
+    fillPortals(g, out, at);
   }
   buildEdgePaths(g, out, (a, b) => {
-    if (chart) {
-      const pa: Tuple3 = [g.xy[a][0] * gap, 0, g.xy[a][1] * gap];
-      const pb: Tuple3 = [g.xy[b][0] * gap, 0, g.xy[b][1] * gap];
-      return { pa, pb, na: [0, 1, 0], nb: [0, 1, 0] };
-    }
-    const [xa, ya] = g.xy[a], [xb, yb] = g.xy[b];
-    const pa = torusPos(xa, ya, g.width, g.height, R, r);
-    const pb = torusPos(xb, yb, g.width, g.height, R, r);
-    const na = torusNormal(xa, ya, g.width, g.height);
-    const nb = torusNormal(xb, yb, g.width, g.height);
+    const pa = at(a), pb = at(b);
+    const na = chart ? ([0, 1, 0] as Tuple3) : torusNormal(g.xy[a][0], g.xy[a][1], g.width, g.height);
+    const nb = chart ? ([0, 1, 0] as Tuple3) : torusNormal(g.xy[b][0], g.xy[b][1], g.width, g.height);
     return { pa, pb, na, nb };
   });
   bumpRev(out);
@@ -168,29 +154,32 @@ export function embedTorus(g: SurfaceGraph, out: Embedding, params: TorusEmbedPa
 /** C4: Klein fundamental square (canonical) or flat chart for immersion pick-back. */
 /** Bonus: Fig-8 Klein bottle immersion (self-intersection drawn, not adjacency). */
 export function embedKleinImmersion(g: SurfaceGraph, out: Embedding, params: KleinEmbedParams = {}): Embedding {
-  const cell = params.cell ?? GAP * 0.5;
-  const scale = 2.2;
+  const cell = params.cell ?? chartCell(g.width, g.height);
+  const scale = KLEIN_SCALE();
   const flat: [number, number][] = g.xy.map(([x, y]) => {
     const u = (x / g.width) * Math.PI * 2;
     const v = (y / g.height) * Math.PI * 2;
-    const cx = scale * (Math.cos(u / 2) * Math.sin(v) - Math.sin(u / 2) * Math.sin(2 * v));
-    const cz = scale * (Math.sin(u / 2) * Math.sin(v) + Math.cos(u / 2) * Math.sin(2 * v));
-    return [cx, cz];
+    const fr = kleinImmersionFrame(u, v, scale);
+    return [fr.p[0], fr.p[2]];
   });
   out.pitch = medianEdgePitch(g, flat);
-  delete out.seam;
   out.chart2d = new Float32Array(g.ring.length * 2);
+  const at = (i: number): Tuple3 => {
+    const [x, y] = g.xy[i];
+    const u = (x / g.width) * Math.PI * 2;
+    const v = (y / g.height) * Math.PI * 2;
+    return kleinImmersionFrame(u, v, scale).p;
+  };
   for (let i = 0; i < g.ring.length; i++) {
     const [x, y] = g.xy[i];
     const u = (x / g.width) * Math.PI * 2;
     const v = (y / g.height) * Math.PI * 2;
-    const px = scale * (Math.cos(u / 2) * Math.sin(v) - Math.sin(u / 2) * Math.sin(2 * v));
-    const py = scale * Math.sin(u / 2) * Math.cos(v) * 2;
-    const pz = scale * (Math.sin(u / 2) * Math.sin(v) + Math.cos(u / 2) * Math.sin(2 * v));
+    const { p, n, t } = kleinImmersionFrame(u, v, scale);
     out.chart2d[i * 2] = x * cell;
     out.chart2d[i * 2 + 1] = y * cell;
-    writeFrameExt(out, i, { p: [px, py, pz], s: 1, n: [0, 1, 0], t: [1, 0, 0], chi: 1 });
+    writeFrameExt(out, i, { p, s: 1, n, t, chi: 1 });
   }
+  fillPortals(g, out, at);
   buildEdgePaths(g, out, (a, b) => {
     const fa = framePos(out, a), fb = framePos(out, b);
     return { pa: fa.p, pb: fb.p, na: fa.n, nb: fb.n };
@@ -208,43 +197,32 @@ const framePos = (e: Embedding, i: number) => {
 };
 
 export function embedKlein(g: SurfaceGraph, out: Embedding, params: KleinEmbedParams = {}): Embedding {
-  const gap = GAP * 0.85;
-  const cell = params.cell ?? gap;
-  out.pitch = medianEdgePitch(g, g.xy.map(([x, y]) => [x * cell, y * cell]));
-  out.seam = (a, b) => g.seamEdge(a, b);
+  const cell = params.cell ?? chartCell(g.width, g.height);
+  const [ox, , oz] = chartOffset(g.width, g.height, cell);
+  const xy = g.xy.map(([x, y]) => [x * cell + ox, y * cell + oz] as [number, number]);
+  out.pitch = medianEdgePitch(g, xy);
   out.chart2d = new Float32Array(g.ring.length * 2);
   const chiMap = new Int8Array(g.ring.length).fill(1);
-  for (let i = 0; i < g.ring.length; i++) chiMap[i] = 1;
   for (let i = 0; i < g.ring.length; i++) {
     for (const j of g.neighbours[i]) {
       if (j < i) continue;
       if (g.flipEdge(i, j)) transportChirality(chiMap, i, j, true);
     }
   }
-  for (let i = 0; i < g.ring.length; i++) {
+  const at = (i: number): Tuple3 => {
     const [x, y] = g.xy[i];
-    out.chart2d[i * 2] = x * cell;
-    out.chart2d[i * 2 + 1] = y * cell;
+    return [x * cell + ox, 0, y * cell + oz];
+  };
+  for (let i = 0; i < g.ring.length; i++) {
+    const f = at(i);
+    out.chart2d[i * 2] = f[0];
+    out.chart2d[i * 2 + 1] = f[2];
     const chi = chiMap[i];
     const t: Tuple3 = chi < 0 ? [-1, 0, 0] : [1, 0, 0];
-    writeFrameExt(out, i, { p: [x * cell, 0, y * cell], s: 1, n: [0, 1, 0], t, chi });
+    writeFrameExt(out, i, { p: f, s: 1, n: [0, 1, 0], t, chi });
   }
-  if (out.portals) out.portals.length = 0;
-  else out.portals = [];
-  g.neighbours.forEach((ns, a) => {
-    for (const b of ns) {
-      if (b <= a || !g.seamEdge(a, b)) continue;
-      const pa = [g.xy[a][0] * cell, 0, g.xy[a][1] * cell] as Tuple3;
-      const pb = [g.xy[b][0] * cell, 0, g.xy[b][1] * cell] as Tuple3;
-      const flip = g.flipEdge(a, b);
-      out.portals!.push({ a, b, portA: pa, portB: pb, flip });
-    }
-  });
-  buildEdgePaths(g, out, (a, b) => {
-    const pa: Tuple3 = [g.xy[a][0] * cell, 0, g.xy[a][1] * cell];
-    const pb: Tuple3 = [g.xy[b][0] * cell, 0, g.xy[b][1] * cell];
-    return { pa, pb, na: [0, 1, 0], nb: [0, 1, 0] };
-  });
+  fillPortals(g, out, at);
+  buildEdgePaths(g, out, (a, b) => ({ pa: at(a), pb: at(b), na: [0, 1, 0], nb: [0, 1, 0] }));
   bumpRev(out);
   return out;
 }

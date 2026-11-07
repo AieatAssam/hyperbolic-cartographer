@@ -139,25 +139,45 @@ const ro = new ResizeObserver(() => (layoutDirty = true));
 const observeUI = () => document.querySelectorAll('#ui .hud, #ui .panel, #ui .dock').forEach((el) => ro.observe(el));
 new MutationObserver(() => ((layoutDirty = true), observeUI())).observe(document.getElementById('ui')!, { childList: true });
 
+let manifoldAz = Math.PI * 0.32;
+let manifoldSpinOn = false;
 /** Full refit: default tilt, target at origin, distance solved from the footprint (initial UI, geometry, recenter). */
 const frameCamera = () => frameBoardCamera(POLAR);
-const frameBoardCamera = (polar = POLAR) => {
+const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
   if (layoutDirty) layoutView();
-  controls.target.set(0, isSurfaceBoard(board) && board.surface === 'torus' && !board.chartMode ? 1.8 : 0, 0);
+  const chart = isSurfaceBoard(board) && board.isChartFlat();
+  const tY = chart ? 0 : isSurfaceBoard(board) && board.surface === 'torus' ? 0.12 : 0;
+  controls.target.set(0, tY, 0);
   fitD = fitDistance({
     pts: footprint(), W: innerWidth, H: innerHeight, free, fov: camera.fov, polar, margin: MARGIN,
-  });
+  }) / Math.max(0.35, fill);
   controls.maxDistance = Math.max(40, fitD * 1.5);
-  camera.position.set(0, Math.cos(polar) * fitD, Math.sin(polar) * fitD);
+  const cp = Math.cos(polar);
+  camera.position.set(Math.sin(azimuth) * cp * fitD, cp * fitD, Math.cos(azimuth) * cp * fitD);
+};
+const applyManifoldCamera = () => {
+  if (!isSurfaceBoard(board)) return frameCamera();
+  if (board.isChartFlat()) return frameBoardCamera(POLAR, 0, config.manifold.chartFill);
+  const polar = board.surface === 'torus' ? 1.02 : 0.86;
+  frameBoardCamera(polar, manifoldAz, config.manifold.boardFill3d);
 };
 function seedManifoldDemo(which: 'torus' | 'klein') {
   const g = SURFACE_GRAPHS[which];
-  manifoldTiles = g.ring.map((_, i) => (i % 5 === 0 ? 'spring' : i % 7 === 2 ? 'mill' : null));
-  const seamCell = g.xy.findIndex(([x, y]) => x === 0 && y === 0);
-  if (seamCell >= 0) {
-    manifoldTiles[seamCell] = 'spring';
-    for (const j of g.neighbours[seamCell]) {
-      if (g.seamEdge(seamCell, j)) manifoldTiles[j] = 'mill';
+  manifoldTiles = g.ring.map(() => null);
+  if (which === 'torus') {
+    const loop = g.cycleBasis[0];
+    for (let k = 0; k < loop.length - 1; k++) manifoldTiles[loop[k]] = k % 2 === 0 ? 'spring' : 'mill';
+  } else {
+    for (let i = 0; i < g.ring.length; i++) {
+      const [x] = g.xy[i];
+      if (x === 0) manifoldTiles[i] = 'spring';
+      if (x === g.width - 1) manifoldTiles[i] = 'mill';
+    }
+    const origin = g.xy.findIndex(([x, y]) => x === 0 && y === 0);
+    if (origin >= 0) {
+      manifoldTiles[origin] = 'spring';
+      const across = g.neighbours[origin].find((j) => g.xy[j][0] === g.width - 1);
+      if (across !== undefined) manifoldTiles[across] = 'mill';
     }
   }
 }
@@ -169,13 +189,16 @@ function enterManifoldPreview(which: 'torus' | 'klein') {
   controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
   controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
   ui.setManifoldPreview(true, which);
+  manifoldSpinOn = true;
+  manifoldAz = Math.PI * 0.32;
   layoutDirty = true;
-  frameBoardCamera(which === 'torus' && isSurfaceBoard(board) && !board.chartMode ? 0.85 : POLAR);
+  applyManifoldCamera();
   if (isSurfaceBoard(board)) board.update(renderState(), [], -1, []);
 }
 function exitManifoldPreview() {
   manifoldPreview = 'off';
   manifoldTiles = null;
+  manifoldSpinOn = false;
   syncBoard(true);
   controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
   controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
@@ -283,7 +306,7 @@ const ui = createUI(document.getElementById('ui')!, {
       board.chartMode = !board.chartMode;
       board.invalidate();
       layoutDirty = true;
-      frameBoardCamera(board.surface === 'torus' && !board.chartMode ? 0.85 : POLAR);
+      applyManifoldCamera();
     },
     toggleSeamView: () => {
       if (isSurfaceBoard(board)) (board.seamView = !board.seamView, board.invalidate());
@@ -292,8 +315,9 @@ const ui = createUI(document.getElementById('ui')!, {
       if (!isSurfaceBoard(board) || board.surface !== 'klein') return;
       board.immersion3d = !board.immersion3d;
       board.invalidate();
+      manifoldSpinOn = board.immersion3d;
       layoutDirty = true;
-      frameBoardCamera(board.immersion3d ? 0.75 : POLAR);
+      applyManifoldCamera();
     },
     switchManifold: (which: 'torus' | 'klein') => enterManifoldPreview(which),
     manifoldPreview: () => manifoldPreview,
@@ -457,6 +481,7 @@ const endPointer = () => {
 // Mouse: click applies at once (hover already previewed). Touch/pen: first tap previews, a second tap on the
 // same cell (or the Place button) confirms. Drags, pinches and cancelled pointers never place.
 canvas.addEventListener('pointerdown', (e) => {
+  if (manifoldPreview !== 'off') manifoldSpinOn = false;
   tap.down(e.pointerId, e.clientX, e.clientY, kindOf(e), e.button);
   panFrom = tap.active === 1 ? worldAt(e.clientX, e.clientY) : null;
 });
@@ -518,7 +543,9 @@ function frame(now: number) {
   if (rKey !== routeKey) (routeKey = rKey), (routes = productionRoutes(g, tiles, reach));
   const focus = hover >= 0 ? hover : tap.selected;
   const hoverAdj = focus >= 0 ? (tiles[focus] ? adjacency(g, tiles, focus, reach) : g.neighbours[focus]) : [];
-  const perTile = manifoldTiles ? tiles.map(() => 0) : p.perTile;
+  const perTile = manifoldTiles
+    ? tiles.map((t) => (t === 'mill' ? config.manifold.demoMillOut : t === 'spring' ? 1 : 0))
+    : p.perTile;
   board.update(rs, perTile, focus, hoverAdj);
   // prepare binds the new board's embedding before any spawn; update then advances time once
   const ctx = fxContext(perTile, routes);
@@ -527,6 +554,9 @@ function frame(now: number) {
   if (!locked) diffFx();
   fx.update(dt, ctx);
   board.tick(fx.now, reduced.matches);
+  if (manifoldSpinOn && isSurfaceBoard(board) && !board.isChartFlat()) {
+    board.group.rotation.y += dt * config.manifold.idleSpin;
+  }
   controls.update();
   renderFrame(dt);
   if ((uiAcc += dt) > 0.1) (uiAcc = 0), ui.update();

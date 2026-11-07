@@ -40,10 +40,10 @@ export const GRAPHS: Record<Geometry, TileGraph> = {
   hyper: hyperGraph(config.hyper.maxRing + 1),
 };
 
-/** Manifold preview graphs (6×6 fundamental domains). */
+/** Manifold preview quotient graphs (sizes from config.manifold). */
 export const SURFACE_GRAPHS = {
-  torus: torusGraph(6, 6),
-  klein: kleinGraph(6, 6),
+  torus: torusGraph(config.manifold.torusWidth, config.manifold.torusHeight),
+  klein: kleinGraph(config.manifold.kleinWidth, config.manifold.kleinHeight),
 } as const;
 
 export const graphOf = (s: GameState) => GRAPHS[s.geometry];
