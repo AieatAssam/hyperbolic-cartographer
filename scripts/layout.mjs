@@ -581,6 +581,27 @@ async function focusLastActive(p) {
   return idx;
 }
 
+/** Prefer the highest-index active cell still inside phoneSnapshot (preview QA). */
+async function focusVisibleActive(p) {
+  const idx = await p.evaluate(() => {
+    const q = window.game?.qa;
+    if (typeof q?.focusCell !== 'function' || typeof q?.phoneSnapshot !== 'function') return null;
+    q.phoneSnapshot();
+    const visible = new Set(q.phoneSnapshot().visibleCells.map((c) => c.index));
+    if (!visible.size) {
+      for (let i = window.game.s.tiles.length - 1; i >= 0; i--) if (q.focusCell(i)) return i;
+      return -1;
+    }
+    for (let i = window.game.s.tiles.length - 1; i >= 0; i--) {
+      if (visible.has(i) && q.focusCell(i)) return i;
+    }
+    return -1;
+  });
+  if (idx === null) throw new MissingHookError('focusCell');
+  if (idx < 0) throw new Error('no visible active cell to focus');
+  return idx;
+}
+
 const flatView = (v) => Object.values(v ?? {}).flat(Infinity).map(Number);
 const cellIn = (snap, idx) => snap.visibleCells.find((c) => c.index === idx);
 
@@ -793,7 +814,7 @@ const boardCase = (name, seed, preview, centre = false) => ({
   setup: async (p) => {
     await qa(p, 'seed', seed);
     await qa(p, 'dismissTutorial');
-    if (preview) boardPreview.set(p, await focusLastActive(p));
+    if (preview) boardPreview.set(p, await focusVisibleActive(p));
     await rafTwice(p);
   },
   expect: async (p) => {
