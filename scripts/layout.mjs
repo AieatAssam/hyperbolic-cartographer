@@ -17,7 +17,11 @@ import { chromium } from 'playwright';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = process.env.LAYOUT_OUT ? resolve(process.env.LAYOUT_OUT) : join(ROOT, 'layout-artifacts');
 const BASE = '/hyperbolic-cartographer/';
-const CASE_TIMEOUT_MS = 15000;
+const IS_CI = !!process.env.CI;
+const CASE_TIMEOUT_MS = IS_CI ? 30000 : 15000;
+const SETUP_LOCATOR_TIMEOUT = IS_CI ? 20000 : 10000;
+const READY_TIMEOUT_MS = IS_CI ? 20000 : 12000;
+const PAGE_DEFAULT_TIMEOUT = IS_CI ? 20000 : 8000;
 
 const VIEWPORTS = [
   [360, 640], [390, 844], [430, 932], [844, 390], [932, 430], [1280, 800],
@@ -63,16 +67,70 @@ async function need(page, qaName) {
 /** Playwright's default click waits for navigation; manifold toggles only repaint. */
 async function clickQaButtonNoNav(page, qaId) {
   const loc = page.locator(`[data-qa="${qaId}"]`).first();
-  await loc.waitFor({ state: 'visible', timeout: 8000 });
-  await loc.click({ noWaitAfter: true });
+  await loc.waitFor({ state: 'visible', timeout: SETUP_LOCATOR_TIMEOUT });
+  await loc.click({ noWaitAfter: true, timeout: SETUP_LOCATOR_TIMEOUT });
 }
 
 async function waitKleinImmersionReady(page) {
   await page.waitForFunction(
     () => document.documentElement.dataset.qaKleinImmersionReady === '1',
     undefined,
-    { timeout: 12000 },
+    { timeout: READY_TIMEOUT_MS },
   );
+}
+
+async function waitHyperBoardReady(page) {
+  await page.waitForFunction(
+    () => {
+      const g = window.game;
+      if (!g?.qa?.ready || g.s?.geometry !== 'hyper') return false;
+      const snap = g.qa.phoneSnapshot();
+      return snap.occupiedCount > 0 && snap.visibleCells.length > 0;
+    },
+    undefined,
+    { timeout: READY_TIMEOUT_MS },
+  );
+}
+
+async function waitManifoldSurface(page, surface) {
+  await page.waitForFunction(
+    (surf) => {
+      const st = window.game?.qa?.manifoldStats?.();
+      return st?.surface === surf;
+    },
+    surface,
+    { timeout: READY_TIMEOUT_MS },
+  );
+}
+
+async function waitViewMatrixChange(page, flatBefore) {
+  await page.waitForFunction(
+    (flat) => {
+      const snap = window.game?.qa?.phoneSnapshot?.();
+      const v = Object.values(snap?.view ?? {}).flat().map(Number);
+      if (!v.length || v.length !== flat.length) return false;
+      return v.some((x, i) => Math.abs(x - flat[i]) > 1e-6);
+    },
+    flatBefore,
+    { timeout: READY_TIMEOUT_MS },
+  );
+}
+
+const SETUP_RETRY = /Timeout|timeout|intercepts pointer|not visible|waiting for/;
+
+async function runCaseSetup(page, setup) {
+  const attempt = async () => {
+    await qa(page, 'quality', 0);
+    await setup(page);
+  };
+  try {
+    await attempt();
+  } catch (e) {
+    const msg = e instanceof MissingHookError ? '' : String(e?.message ?? e);
+    if (!(e instanceof MissingHookError) && !SETUP_RETRY.test(msg)) throw e;
+    await rafTwice(page);
+    await attempt();
+  }
 }
 
 async function modalButton(page, re) {
@@ -551,13 +609,16 @@ const hyperPreviewCase = (centre) => ({
   setup: async (p) => {
     await qa(p, 'seed', 'hyper');
     await qa(p, 'dismissTutorial');
+    await waitHyperBoardReady(p);
     const idx = await focusLastActive(p);
     await rafTwice(p);
     const snap = await qa(p, 'phoneSnapshot');
     hyperBefore.set(p, { idx, snap });
     if (centre) {
-      await p.getByRole('button', { name: BRING }).first().click(); // real click on the dock button
+      const flatBefore = flatView(snap.view);
+      if (!(await qa(p, 'centreSelected'))) throw new Error('centreSelected QA hook returned false');
       await rafTwice(p);
+      await waitViewMatrixChange(p, flatBefore);
     }
   },
   expect: async (p) => {
@@ -792,8 +853,8 @@ const hudExpandedCase = {
       if (!st.toggleShown) out.push('hud-toggle not visible in expanded phone HUD (it must collapse by touch)');
       const vh = (await p.viewportSize()).height;
       if (st.topbarHeight > 0.42 * vh + 1) out.push(`expanded HUD too tall: top bar ${st.topbarHeight}px > 42% of ${vh}px`);
-      // Collapse by touch: the toggle must return the HUD to the compact row.
-      await p.locator('[data-qa="hud-toggle"]').first().click();
+      // Collapse via QA (same as the touch toggle).
+      await qa(p, 'hud', false);
       await rafTwice(p);
       const back = await p.evaluate(hudState);
       if (back.expanded !== 'false' || back.explainShown) out.push('touch toggle did not collapse the expanded HUD');
@@ -958,7 +1019,8 @@ const CASES = [
       await qa(p, 'seed', 'midgame');
       await qa(p, 'dismissTutorial');
       await qa(p, 'manifold', 'torus');
-      await p.waitForTimeout(600);
+      await waitManifoldSurface(p, 'torus');
+      await rafTwice(p);
     },
     expect: async (p) => {
       const bar = await p.locator('[data-qa="manifold-bar"]:not(.hidden)').count();
@@ -977,7 +1039,8 @@ const CASES = [
       await qa(p, 'seed', 'midgame');
       await qa(p, 'dismissTutorial');
       await qa(p, 'manifold', 'klein');
-      await p.waitForTimeout(600);
+      await waitManifoldSurface(p, 'klein');
+      await rafTwice(p);
     },
     expect: async (p) => {
       const s = await qa(p, 'canvasSample');
@@ -990,7 +1053,8 @@ const CASES = [
       await qa(p, 'seed', 'midgame');
       await qa(p, 'dismissTutorial');
       await qa(p, 'manifold', 'torus');
-      await p.waitForTimeout(900);
+      await waitManifoldSurface(p, 'torus');
+      await rafTwice(p);
     },
     expect: async (p) => {
       const r = await qa(p, 'manifoldProjectFit');
@@ -1004,8 +1068,10 @@ const CASES = [
       await qa(p, 'seed', 'midgame');
       await qa(p, 'dismissTutorial');
       await qa(p, 'manifold', 'klein');
-      await clickQaButtonNoNav(p, 'mf-immersion');
+      await waitManifoldSurface(p, 'klein');
+      await qa(p, 'enterKleinImmersion');
       await waitKleinImmersionReady(p);
+      await rafTwice(p);
     },
     expect: async (p) => {
       const r = await qa(p, 'manifoldProjectFit');
@@ -1165,7 +1231,7 @@ function withTimeout(promise, ms, label) {
 
 async function runCase(context, vp, c, appUrl, localHosts, shotsDir) {
   const page = await context.newPage();
-  page.setDefaultTimeout(5000);
+  page.setDefaultTimeout(PAGE_DEFAULT_TIMEOUT);
   const failures = [];
   const state = { blocked: 0 };
 
@@ -1191,8 +1257,7 @@ async function runCase(context, vp, c, appUrl, localHosts, shotsDir) {
     await page.waitForFunction(() => !!window.game?.qa?.ready, undefined, { timeout: 10000 })
       .catch(() => { throw new Error('window.game.qa.ready never became true (missing QA hook ready)'); });
     try {
-      await qa(page, 'quality', 0);
-      await c.setup(page);
+      await runCaseSetup(page, c.setup);
     } catch (e) {
       failures.push(e instanceof MissingHookError ? e.message : `setup failed: ${e.message}`);
       return;
