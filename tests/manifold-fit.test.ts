@@ -14,7 +14,7 @@ describe('manifold board rect', () => {
   it('torus fit sample grid is dense', () => {
     const b = { surface: 'torus' as const, isChartFlat: () => false, group: { rotation: { y: 0 } } };
     const pts = manifoldFitSamples(b as import('../src/render/surface-board').SurfaceBoard);
-    expect(pts.length).toBe(25 * 13);
+    expect(pts.length).toBe(37 * 19 + 8);
   });
 });
 

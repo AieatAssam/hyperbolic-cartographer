@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BOARD, SURFACE } from '../art/palette';
 import { config } from '../core/config';
 import type { SurfaceGraph } from '../core/geometry/quotient';
+import { KLEIN_SKIN_U_MAX, KLEIN_V_MAX, KLEIN_SELF_INTERSECT_U, kleinImmersionFrame } from './klein-bottle';
 import {
   KLEIN_SCALE, kleinImmersionPos, torusPosFromUv,
 } from './surface-params';
@@ -91,13 +92,48 @@ export function buildTorusSkin(g: SurfaceGraph, env: THREE.Texture | null): THRE
   return parametricMesh(g.width * 4, g.height * 4, g.width, g.height, (u, v) => torusPosFromUv(u, v), env, 'torus-skin');
 }
 
+function kleinParametricMesh(
+  uSteps: number, vSteps: number, texW: number, texH: number,
+  posAt: (u: number, v: number) => [number, number, number], env: THREE.Texture | null,
+) {
+  const pos: number[] = [], idx: number[] = [], uvs: number[] = [], nrm: number[] = [];
+  const scale = KLEIN_SCALE();
+  for (let yi = 0; yi <= vSteps; yi++) {
+    for (let xi = 0; xi <= uSteps; xi++) {
+      const u = (xi / uSteps) * KLEIN_SKIN_U_MAX;
+      const v = (yi / vSteps) * KLEIN_V_MAX;
+      const [px, py, pz] = posAt(u, v);
+      pos.push(px, py, pz);
+      uvs.push(xi / uSteps, yi / vSteps);
+      const n = kleinImmersionFrame(u, v, scale).n;
+      nrm.push(n[0], n[1], n[2]);
+    }
+  }
+  const row = uSteps + 1;
+  for (let yi = 0; yi < vSteps; yi++) {
+    for (let xi = 0; xi < uSteps; xi++) {
+      const a = yi * row + xi, b = a + 1, c = a + row, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geom.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  geom.setIndex(idx);
+  const mesh = new THREE.Mesh(geom, skinMaterial(texW, texH, env, true));
+  mesh.name = 'klein-skin';
+  mesh.renderOrder = -2;
+  return mesh;
+}
+
 export function buildKleinImmersionSkin(g: SurfaceGraph, env: THREE.Texture | null): THREE.Mesh {
   const scale = KLEIN_SCALE();
   const uSteps = config.manifold.kleinSkinU;
   const vSteps = config.manifold.kleinSkinV;
-  return parametricMesh(
+  return kleinParametricMesh(
     uSteps, vSteps, g.width, g.height,
-    (u, v) => kleinImmersionPos(u, v, scale), env, 'klein-skin',
+    (u, v) => kleinImmersionPos(u, v, scale), env,
   );
 }
 
@@ -106,7 +142,7 @@ export function buildSelfIntersectionLine(scale = KLEIN_SCALE()): THREE.Line {
   const n = 96;
   for (let i = 0; i <= n; i++) {
     const v = (i / n) * Math.PI * 2;
-    const [x, y, z] = kleinImmersionPos(Math.PI, v, scale);
+    const [x, y, z] = kleinImmersionPos(KLEIN_SELF_INTERSECT_U, v, scale);
     pts.push(x, y, z);
   }
   const geom = new THREE.BufferGeometry();

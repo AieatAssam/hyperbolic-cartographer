@@ -1,5 +1,11 @@
 /** Shared parametric surface math for manifold preview (embed + skin + tiles). */
 import { config } from '../core/config';
+import {
+  kleinBottleAabb as kleinBottleAabbImpl,
+  kleinGridToUv,
+  kleinImmersionFrame as kleinImmersionFrameImpl,
+  kleinImmersionPos as kleinImmersionPosImpl,
+} from './klein-bottle';
 
 export const TORUS_R = () => config.manifold.torusMajorR;
 export const TORUS_r = () => config.manifold.torusMinorR;
@@ -63,62 +69,17 @@ export function torusFrameAtGrid(gx: number, gy: number, w: number, h: number, l
   return { p, n, t, u, v };
 }
 
-const KLEIN_BOTTLE_K = 0.31;
-
-/** Classic Dickson / Gray bottle immersion (u,v ∈ [0, 2π)). */
-export function kleinImmersionPos(u: number, v: number, scale = KLEIN_SCALE()): Tuple3 {
-  const cu = Math.cos(u), su = Math.sin(u), cv = Math.cos(v), sv = Math.sin(v);
-  const r = 4 * (1 - cu / 2);
-  let x: number, y: number, z: number;
-  if (u < Math.PI) {
-    x = 6 * cu * (1 + su) + r * cu * cv;
-    y = 16 * su + r * su * cv;
-    z = r * sv;
-  } else {
-    x = 6 * cu * (1 + su) + r * Math.cos(v + Math.PI);
-    y = 16 * su;
-    z = r * sv;
-  }
-  const k = scale * KLEIN_BOTTLE_K;
-  return [x * k, y * k, z * k];
-}
-
-export function kleinBottleAabb(scale = KLEIN_SCALE()): { lo: Tuple3; hi: Tuple3 } {
-  const lo: Tuple3 = [Infinity, Infinity, Infinity];
-  const hi: Tuple3 = [-Infinity, -Infinity, -Infinity];
-  const steps = 40;
-  for (let i = 0; i <= steps; i++) {
-    for (let j = 0; j <= steps; j++) {
-      const u = (i / steps) * Math.PI * 2;
-      const v = (j / steps) * Math.PI * 2;
-      const p = kleinImmersionPos(u, v, scale);
-      for (let k = 0; k < 3; k++) {
-        lo[k] = Math.min(lo[k], p[k]);
-        hi[k] = Math.max(hi[k], p[k]);
-      }
-    }
-  }
-  return { lo, hi };
-}
+export { kleinGridToUv } from './klein-bottle';
+export const kleinImmersionPos = kleinImmersionPosImpl;
+export const kleinImmersionFrame = kleinImmersionFrameImpl;
+export const kleinBottleAabb = kleinBottleAabbImpl;
 
 export function torusFitAabb(R = TORUS_R(), r = TORUS_r()): { lo: Tuple3; hi: Tuple3 } {
   return { lo: [-R - r, -r, -R - r], hi: [R + r, r, R + r] };
 }
 
-export function kleinImmersionFrame(u: number, v: number, scale = KLEIN_SCALE()) {
-  const eps = 1e-3;
-  const p = kleinImmersionPos(u, v, scale);
-  const pu = kleinImmersionPos(u + eps, v, scale);
-  const pv = kleinImmersionPos(u, v + eps, scale);
-  const tu: Tuple3 = [pu[0] - p[0], pu[1] - p[1], pu[2] - p[2]];
-  const tv: Tuple3 = [pv[0] - p[0], pv[1] - p[1], pv[2] - p[2]];
-  const n = norm3(cross(tu, tv));
-  const t = norm3(tu);
-  return { p, n, t };
-}
-
 export function kleinFrameAtGrid(gx: number, gy: number, w: number, h: number, lift = SKIN_LIFT()) {
-  const [u, v] = gridToUv(gx, gy, w, h);
+  const [u, v] = kleinGridToUv(gx, gy, w, h);
   const { p: p0, n, t } = kleinImmersionFrame(u, v);
   const p = addScaled(p0, n, lift);
   return { p, n, t, u, v };
@@ -161,7 +122,7 @@ export function kleinPatchCorners(x: number, y: number, w: number, h: number, ga
   const cx = x + 0.5, cy = y + 0.5;
   const corners: Tuple3[] = [];
   for (const [dx, dy] of [[-half, -half], [half, -half], [half, half], [-half, half]] as const) {
-    const [u, v] = gridToUv(cx + dx, cy + dy, w, h);
+    const [u, v] = kleinGridToUv(cx + dx, cy + dy, w, h);
     const p0 = kleinImmersionPos(u, v);
     const n = kleinImmersionFrame(u, v).n;
     corners.push(addScaled(p0, n, lift));
@@ -180,7 +141,7 @@ export function torusTileSkinGap(x: number, y: number, w: number, h: number, emb
 }
 
 export function kleinTileSkinGap(x: number, y: number, w: number, h: number, embedded: Tuple3, lift = SKIN_LIFT()) {
-  const [u, v] = gridToUv(x + 0.5, y + 0.5, w, h);
+  const [u, v] = kleinGridToUv(x + 0.5, y + 0.5, w, h);
   const skin = kleinImmersionPos(u, v);
   const n = kleinImmersionFrame(u, v).n;
   const onLift = addScaled(skin, n, lift);

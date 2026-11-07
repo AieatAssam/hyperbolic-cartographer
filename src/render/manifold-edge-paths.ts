@@ -3,7 +3,7 @@ import type { SurfaceGraph } from '../core/geometry/quotient';
 import type { Embedding } from './fx-graph';
 import { ROUTE_TIMING } from './fx-graph';
 import { config } from '../core/config';
-import { gridToUv, kleinImmersionFrame, kleinImmersionPos, torusNormalFromUv, torusPosFromUv } from './surface-params';
+import { kleinGridToUv, kleinImmersionFrame, kleinImmersionPos, gridToUv, torusNormalFromUv, torusPosFromUv } from './surface-params';
 
 const EDGE_PATH_K = 12;
 
@@ -21,9 +21,14 @@ const wrapDelta = (d: number) => {
   return x;
 };
 
-function uvOf(g: SurfaceGraph, i: number): [number, number] {
+function torusUvOf(g: SurfaceGraph, i: number): [number, number] {
   const [x, y] = g.xy[i];
   return gridToUv(x + 0.5, y + 0.5, g.width, g.height);
+}
+
+function kleinUvOf(g: SurfaceGraph, i: number): [number, number] {
+  const [x, y] = g.xy[i];
+  return kleinGridToUv(x + 0.5, y + 0.5, g.width, g.height);
 }
 
 export function buildTorusSurfaceEdgePaths(g: SurfaceGraph, e: Embedding): void {
@@ -32,8 +37,8 @@ export function buildTorusSurfaceEdgePaths(g: SurfaceGraph, e: Embedding): void 
   const path = new Float32Array(edges.length * K * 3);
   const liftK = config.manifold.manifoldLegLift / ROUTE_TIMING.lift;
   edges.forEach(([a, b], row) => {
-    const [ua, va] = uvOf(g, a);
-    const [ub, vb] = uvOf(g, b);
+    const [ua, va] = torusUvOf(g, a);
+    const [ub, vb] = torusUvOf(g, b);
     const du = wrapDelta(ub - ua), dv = wrapDelta(vb - va);
     for (let k = 0; k < K; k++) {
       const t = (k + 0.5) / K;
@@ -57,9 +62,10 @@ export function buildKleinSurfaceEdgePaths(g: SurfaceGraph, e: Embedding): void 
   const path = new Float32Array(edges.length * K * 3);
   const liftK = config.manifold.manifoldLegLift / ROUTE_TIMING.lift;
   edges.forEach(([a, b], row) => {
-    const [ua, va] = uvOf(g, a);
-    const [ub, vb] = uvOf(g, b);
-    const du = wrapDelta(ub - ua), dv = wrapDelta(vb - va);
+    const [ua, va] = kleinUvOf(g, a);
+    const [ub, vb] = kleinUvOf(g, b);
+    const du = ub - ua;
+    const dv = wrapDelta(vb - va);
     for (let k = 0; k < K; k++) {
       const t = (k + 0.5) / K;
       const u = ua + du * t, v = va + dv * t;
