@@ -1,5 +1,5 @@
 import Decimal from 'break_eternity.js';
-import type { GameState } from '../core/state';
+import type { GameState, SurfacePreview } from '../core/state';
 import { TILE_INFO, TILE_TYPES, type TileType } from '../core/tiles';
 import type { ImportResult } from '../core/save';
 import type { OfflineReport } from '../core/tick';
@@ -41,6 +41,12 @@ export interface UICtx {
     confirmPlace(): void; // apply the current tool to the selected cell
     cancelPlace(): void; // clear the selected cell
     centreSelected(): void; // move the selected cell to the disk centre (hyperbolic only; keeps selection and zoom)
+    enterManifoldPreview?(which: 'torus' | 'klein'): void;
+    exitManifoldPreview?(): void;
+    toggleSurfaceChart?(): void;
+    toggleSeamView?(): void;
+    toggleKleinImmersion?(): void;
+    manifoldPreview?(): SurfacePreview;
   };
   dev: boolean;
 }
@@ -641,6 +647,31 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     ];
     if (s.projections > 0 || s.curvature.gt(0))
       out.push(...curvUpgrades.map((d) => upgCard(d, 'Curvature', (g) => g.curvUpg, (g) => g.curvature, (id) => ctx.act.buyCurv(id))));
+    const mp = ctx.act.manifoldPreview?.() ?? 'off';
+    const prev = card(
+      title('Manifold preview (locked)'),
+      txt('Layer 3 surfaces: orbit a 3D torus or study the Klein bottle fundamental square with coloured seams. No Handles currency or Loops scoring yet.'),
+      el('div', 'row'),
+    );
+    const row = prev.querySelector('.row')!;
+    const torusB = btn(mp === 'torus' ? 'Torus (active)' : 'Preview torus', mp === 'torus' ? 'primary' : '', () => ctx.act.enterManifoldPreview?.('torus'));
+    const kleinB = btn(mp === 'klein' ? 'Klein (active)' : 'Preview Klein', mp === 'klein' ? 'primary' : '', () => ctx.act.enterManifoldPreview?.('klein'));
+    const exitB = btn('Exit preview', '', () => ctx.act.exitManifoldPreview?.());
+    exitB.style.display = mp === 'off' ? 'none' : '';
+    row.append(torusB, kleinB, exitB);
+    if (mp !== 'off') {
+      const chart = btn('2D chart', '', () => ctx.act.toggleSurfaceChart?.());
+      const seam = btn('Seams', '', () => ctx.act.toggleSeamView?.());
+      chart.classList.add('surface-toggle');
+      seam.classList.add('surface-toggle');
+      row.append(chart, seam);
+      if (mp === 'klein') {
+        const imm = btn('3D immersion', '', () => ctx.act.toggleKleinImmersion?.());
+        imm.classList.add('surface-toggle');
+        row.append(imm);
+      }
+    }
+    out.push(prev);
     return out;
   };
 

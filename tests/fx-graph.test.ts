@@ -317,7 +317,7 @@ describe('embedding frames', () => {
     expect(e.count).toBe(5);
     expect(e.data.length).toBe(5 * EMBED_STRIDE);
     expect(e.rev).toBe(0);
-    expect(frameAt(e, 4)).toEqual({ p: [0, 0, 0], s: 0, n: [0, 1, 0] });
+    expect(frameAt(e, 4)).toMatchObject({ p: [0, 0, 0], s: 0, n: [0, 1, 0], chi: 1 });
   });
 
   it('rejects invalid counts', () => {
@@ -334,13 +334,13 @@ describe('embedding frames', () => {
     expect(f.p[2]).toBeCloseTo(3, 6);
     expect(f.s).toBeCloseTo(0.5, 6);
     expect(f.n[2]).toBeCloseTo(1, 6);
-    expect(frameAt(e, 0)).toEqual({ p: [0, 0, 0], s: 0, n: [0, 1, 0] });
+    expect(frameAt(e, 0)).toMatchObject({ p: [0, 0, 0], s: 0, n: [0, 1, 0] });
   });
 
   it('replaces a non-finite position with the origin, hides the tile, and reports the repair', () => {
     const e = createEmbedding(1);
     expect(writeFrame(e, 0, { p: [NaN, 0, 0], s: 1, n: [0, 1, 0] })).toBe(false);
-    expect(frameAt(e, 0)).toEqual({ p: [0, 0, 0], s: 0, n: [0, 1, 0] });
+    expect(frameAt(e, 0)).toMatchObject({ p: [0, 0, 0], s: 0, n: [0, 1, 0] });
     expect(writeFrame(e, 0, { p: [0, Infinity, 0], s: 1, n: [0, 1, 0] })).toBe(false);
     expect(frameAt(e, 0).s).toBe(0);
   });

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import Decimal from 'break_eternity.js';
 import { config } from './core/config';
-import { initialState, graphOf, GRAPHS, type GameState } from './core/state';
+import { initialState, graphOf, GRAPHS, SURFACE_GRAPHS, type GameState, type SurfacePreview } from './core/state';
 import { adjacency, buyChartUpg, buyCurvUpg, isActive, maxRing, mods, place, prod, previewDelta, sell, sellValue, survey, tileCost, togglePin } from './core/economy';
 import { canDrift, canProject, drift, project } from './core/prestige';
 import { applyOffline, simulate } from './core/tick';
@@ -9,6 +9,8 @@ import { exportString, importSave, makeSave, toJson } from './core/save';
 import { TILE_INFO, TILE_TYPES, type TileType } from './core/tiles';
 import { createScene, type QualityLevel } from './render/scene';
 import { Board, DISK_R } from './render/board';
+import { SurfaceBoard } from './render/surface-board';
+import type { TileGraph } from './core/geometry/graph';
 import { cellCorners, circlePts, fitDistance, freeRect, shouldReframe, type Rect, type Role } from './render/framing';
 import type { SquareBoard } from './core/geometry/square';
 import { CartographyFX, type FxContext, type FxQuality } from './render/fx';
@@ -56,7 +58,18 @@ const fx = new CartographyFX(getQuality().level as FxQuality);
 scene.add(fx.group);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 let inkTarget: [number, number] = [0, 0.92]; // HUD Ink counter centre in NDC, cached in layoutView
-let board: Board;
+type GameBoard = Board | SurfaceBoard;
+const surfaceParam = new URLSearchParams(location.search).get('surface');
+let manifoldPreview: SurfacePreview =
+  surfaceParam === 'torus' || surfaceParam === 'klein' ? surfaceParam : 'off';
+/** Local tile placement state for the Manifold preview (not saved, no Ink economy). */
+let manifoldTiles: (TileType | null)[] | null = null;
+let board: GameBoard;
+const isSurfaceBoard = (b: GameBoard): b is SurfaceBoard => 'surface' in b;
+const activeGraph = (): TileGraph =>
+  manifoldPreview !== 'off' ? SURFACE_GRAPHS[manifoldPreview] : graphOf(s);
+const renderState = (): GameState =>
+  manifoldTiles ? { ...s, tiles: manifoldTiles, ring: 99 } : s;
 let prevTiles: GameState['tiles'] = [], prevRing = s.ring; // FX diff: covers manual and automated changes once
 /** Prestige transition, driven by frame dt (no timers). The economy reset runs once, at the midpoint.
  *  total and reduced are captured at start, so a media-preference change mid-transition cannot desync the FX timeline. */
@@ -132,31 +145,60 @@ const frameCamera = () => {
   controls.maxDistance = Math.max(40, fitD * 1.5);
   camera.position.set(0, Math.cos(POLAR) * fitD, Math.sin(POLAR) * fitD);
 };
+function enterManifoldPreview(which: 'torus' | 'klein') {
+  manifoldPreview = which;
+  manifoldTiles = SURFACE_GRAPHS[which].ring.map(() => null);
+  syncBoard(true);
+  controls.enableRotate = true;
+  controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+  controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+  frameCamera();
+}
+function exitManifoldPreview() {
+  manifoldPreview = 'off';
+  manifoldTiles = null;
+  syncBoard(true);
+  controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+  controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+  controls.enablePan = s.geometry === 'square';
+  frameCamera();
+}
 /** `full` (imports, resets) kills every FX instance; the transition swap passes false and calls fx.clearAnchored itself. */
 function syncBoard(full = true) {
-  // Before the geometry check: a full swap on the same geometry (import or reset during a Drift fade) must still reset FX
-  if (full) (fx.clear(), fx.setAnchorFade(1)); // stale particles/endpoints belong to the old graph; a new board is shown
-  if (board?.geometry === s.geometry) return;
+  if (full) (fx.clear(), fx.setAnchorFade(1));
+  const wantSurface = manifoldPreview !== 'off';
+  if (!wantSurface && board && !isSurfaceBoard(board) && board.geometry === s.geometry) return;
+  if (wantSurface && board && isSurfaceBoard(board) && board.surface === manifoldPreview) return;
   if (board) {
     scene.remove(board.group);
     board.dispose();
   }
-  board = new Board(s.geometry, scene.environment);
-  tap.clearSelection(); // cell indices belong to the old graph
-  prevTiles = s.tiles.slice();
+  if (wantSurface) {
+    board = new SurfaceBoard(manifoldPreview as 'torus' | 'klein', SURFACE_GRAPHS[manifoldPreview as 'torus' | 'klein'], scene.environment);
+  } else {
+    board = new Board(s.geometry, scene.environment);
+  }
+  tap.clearSelection();
+  prevTiles = (manifoldTiles ?? s.tiles).slice();
   scene.add(board.group);
-  controls.enablePan = s.geometry === 'square';
-  frameCamera();
+  controls.enablePan = !wantSurface && s.geometry === 'square';
+  if (!wantSurface) frameCamera();
 }
-syncBoard();
+if (manifoldPreview !== 'off') enterManifoldPreview(manifoldPreview);
+else syncBoard();
 
 // ---- actions ----
 let speed = 1;
 const tool: { current: Tool } = { current: 'spring' };
 /** Applies the current tool to cell i; toasts the reason and returns false when it can't. */
 function applyTool(i: number): boolean {
-  if (trans) return false; // board actions are locked while a prestige transition plays
+  if (trans) return false;
   const tl = tool.current;
+  if (manifoldTiles) {
+    if (tl === 'sell') manifoldTiles[i] = null;
+    else if (tl !== 'pin') manifoldTiles[i] = tl;
+    return true;
+  }
   const why = placeBlocked(s, i, tl);
   if (why) return ui.toast(why), false;
   if (tl === 'sell') return sell(s, i);
@@ -212,8 +254,20 @@ const ui = createUI(document.getElementById('ui')!, {
     },
     // keeps the preview and the camera zoom; only the disk view moves (no-op while a transition plays)
     centreSelected: () => {
-      if (!trans && tap.selected >= 0 && s.geometry === 'hyper') board.centreOn(tap.selected);
+      if (!trans && tap.selected >= 0 && s.geometry === 'hyper' && !isSurfaceBoard(board)) board.centreOn(tap.selected);
     },
+    enterManifoldPreview,
+    exitManifoldPreview,
+    toggleSurfaceChart: () => {
+      if (isSurfaceBoard(board)) (board.chartMode = !board.chartMode), (layoutDirty = true);
+    },
+    toggleSeamView: () => {
+      if (isSurfaceBoard(board)) board.seamView = !board.seamView;
+    },
+    toggleKleinImmersion: () => {
+      if (isSurfaceBoard(board) && board.surface === 'klein') board.immersion3d = !board.immersion3d;
+    },
+    manifoldPreview: () => manifoldPreview,
   },
 });
 fx.onInkArrive = (w) => ui.bumpInk(w);
@@ -309,11 +363,13 @@ function flushDeferred() {
 /** One-shot FX from state diffs (manual taps and automation alike, so nothing fires twice). */
 function diffFx() {
   let n = 0;
-  if (s.ring > prevRing && s.geometry === board.geometry) revealRings(prevRing, s.ring), n++;
+  const rs = renderState();
+  const geomOk = !isSurfaceBoard(board) && s.geometry === board.geometry;
+  if (s.ring > prevRing && geomOk) revealRings(prevRing, s.ring), n++;
   prevRing = s.ring;
   const now = fx.now;
-  for (let i = 0; i < s.tiles.length; i++) {
-    const a = prevTiles[i], b = s.tiles[i];
+  for (let i = 0; i < rs.tiles.length; i++) {
+    const a = prevTiles[i], b = rs.tiles[i];
     if (a === b) continue;
     if (n < MAX_FX_EVENTS) {
       if (b) fx.placement(i, TILE_IDENTITIES[b].emissive), board.markPlaced(i, now);
@@ -321,7 +377,7 @@ function diffFx() {
       n++;
     } else if (b) board.markPlaced(i, now); // squash is free; particles are capped
   }
-  prevTiles = s.tiles.slice();
+  prevTiles = rs.tiles.slice();
 }
 observeUI();
 layoutDirty = true;
@@ -362,7 +418,7 @@ function cellHtml(i: number): string {
 
 const pickAt = (x: number, y: number) => {
   const w = worldAt(x, y);
-  return w ? board.pick(w.x, w.z, s) : -1;
+  return w ? board.pick(w.x, w.z, renderState()) : -1;
 };
 const kindOf = (e: PointerEvent): PointerKind => (e.pointerType === 'touch' ? 'touch' : e.pointerType === 'pen' ? 'pen' : 'mouse');
 const endPointer = () => {
@@ -393,7 +449,7 @@ addEventListener('pointercancel', (e) => {
   ui.tooltip(0, 0, null);
 });
 canvas.addEventListener('pointermove', (e) => {
-  if (tap.move(e.pointerId, e.clientX, e.clientY) && s.geometry === 'hyper' && panFrom) {
+  if (tap.move(e.pointerId, e.clientX, e.clientY) && s.geometry === 'hyper' && panFrom && !isSurfaceBoard(board)) {
     const w = worldAt(e.clientX, e.clientY);
     if (w) board.pan(w.x - panFrom.x, w.z - panFrom.z, maxRing(s)), (panFrom = w);
   }
@@ -424,16 +480,18 @@ function frame(now: number) {
 
   if (s.ring !== lastRing) (lastRing = s.ring), (layoutDirty = true);
   if (shouldReframe(layoutDirty, tap.selected)) layoutView(); // a previewed touch cell holds the board still
-  if (board.geometry !== s.geometry) return renderFrame(dt); // mid-Projection swap
-  const p = prod(s), g = graphOf(s), reach = mods(s).reach;
-  // real graph paths through bridges (economy-matched pairs), cached on everything that changes them
-  const rKey = `${s.geometry}|${s.ring}|${reach}|${s.tiles.join()}`;
-  if (rKey !== routeKey) (routeKey = rKey), (routes = productionRoutes(g, s.tiles, reach));
+  if (!isSurfaceBoard(board) && board.geometry !== s.geometry) return renderFrame(dt);
+  const rs = renderState();
+  const p = prod(s), g = activeGraph(), reach = mods(s).reach;
+  const tiles = rs.tiles;
+  const rKey = `${manifoldPreview}|${s.geometry}|${rs.ring}|${reach}|${tiles.join()}`;
+  if (rKey !== routeKey) (routeKey = rKey), (routes = productionRoutes(g, tiles, reach));
   const focus = hover >= 0 ? hover : tap.selected;
-  const hoverAdj = focus >= 0 ? (s.tiles[focus] ? adjacency(g, s.tiles, focus, mods(s).reach) : g.neighbours[focus]) : [];
-  board.update(s, p.perTile, focus, hoverAdj);
+  const hoverAdj = focus >= 0 ? (tiles[focus] ? adjacency(g, tiles, focus, reach) : g.neighbours[focus]) : [];
+  const perTile = manifoldTiles ? tiles.map(() => 0) : p.perTile;
+  board.update(rs, perTile, focus, hoverAdj);
   // prepare binds the new board's embedding before any spawn; update then advances time once
-  const ctx = fxContext(p.perTile, routes);
+  const ctx = fxContext(perTile, routes);
   fx.prepare(ctx);
   flushDeferred();
   if (!locked) diffFx();
@@ -588,6 +646,11 @@ if (dev) {
         tap.selected = i;
         ui.update();
         return true;
+      },
+      manifold: (which: 'torus' | 'klein' | 'off') => {
+        if (which === 'off') exitManifoldPreview();
+        else enterManifoldPreview(which);
+        ui.update();
       },
     };
     Object.assign(game, { qa: qaApi });

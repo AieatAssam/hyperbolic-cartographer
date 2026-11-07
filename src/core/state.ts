@@ -4,8 +4,10 @@ import type { TileType } from './tiles';
 import { squareGraph } from './geometry/square';
 import { hyperGraph } from './geometry/hyperbolic';
 import type { TileGraph } from './geometry/graph';
+import { torusGraph, kleinGraph } from './geometry/quotient';
 
 export type Geometry = 'square' | 'hyper';
+export type SurfacePreview = 'off' | 'torus' | 'klein';
 
 export interface GameState {
   ink: Decimal;
@@ -37,6 +39,12 @@ export const GRAPHS: Record<Geometry, TileGraph> = {
   square: squareGraph(config.square.maxRing),
   hyper: hyperGraph(config.hyper.maxRing + 1),
 };
+
+/** Manifold preview graphs (6×6 fundamental domains). */
+export const SURFACE_GRAPHS = {
+  torus: torusGraph(6, 6),
+  klein: kleinGraph(6, 6),
+} as const;
 
 export const graphOf = (s: GameState) => GRAPHS[s.geometry];
 

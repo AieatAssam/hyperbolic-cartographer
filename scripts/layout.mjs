@@ -886,6 +886,32 @@ const CASES = [
   boardCase('board-free-55', 'midgame', false),
   boardCase('board-free-55-preview', 'midgame', true),
   boardCase('board-free-55-hyper-preview', 'hyper', true, true),
+  {
+    name: 'manifold-torus-chart',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'dismissTutorial');
+      await qa(p, 'manifold', 'torus');
+      await qa(p, 'tab', 'proj');
+    },
+    expect: async (p) => {
+      const n = await p.locator('.surface-toggle').count();
+      return n < 2 ? [`expected chart+seam toggles on torus preview, got ${n}`] : [];
+    },
+  },
+  {
+    name: 'manifold-klein-seams',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'dismissTutorial');
+      await qa(p, 'manifold', 'klein');
+      await qa(p, 'tab', 'proj');
+    },
+    expect: async (p) => {
+      const n = await p.locator('.surface-toggle').count();
+      return n < 3 ? [`expected chart, seam and immersion toggles on Klein preview, got ${n}`] : [];
+    },
+  },
   // Harness self-check for the board band: a tall dock must be reported on phone portrait.
   calibrationCase('dock-tall', 'midgame', null, /^board free height/, boardScan, phonePortrait),
 ];
