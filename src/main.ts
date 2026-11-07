@@ -216,6 +216,25 @@ function seedManifoldDemo(which: 'torus' | 'klein') {
     }
   }
 }
+/** Keeps ?surface= in sync without a document navigation (layout QA clicks must not wait on load). */
+function replaceSurfaceQuery(which: SurfacePreview) {
+  const params = new URLSearchParams(location.search);
+  if (which === 'off') params.delete('surface');
+  else params.set('surface', which);
+  const q = params.toString();
+  const next = `${location.pathname}${q ? `?${q}` : ''}${location.hash}`;
+  const cur = `${location.pathname}${location.search}${location.hash}`;
+  if (next !== cur) history.replaceState(history.state, '', next);
+}
+function scheduleKleinImmersionReadyMark() {
+  if (!qa) return;
+  renderFrame(0);
+  requestAnimationFrame(() => {
+    renderFrame(0);
+    const on = isSurfaceBoard(board) && board.surface === 'klein' && board.immersion3d;
+    document.documentElement.dataset.qaKleinImmersionReady = on ? '1' : '0';
+  });
+}
 function enterManifoldPreview(which: 'torus' | 'klein') {
   manifoldPreview = which;
   seedManifoldDemo(which);
@@ -231,6 +250,8 @@ function enterManifoldPreview(which: 'torus' | 'klein') {
   layoutDirty = true;
   applyManifoldCamera();
   if (isSurfaceBoard(board)) board.update(renderState(), [], -1, []);
+  replaceSurfaceQuery(which);
+  if (which === 'klein') scheduleKleinImmersionReadyMark();
 }
 function exitManifoldPreview() {
   manifoldPreview = 'off';
@@ -243,6 +264,8 @@ function exitManifoldPreview() {
   ui.setManifoldPreview(false);
   layoutDirty = true;
   frameCamera();
+  replaceSurfaceQuery('off');
+  if (qa) delete document.documentElement.dataset.qaKleinImmersionReady;
 }
 /** `full` (imports, resets) kills every FX instance; the transition swap passes false and calls fx.clearAnchored itself. */
 function syncBoard(full = true) {
@@ -355,6 +378,8 @@ const ui = createUI(document.getElementById('ui')!, {
       manifoldSpinOn = board.immersion3d;
       layoutDirty = true;
       applyManifoldCamera();
+      ui.update();
+      scheduleKleinImmersionReadyMark();
     },
     switchManifold: (which: 'torus' | 'klein') => enterManifoldPreview(which),
     manifoldPreview: () => manifoldPreview,
@@ -753,6 +778,24 @@ if (dev) {
         if (which === 'off') exitManifoldPreview();
         else enterManifoldPreview(which);
         ui.update();
+      },
+      /** Idempotent: Klein preview + immersion mesh on; sets qaKleinImmersionReady after a painted frame. */
+      enterKleinImmersion: async () => {
+        if (manifoldPreview !== 'klein') enterManifoldPreview('klein');
+        if (!isSurfaceBoard(board) || board.surface !== 'klein') return { ok: false, reason: 'not-klein' };
+        if (!board.immersion3d) {
+          board.immersion3d = true;
+          board.invalidate();
+          manifoldSpinOn = true;
+          layoutDirty = true;
+          applyManifoldCamera();
+          ui.update();
+        }
+        renderFrame(0);
+        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+        renderFrame(0);
+        if (qa) document.documentElement.dataset.qaKleinImmersionReady = '1';
+        return { ok: board.immersion3d, immersion3d: board.immersion3d };
       },
       manifoldProjectFit: () => {
         if (!isSurfaceBoard(board) || board.isChartFlat()) return { ok: false, failures: ['not-3d'], fill: 0 };

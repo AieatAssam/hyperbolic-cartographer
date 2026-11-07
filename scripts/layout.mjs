@@ -60,6 +60,21 @@ async function need(page, qaName) {
   return null;
 }
 
+/** Playwright's default click waits for navigation; manifold toggles only repaint. */
+async function clickQaButtonNoNav(page, qaId) {
+  const loc = page.locator(`[data-qa="${qaId}"]`).first();
+  await loc.waitFor({ state: 'visible', timeout: 8000 });
+  await loc.click({ noWaitAfter: true });
+}
+
+async function waitKleinImmersionReady(page) {
+  await page.waitForFunction(
+    () => document.documentElement.dataset.qaKleinImmersionReady === '1',
+    undefined,
+    { timeout: 12000 },
+  );
+}
+
 async function modalButton(page, re) {
   const loc = page.locator(`${MODAL} button, ${MODAL} [role="button"]`).filter({ hasText: re });
   if ((await loc.count()) === 0) return `no button matching ${re} inside modal`;
@@ -938,8 +953,8 @@ const CASES = [
       await qa(p, 'seed', 'midgame');
       await qa(p, 'dismissTutorial');
       await qa(p, 'manifold', 'klein');
-      await p.locator('[data-qa="mf-immersion"]').click();
-      await p.waitForTimeout(900);
+      await clickQaButtonNoNav(p, 'mf-immersion');
+      await waitKleinImmersionReady(p);
     },
     expect: async (p) => {
       const r = await qa(p, 'manifoldProjectFit');

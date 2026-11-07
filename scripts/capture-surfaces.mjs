@@ -23,7 +23,16 @@ async function raf(page) {
 }
 
 async function clickMf(page, qaId) {
-  await page.locator(`[data-qa="${qaId}"]`).click();
+  const loc = page.locator(`[data-qa="${qaId}"]`).first();
+  await loc.waitFor({ state: 'visible', timeout: 8000 });
+  await loc.click({ noWaitAfter: true });
+  if (qaId === 'mf-immersion') {
+    await page.waitForFunction(
+      () => document.documentElement.dataset.qaKleinImmersionReady === '1',
+      undefined,
+      { timeout: 12000 },
+    );
+  }
 }
 
 async function snap(page, url, which, steps, fileBase) {
