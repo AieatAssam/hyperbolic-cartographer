@@ -10,10 +10,11 @@ import { canProject, chartsOnDrift, curvatureOnProjection } from '../core/presti
 import { cellsInRing, isActive, maxPins, maxRing, prod, surveyCost, tileCost } from '../core/economy';
 import { fmt, fmtTime } from './format';
 import {
-  BUTTON_HELP, DRIFT_EXPLAIN, DRIFT_KEEPS, DRIFT_RESETS, PROJECTION_KEEPS, PROJECTION_RESETS, SURVEY_EXPLAIN, TAB_HELP, TOOL_HELP,
+  BUTTON_HELP, DRIFT_EXPLAIN, DRIFT_KEEPS, DRIFT_RESETS, PROJECTION_KEEPS, PROJECTION_RESETS, SURVEY_EXPLAIN, TAB_HELP, TOOL_EFFECT, TOOL_HELP,
   driftBlocked, placeBlocked, projectBlocked, projectionCompare, surveyBlocked, upgradeBlocked,
   type Tab, type Tool,
 } from './help';
+import { attentionCleared, menuAttention } from '../core/menu-attention';
 import { explainNow, immediateGoal, longGoal, type GoalIcon } from './goals';
 import {
   STEPS, currentStep, dismissTutorial, nextStep, parseTutorial, prevStep, reopenTutorial, restartTutorial, serializeTutorial, syncTutorial,
@@ -25,6 +26,8 @@ export interface UICtx {
   state: () => GameState; // live mutable state object (may be replaced after import/reset, so always call it)
   tool: { current: Tool };
   selected(): number; // touch-previewed cell, -1 if none
+  /** Inspected tile (tap-to-inspect), or -1. Hides tutorial dock card while set so the board stays clear. */
+  inspectCell(): number;
   cellInfo(i: number): string; // HTML describing cell i for the current tool (cost, Ink/s delta, blocked reason)
   tutorial: { load(): string | null; save(v: string): void }; // stored apart from the game save
   act: {
@@ -69,6 +72,7 @@ export interface UI {
     confirmDrift(): void; confirmProject(): void; closeModal(): void; modalOpen(): boolean; reloadTutorial(): void;
     /** Phone HUD: with an argument, sets expanded (true) or collapsed (false); always returns the current state. */
     hud(open?: boolean): boolean;
+    menu(open?: boolean): boolean;
   };
 }
 
@@ -208,14 +212,15 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   bar.append(fill);
   const next = el('div', 'next');
   next.append(nextLabel, bar);
-  goals.append(goal, explain, next);
-  hud.append(goals);
-  // Phone portrait only (CSS hides it elsewhere): one compact row by default; this touch control expands the full detail.
+  goals.append(explain, next);
   hud.id = 'hud';
   const hudToggle = el('button', 'hud-toggle');
   hudToggle.type = 'button';
   hudToggle.dataset.qa = 'hud-toggle';
   hudToggle.setAttribute('aria-controls', hud.id);
+  const hudSeg = el('div', 'hud-seg');
+  hudSeg.dataset.qa = 'hud-seg';
+  hudSeg.append(goal, hudToggle);
   let hudOpen = false;
   const setHud = (open: boolean) => {
     hudOpen = open;
@@ -225,7 +230,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     hudToggle.textContent = open ? 'Hide details ▴' : '▾';
   };
   hudToggle.onclick = () => setHud(!hudOpen);
-  hud.append(hudToggle);
+  hud.append(goals, hudSeg);
   setHud(false);
 
   // ---- Palette ----
@@ -262,6 +267,11 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const sellBtn = addTool('sell', 'S', TOOL_HELP.sell);
   const pinBtn = addTool('pin', 'P', TOOL_HELP.pin);
   sellBtn.cost.textContent = `${config.sellRefund * 100}% refund`;
+  const palHint = el('span', 'palette-scroll-hint', '›');
+  palHint.setAttribute('aria-hidden', 'true');
+  palette.dataset.qa = 'palette';
+  palette.append(palHint);
+  palette.addEventListener('scroll', () => palette.classList.add('scrolled'), { passive: true });
 
   // ---- Panel ----
   const panel = el('div', 'panel');
@@ -269,16 +279,23 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   panel.dataset.qa = 'panel';
   const toggle = help(btn('Menu', 'panel-toggle', () => setPanel(panel.classList.contains('hidden'))), 'Menu', BUTTON_HELP.menu);
   toggle.setAttribute('aria-controls', panel.id);
+  let menuAttSeen = new Set<string>();
   const setPanel = (open: boolean) => {
     panel.classList.toggle('hidden', !open);
     root.classList.toggle('panel-open', open);
     toggle.setAttribute('aria-expanded', String(open));
     toggle.textContent = open ? 'Close' : 'Menu';
+    if (open) menuAttSeen = new Set([...menuAttSeen, ...menuAttention(get()).keys]);
   };
   const openTab = (t: Tab) => {
     tab = t;
     bodyKey = '';
     setPanel(true);
+    const att = menuAttention(get());
+    for (const k of att.keys) {
+      if ((t === 'drift' && k === 'drift-ready') || (t === 'proj' && k === 'proj-ready')
+        || (t === 'charts' && (k.startsWith('chart-') || k.startsWith('curv-')))) menuAttSeen.add(k);
+    }
     update();
   };
   const head = el('div', 'panel-head');
@@ -370,15 +387,37 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
 
   const info = el('section', 'infocard');
   info.setAttribute('aria-label', 'Selected tool and cell');
+  const infoScroll = el('div', 'info-scroll');
+  infoScroll.dataset.qa = 'info-scroll';
   const infoText = el('div', 'info-text');
+  infoText.dataset.qa = 'info-text';
+  const infoScrollHint = el('span', 'info-scroll-hint', '▾');
+  infoScrollHint.setAttribute('aria-hidden', 'true');
+  infoScroll.append(infoText, infoScrollHint);
+  const syncInfoScroll = () => {
+    const overflow = infoText.scrollHeight > infoText.clientHeight + 2;
+    infoScroll.classList.toggle('has-overflow', overflow);
+    const atBottom = infoText.scrollTop + infoText.clientHeight >= infoText.scrollHeight - 2;
+    infoScroll.classList.toggle('scrolled-bottom', atBottom || !overflow);
+  };
+  infoText.addEventListener('scroll', syncInfoScroll, { passive: true });
+  const infoScrollSink = (e: Event) => {
+    if (e.type === 'pointerdown' || e.type === 'touchstart') e.stopPropagation();
+  };
+  infoScroll.addEventListener('pointerdown', infoScrollSink);
+  infoScroll.addEventListener('touchstart', infoScrollSink, { passive: true });
   const placeBtn = help(btn('Place', 'primary', () => ctx.act.confirmPlace()), 'Place', BUTTON_HELP.place);
   const cancelBtn = help(btn('Cancel', '', () => ctx.act.cancelPlace()), 'Cancel', 'Clear the previewed cell without buying anything.');
   const centreBtn = help(btn('Centre cell', '', () => ctx.act.centreSelected()), 'Bring cell to centre', 'Slides the board so the previewed cell sits at the middle. Zoom and selection stay put.');
   centreBtn.setAttribute('aria-label', 'Bring previewed cell to the centre of the board');
   const infoActs = el('div', 'row info-actions');
   infoActs.append(placeBtn, cancelBtn, centreBtn);
-  info.append(infoText, infoActs);
+  info.append(infoScroll, infoActs);
   dock.append(tutBox, info);
+  dock.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse') e.stopPropagation();
+  });
+  dock.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
 
   /** Help for the control under keyboard focus or the mouse, shown in the info card. */
   let helpFor: HTMLElement | null = null;
@@ -880,14 +919,21 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   let infoHtml = '';
   const setInfo = (html: string) => {
     if (html !== infoHtml) infoText.innerHTML = infoHtml = html;
+    requestAnimationFrame(() => requestAnimationFrame(syncInfoScroll));
   };
   function updateDock(s: GameState) {
     // Tutorial card
     setTut(syncTutorial(tut, s));
     const step = currentStep(tut);
-    tutBox.classList.toggle('hidden', !tutVisible() || !step);
+    const boardFocus = ctx.selected() >= 0 || ctx.inspectCell() >= 0;
+    tutBox.classList.toggle('hidden', !tutVisible() || !step || boardFocus);
     guideBtn.classList.toggle('attention', !tutVisible() && !tut.done);
     guideBtn.setAttribute('aria-pressed', String(tutVisible()));
+    const att = menuAttention(s);
+    const menuDot = att.menu && !attentionCleared(menuAttSeen, att);
+    toggle.classList.toggle('attention', menuDot);
+    toggle.classList.toggle('attention-pulse', menuDot);
+    for (const [id, btn] of tabBtns) btn.classList.toggle('tab-attention', !!att.tabs[id] && tab !== id);
     if (step && tutVisible()) {
       tutProg.textContent = `Tutorial ${tut.step + 1}/${STEPS.length}`;
       tutTitle.textContent = step.title;
@@ -908,7 +954,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       setInfo(`<b>${escape(helpFor.dataset.helpName ?? '')}</b> · ${escape(helpFor.dataset.help ?? '')}${helpFor.matches(':disabled') ? ' <span class="neg">(unavailable now; see the red note)</span>' : ''}`);
       infoActs.hidden = true;
     } else if (sel >= 0) {
-      const far = s.geometry === 'hyper' ? '<br><span class="muted">Edge cells shrink. Drag them closer or centre this cell.</span>' : '';
+      const far = s.geometry === 'hyper' ? '<div class="info-note muted">Edge cells shrink. Drag closer or centre this cell.</div>' : '';
       setInfo(ctx.cellInfo(sel) + far);
       const why = placeBlocked(s, sel, tl);
       placeBtn.disabled = why !== null;
@@ -918,9 +964,12 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     } else {
       const isTile = tl !== 'sell' && tl !== 'pin';
       const cost = isTile ? tileCost(s, tl) : null;
-      const short = cost && s.ink.lt(cost) ? ` <span class="neg">Need ${fmt(cost.sub(s.ink), s.notation)} more Ink.</span>` : '';
+      const need = cost && s.ink.lt(cost) ? `<div class="info-note neg">Need ${fmt(cost.sub(s.ink), s.notation)} more Ink.</div>` : '';
       const hyperHint = s.geometry === 'hyper' ? ' Drag the board to bring far cells closer.' : '';
-      setInfo(`<b>${TOOL_NAME[tl]}</b>${cost ? ` · ${fmt(cost, s.notation)} Ink` : ''} · ${escape(TOOL_HELP[tl])}${short}<br><span class="muted">Tap a cell to preview it, tap again to confirm. Mouse: click.${hyperHint}</span>`);
+      const meta = cost ? `${fmt(cost, s.notation)} Ink` : 'Select a tile';
+      setInfo(
+        `<div class="info-lead"><b>${TOOL_NAME[tl]}</b></div><div class="info-meta">${meta}</div><div class="info-effect">${escape(TOOL_EFFECT[tl])}</div><div class="info-note muted">Tap a cell to preview; tap again to confirm.${hyperHint}</div><div class="info-detail muted">${escape(TOOL_HELP[tl])}</div>${need}`,
+      );
       infoActs.hidden = true;
     }
   }
@@ -1033,6 +1082,10 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       hud: (open?: boolean) => {
         if (open !== undefined) setHud(open);
         return hudOpen;
+      },
+      menu: (open?: boolean) => {
+        if (open !== undefined) setPanel(open);
+        return !panel.classList.contains('hidden');
       },
     },
   };

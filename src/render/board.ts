@@ -4,8 +4,9 @@ import type { SquareBoard } from '../core/geometry/square';
 import { apply, boost, boostToOrigin, dist, geodesic, identity, inverse, mul, normalize, orthonormalize, toDisk, type HyperBoard, type Mat3, type Vec3 } from '../core/geometry/hyperbolic';
 import { TILE_TYPES, type TileType } from '../core/tiles';
 import {
-  BLOOM, BOARD, EMPTY_SLOT, MATERIAL, NEXT_SLOT, PLACE, TILE_IDENTITIES, bevelColour, hoverFace, motifScale, sideColour, tileHeight, trimGlow,
+  BLOOM, BOARD, EMPTY_SLOT, MATERIAL, NEXT_SLOT, PLACE, PREVIEW, TILE_IDENTITIES, bevelColour, hoverFace, motifScale, sideColour, tileHeight, trimGlow,
 } from '../art/palette';
+import type { BoardHighlight } from './board-highlight';
 import { placeGlsl, placeScale } from './transition';
 import { bumpRev, createEmbedding, medianEdgePitch, writeFrame, type Embedding } from './fx-graph';
 
@@ -31,7 +32,8 @@ const C = {
   slot: col(EMPTY_SLOT.base), slotGlow: col(EMPTY_SLOT.emissive).multiplyScalar(EMPTY_SLOT.emissiveIntensity),
   slotBorder: col(EMPTY_SLOT.accent), slotSide: col(sideColour(EMPTY_SLOT.base)),
   next: col(NEXT_SLOT.base), nextBorder: col(NEXT_SLOT.border),
-  white: col(BOARD.hover), adj: col(BOARD.adjacency), gold: col(BOARD.gold), black: col(0),
+  white: col(BOARD.hover), adj: col(BOARD.adjacency), gold: col(BOARD.gold), bridge: col(PREVIEW.bridgeOutline),
+  dim: col(EMPTY_SLOT.base), black: col(0),
 };
 
 /** Motif accent per tile type: a distinct silhouette so tiles read on phones and for colour-blind players. */
@@ -138,6 +140,7 @@ export class Board {
   private settling = new Map<number, number>();
   private mats: THREE.Material[] = [];
   private tileType: GameState['tiles'] = [];
+  private previewLine: THREE.Line;
 
   constructor(readonly geometry: Geometry, env: THREE.Texture | null = null) {
     const g = GRAPHS[geometry];
@@ -211,6 +214,38 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       this.group.add(im);
     }
     this.buildTable();
+    const bridgeTk = TILE_IDENTITIES.bridge;
+    this.previewLine = new THREE.Line(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({
+        color: bridgeTk.accent, transparent: true, opacity: 0.88,
+        depthTest: false, depthWrite: false,
+      }),
+    );
+    this.previewLine.visible = false;
+    this.previewLine.frustumCulled = false;
+    this.previewLine.renderOrder = 6;
+    this.group.add(this.previewLine);
+  }
+
+  private updatePreviewArc(arc: readonly [number, number] | undefined) {
+    if (!arc) {
+      this.previewLine.visible = false;
+      return;
+    }
+    const [a, b] = arc;
+    const ya = this.tops[a]?.y ?? 0.5;
+    const yb = this.tops[b]?.y ?? 0.5;
+    const ax = this.tops[a]?.x ?? 0;
+    const az = this.tops[a]?.z ?? 0;
+    const bx = this.tops[b]?.x ?? 0;
+    const bz = this.tops[b]?.z ?? 0;
+    const mx = (ax + bx) / 2;
+    const mz = (az + bz) / 2;
+    const lift = Math.max(ya, yb) + 0.55 + Math.hypot(ax - bx, az - bz) * 0.12;
+    const pts = new Float32Array([ax, ya + 0.08, az, mx, lift, mz, bx, yb + 0.08, bz]);
+    this.previewLine.geometry.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+    this.previewLine.visible = true;
   }
 
   /** Bevelled table (square) or hyperbolic disk with a luminous rim, both in the ink-map language. */
@@ -258,7 +293,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
   }
 
   /** Rebuilds geometry only when tiles, ring, pins, focus, view or (quantised) output change. Normals recomputed then. */
-  update(s: GameState, perTile: number[], hover: number, hoverAdj: number[]) {
+  update(s: GameState, perTile: number[], hover: number, hoverAdj: number[], hl?: BoardHighlight) {
     const n = this.glowQ.length;
     let glowSig = 0;
     for (let i = 0; i < n; i++) {
@@ -266,7 +301,10 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       this.glowQ[i] = qv;
       glowSig = (glowSig * 31 + qv) | 0;
     }
-    const key = `${s.tiles.join()}|${s.ring}|${s.pinned}|${hover}|${hoverAdj}|${this.viewRev}|${glowSig}`;
+    const hlKey = hl
+      ? `${hl.dim ?? 0}|${hl.pulse ?? 0}|${hl.direct?.join() ?? ''}|${hl.bridge?.join() ?? ''}|${hl.lit?.join() ?? ''}|${hl.arc?.join() ?? ''}`
+      : '';
+    const key = `${s.tiles.join()}|${s.ring}|${s.pinned}|${hover}|${hoverAdj}|${this.viewRev}|${glowSig}|${hlKey}`;
     if (key === this.key) return;
     this.key = key;
     this.tileType = s.tiles;
@@ -279,7 +317,11 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     for (let i = 0; i < n; i++) {
       const o = this.outline(i), t = s.tiles[i], r = g.ring[i];
       const active = r <= s.ring, next = r === s.ring + 1;
-      const near = i !== hover && hoverAdj.includes(i); // neighbour of the focus, not the focus itself
+      const directSet = hl?.direct ?? hoverAdj;
+      const bridgeSet = hl?.bridge ?? [];
+      const nearDirect = i !== hover && directSet.includes(i);
+      const nearBridge = i !== hover && !nearDirect && bridgeSet.includes(i);
+      const near = nearDirect || nearBridge;
       // output level 0..1 (log decades / heightLogFull), quantised by glowQ
       const L = Math.min(1, this.glowQ[i] / GLOW_STEPS / MATERIAL.heightLogFull);
       const pinned = s.pinned.includes(i);
@@ -293,6 +335,14 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         border.copy(pinned ? tk.bevelPin : tk.bevel);
         glow.copy(tk.faceGlow);
         trim.copy(tk.emissive).multiplyScalar(i === hover ? MATERIAL.hoverTrim : trimGlow(L));
+        if (hl?.lit && hl.dim && hl.dim > 0 && !hl.lit.includes(i)) {
+          const d = PREVIEW.inspectDim * hl.dim;
+          c.lerp(C.dim, d);
+          side.lerp(C.dim, d * 0.88);
+          border.lerp(C.dim, d * 0.72);
+          trim.lerp(C.dim, d * 0.78);
+          glow.multiplyScalar(1 - 0.88 * hl.dim);
+        }
       } else if (active || next) {
         h = active ? MATERIAL.slotHeight : MATERIAL.nextHeight;
         const edge = active ? C.slotBorder : C.nextBorder, face = active ? C.slot : C.next;
@@ -308,8 +358,20 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
           trim.copy(glow).multiplyScalar(EMPTY_SLOT.restTrim);
         }
         if (i === hover) c.lerp(C.white, MATERIAL.hoverLerp), border.copy(C.adj), trim.copy(C.adj).multiplyScalar(0.25);
+        if (hl?.lit && hl.dim && hl.dim > 0 && !hl.lit.includes(i)) {
+          const d = PREVIEW.inspectDim * hl.dim;
+          c.lerp(C.dim, d);
+          side.lerp(C.dim, d * 0.85);
+          border.lerp(C.dim, d * 0.65);
+          trim.lerp(C.dim, d * 0.7);
+          glow.multiplyScalar(1 - 0.75 * hl.dim);
+        }
       } else o.scale = 0;
-      if (near) border.lerp(C.adj, 0.6), trim.lerp(C.adj, 0.25);
+      if (nearBridge) {
+        const ph = hl?.pulse ?? 0;
+        const m = PREVIEW.bridgeMix + PREVIEW.bridgePulse * Math.sin(ph * Math.PI * 2);
+        border.lerp(C.bridge, m), trim.lerp(C.bridge, 0.35);
+      } else if (nearDirect) border.lerp(C.adj, PREVIEW.directMix), trim.lerp(C.adj, 0.25);
       h *= o.scale;
       const [cx, cz] = o.c;
       this.tops[i].set(cx, h, cz);
@@ -344,6 +406,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     bumpRev(embed);
     for (const name of ['position', 'normal', 'color', 'glow']) this.geom.attributes[name].needsUpdate = true;
     for (const t of TILE_TYPES) this.motifs[t].instanceMatrix.needsUpdate = true;
+    this.updatePreviewArc(hl?.arc);
   }
 
   /** Starts a squash-settle on tile i at fx time `now` (writes only that tile's vertex span). */

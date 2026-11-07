@@ -149,6 +149,15 @@ export const MATERIAL = {
  * - adjacency: outline colour for tiles adjacent to the current selection.
  * - glowAccentIntensity: cap for deliberate bloom accents (rim). Motif cores sit just under it.
  */
+/** Placement / inspect highlight strengths (board vertex colours, not DOM). */
+export const PREVIEW = {
+  bridgeOutline: 0xe8c872,
+  bridgePulse: 0.22,
+  inspectDim: 0.92,
+  directMix: 0.6,
+  bridgeMix: 0.72,
+} as const;
+
 export const BOARD = {
   table: 0x3b2a4f, tableEdge: 0x7a5a3a,
   rim: 0x5fd4ff, gold: 0xe8c872, hover: 0xffffff, adjacency: 0x5fd4ff,

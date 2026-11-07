@@ -68,20 +68,33 @@ input[type=checkbox] {
   inline-size: 22px; block-size: 22px; flex: 0 0 auto; margin: 0; accent-color: var(--gold);
 }
 
+:root {
+  --control-h: 44px;
+  --control-r: 10px;
+  --control-gap: 6px;
+  --hud-pad-y: 8px;
+  --hud-pad-x: 12px;
+}
+
 /* Topbar: HUD + top actions */
 .topbar {
   grid-area: top; justify-self: center; width: 100%; max-width: 920px; min-width: 0;
-  display: flex; align-items: flex-start; gap: 8px;
+  display: flex; align-items: center; gap: var(--control-gap);
 }
 
 /* HUD */
 .hud {
   flex: 1 1 0; min-width: 0;
-  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 18px;
-  padding: 8px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--glass);
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--control-gap) 14px;
+  padding: var(--hud-pad-y) var(--hud-pad-x); border: 1px solid var(--line); border-radius: 14px; background: var(--glass);
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }
-.stat { display: flex; flex-direction: column; align-items: center; min-width: 64px; }
+.stat {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-width: 64px; min-height: var(--control-h);
+}
+.stat .label { font-size: 10px; line-height: 1.1; }
+.stat .value { font-size: 15px; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .goals { flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .goal { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 13px; min-width: 0; }
 .goal .label { flex: 0 0 auto; }
@@ -102,22 +115,44 @@ input[type=checkbox] {
   transition: width 0.4s ease;
 }
 
-.top-actions { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; }
+.top-actions { flex: 0 0 auto; display: flex; flex-direction: row; align-items: center; gap: var(--control-gap); }
 /* HUD expand/collapse control: shown only in the phone portrait block below */
 button.hud-toggle { display: none; }
-button.guide-btn, button.panel-toggle { min-width: 44px; min-height: 44px; padding: 6px 10px; background: var(--glass); }
-button.guide-btn.attention { position: relative; }
-button.guide-btn.attention::after {
+button.guide-btn, button.panel-toggle {
+  min-width: var(--control-h); min-height: var(--control-h); padding: 6px 10px;
+  background: var(--glass); border-radius: var(--control-r);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+button.guide-btn.attention, button.panel-toggle.attention { position: relative; }
+button.guide-btn.attention::after, button.panel-toggle.attention::after {
   content: ''; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px;
   border-radius: 50%; background: var(--gold); box-shadow: 0 0 6px rgba(232, 200, 114, 0.8);
 }
+button.panel-toggle.attention-pulse { animation: menu-pulse-once 1.4s ease-out 1; }
+@keyframes menu-pulse-once {
+  0% { box-shadow: 0 0 0 0 rgba(232, 200, 114, 0.55); }
+  70% { box-shadow: 0 0 0 10px rgba(232, 200, 114, 0); }
+  100% { box-shadow: none; }
+}
+.tab.tab-attention { box-shadow: inset 0 -2px 0 var(--gold); }
 
 /* Palette (bottom grid row) */
 .palette {
   grid-area: pal; justify-self: center; align-self: end; width: 100%; max-width: 720px; min-width: 0;
-  display: flex; gap: 8px; padding: 6px 8px; overflow-x: auto; overflow-y: hidden;
+  display: flex; gap: 8px; padding: 6px 12px 6px 8px; overflow-x: auto; overflow-y: hidden;
   scrollbar-width: thin; border: 1px solid var(--line); border-radius: 14px;
   background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  position: relative;
+  mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 22px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 22px), transparent 100%);
+  scroll-padding-right: 18px;
+}
+.palette:not(.scrolled) .palette-scroll-hint { opacity: 1; }
+.palette.scrolled .palette-scroll-hint { opacity: 0; pointer-events: none; }
+.palette-scroll-hint {
+  position: sticky; right: 0; align-self: center; margin-left: -6px; padding-left: 4px;
+  font-size: 18px; line-height: 1; color: var(--muted); opacity: 0; transition: opacity 0.25s ease;
+  pointer-events: none;
 }
 button.tool {
   position: relative; flex: 0 0 auto; display: flex; flex-direction: column;
@@ -146,6 +181,7 @@ button.tool:disabled { opacity: 0.55; }
 @media (prefers-reduced-motion: reduce) {
   .tool.hint { animation: none; }
   .fill { transition: none; }
+  button.panel-toggle.attention-pulse { animation: none; }
 }
 .ctl { margin-bottom: 8px; }
 .ctl .help { margin: 4px 0 0; }
@@ -217,6 +253,7 @@ ul.reset li::before {
   grid-area: dock; justify-self: center; width: 100%; max-width: 720px; min-width: 0;
   display: flex; flex-direction: column; gap: 6px;
   align-self: end; max-height: 42vh; overflow-y: auto; overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 .tutorial {
   display: flex; flex-direction: column;
@@ -236,10 +273,33 @@ ul.reset li::before {
 .infocard {
   min-width: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px;
   background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  display: flex; flex-direction: column; gap: 6px; touch-action: pan-y;
 }
-.info-text { margin: 0 0 6px; font-size: 13px; line-height: 1.35; }
+.info-scroll {
+  position: relative; display: flex; flex-direction: column;
+  flex: 0 1 auto; min-width: 0; min-height: 0; overflow: hidden;
+}
+.info-text {
+  margin: 0; font-size: 13px; line-height: 1.35; flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y;
+}
+.info-lead { font-weight: 600; margin: 0 0 2px; line-height: 1.25; }
+.info-meta { font-size: 12px; color: var(--cyan); font-variant-numeric: tabular-nums; margin: 0 0 2px; line-height: 1.25; }
+.info-effect { margin: 0 0 4px; line-height: 1.3; }
+.info-note, .info-detail { margin: 0 0 4px; font-size: 12px; line-height: 1.3; }
+.info-detail { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.info-scroll-hint {
+  position: absolute; right: 2px; bottom: 2px; pointer-events: none;
+  font-size: 16px; font-weight: 700; line-height: 1; color: var(--gold); opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.info-scroll.has-overflow:not(.scrolled-bottom) .info-scroll-hint { opacity: 0.95; }
+.info-scroll.has-overflow:not(.scrolled-bottom) .info-text {
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 16px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 16px), transparent 100%);
+}
 .info-actions:empty { display: none; }
-.info-actions { flex-wrap: wrap; gap: 6px; }
+.info-actions { flex: 0 0 auto; flex-wrap: wrap; gap: 6px; }
 .info-actions button { min-height: 44px; min-width: 44px; padding-inline: 12px; }
 /* While the guide is open, its text replaces the duplicate tool help to save board space. */
 .dock:has(.tutorial:not(.hidden)) .info-text { display: none; }
@@ -327,49 +387,95 @@ ul.reset li::before {
   .hud .value { font-size: 15px; }
   .hud .stat { min-width: 52px; }
   #ui.panel-open .dock { display: none; }
-  .palette { gap: 6px; padding: 6px; }
+  .palette { gap: 6px; padding: 6px 28px 6px 6px; }
+  .palette-scroll-hint { opacity: 0.9; color: var(--gold); font-size: 20px; font-weight: 700; }
   button.tool { min-width: 78px; padding: 4px 8px; }
-  .dock { max-height: 36vh; }
+  .dock { max-height: min(24vh, 8.75rem); overflow: hidden; touch-action: pan-y; }
+  .infocard.capture-hide { display: none !important; }
   .tutorial { max-height: 23vh; padding: 8px 10px; }
-  .infocard { padding: 6px 10px; }
-  /* Three lines at most; the rest scrolls inside the card so the board keeps >= 55% of the height */
-  .info-text { margin-bottom: 4px; font-size: 12.5px; line-height: 1.3; max-height: 3.9em; overflow-y: auto; }
+  .infocard {
+    padding: 6px 10px; max-height: min(22vh, 8.25rem);
+    overflow: hidden;
+  }
+  .info-scroll { max-height: min(13vh, 4.1rem); flex: 1 1 auto; }
+  /* Compact lines on top; longer help scrolls inside the card so the board keeps >= 55% of the height */
+  .info-text { font-size: 12.5px; line-height: 1.3; }
+  .info-lead { font-size: 13px; }
+  .info-meta { font-size: 12px; }
   /* Place / Cancel / Centre cell stay on one row at 360px so the preview card keeps the board band free */
   .info-actions button { padding-inline: 10px; font-size: 14px; }
 
-  /* Collapsed HUD: Ink, Ink/s, a goal chip and the 44px toggle share one row; Guide and Menu sit beside it */
-  .topbar { gap: 6px; }
-  .top-actions { flex-direction: row; gap: 4px; }
+  /* Collapsed HUD: Ink | Ink/s | goal▾ segment | Guide Menu — one row with the top actions */
+  .topbar { gap: var(--control-gap); align-items: center; flex-wrap: nowrap; }
+  .topbar .top-actions { margin-left: auto; }
+  .top-actions { flex-direction: row; gap: var(--control-gap); flex: 0 0 auto; }
   button.guide-btn, button.panel-toggle { padding: 6px; font-size: 14px; }
   button.hud-toggle {
-    display: inline-flex; flex: 0 0 44px; align-items: center; justify-content: center;
-    padding: 0; font-size: 15px;
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0; font-size: 16px; line-height: 1;
   }
-  .hud:not(.hud-open) { flex-wrap: nowrap; align-items: center; gap: 6px; padding: 4px 8px; }
-  .hud:not(.hud-open) .stat { min-width: 0; }
+  .hud:not(.hud-open) {
+    flex-wrap: nowrap; align-items: center; justify-content: flex-start; gap: var(--control-gap);
+    padding: 0; min-height: var(--control-h);
+    border: none; border-radius: 0; background: transparent;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    flex: 1 1 auto; min-width: 0;
+  }
+  .hud:not(.hud-open) .stat {
+    flex-direction: column; align-items: center; justify-content: center;
+    gap: 1px; min-width: 54px; flex: 0 0 auto; padding: 0 2px;
+    height: var(--control-h); box-sizing: border-box;
+  }
+  .hud:not(.hud-open) .stat .label {
+    font-size: 10px; line-height: 1; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+  }
+  .hud:not(.hud-open) .stat .value {
+    font-size: 16px; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums;
+  }
+  .hud:not(.hud-open) .stat .muted { display: none; }
+  .hud:not(.hud-open) .hud-seg {
+    display: flex; flex: 1 1 0; min-width: 72px; height: var(--control-h); gap: 0;
+    border: 1px solid var(--line); border-radius: var(--control-r);
+    overflow: hidden; background: var(--glass); align-items: stretch;
+    box-shadow: none;
+  }
+  .hud:not(.hud-open) .goal {
+    flex: 1 1 0; min-width: 3.5em; height: 100%; max-height: none;
+    margin: 0; padding: 0 10px; border: none; border-radius: 0;
+    background: transparent; box-shadow: none;
+  }
+  .hud:not(.hud-open) .goal .bar,
+  .hud:not(.hud-open) .goal .fill { display: none !important; }
+  .hud:not(.hud-open) .goal-short {
+    height: 100%; align-items: center; justify-content: center;
+  }
+  .hud:not(.hud-open) button.hud-toggle {
+    flex: 0 0 var(--control-h); width: var(--control-h); min-width: var(--control-h); min-height: var(--control-h); height: 100%;
+    border: none; border-left: 1px solid var(--line); border-radius: 0;
+    background: transparent; margin: 0;
+  }
+  .topbar button.guide-btn, .topbar button.panel-toggle {
+    height: var(--control-h); max-height: var(--control-h); box-sizing: border-box;
+  }
   .hud:not(.hud-open) .hud-detail,
   .hud:not(.hud-open) .explain,
   .hud:not(.hud-open) .next,
   .hud:not(.hud-open) .goal .label,
   .hud:not(.hud-open) .goal-eta { display: none; }
-  .hud:not(.hud-open) .goals { flex: 1 1 0; min-width: 0; flex-direction: row; gap: 0; }
+  .hud:not(.hud-open) .goals { display: none; }
   /* The goal is one chip: its progress bar fills it behind the name or glyph; full text is in the expanded HUD */
   .hud:not(.hud-open) .goal {
-    position: relative; flex: 1 1 0; min-width: 0; height: 32px; padding: 0 8px;
-    flex-wrap: nowrap; overflow: hidden; font-size: 12px; border-radius: 8px;
+    position: relative; flex-wrap: nowrap; overflow: hidden; font-size: 12px;
     container: goal / inline-size;
-  }
-  .hud:not(.hud-open) .goal .bar {
-    position: absolute; inset: 0; flex: none; height: auto; margin: 0; opacity: 0.3; border-radius: 8px;
   }
   /* Compact name in the chip; the full sentence stays in the DOM (live region) but is visually hidden.
      Names are <= 7 characters and sized to fit 42px, so they are never cut. Below 42px of chip content the
      name gives way to its glyph (the progress fill still shows); the glyph is aria-hidden like the name. */
   .hud:not(.hud-open) .goal-short {
     display: flex; align-items: center; justify-content: center; position: relative; z-index: 1; min-width: 0;
-    overflow: hidden; white-space: nowrap;
+    overflow: hidden; white-space: nowrap; height: 100%;
   }
-  .hud:not(.hud-open) .goal-name { white-space: nowrap; }
+  .hud:not(.hud-open) .goal-name { white-space: nowrap; font-weight: 600; color: var(--ink); }
   .hud:not(.hud-open) .goal-icon { display: none; width: 18px; height: 18px; flex: none; }
   .hud:not(.hud-open) .goal-icon svg {
     display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2;
@@ -383,8 +489,17 @@ ul.reset li::before {
     position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
   }
   /* Expanded HUD: the full detail as before, scrolling inside its own box, with a full-width collapse control */
-  .hud.hud-open { max-height: 42vh; overflow-y: auto; overscroll-behavior: contain; }
-  .hud.hud-open button.hud-toggle { flex: 1 1 100%; }
+  .hud.hud-open { max-height: 42vh; overflow-y: auto; overscroll-behavior: contain; flex-wrap: wrap; }
+  .hud.hud-open .hud-seg {
+    flex: 1 1 100%; flex-direction: row; align-items: center; height: auto;
+    border: none; background: transparent; gap: 8px;
+  }
+  .hud.hud-open .goal { flex: 1 1 auto; height: auto; padding: 0; }
+  .hud.hud-open .goal .bar { display: block; }
+  .hud.hud-open button.hud-toggle {
+    flex: 0 0 auto; width: auto; min-width: 44px; height: var(--control-h);
+    border: 1px solid var(--line); border-radius: var(--control-r); background: var(--glass);
+  }
 }
 
 /* Phone landscape (844x390, 932x430): two columns, panel spans the board */

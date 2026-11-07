@@ -3,6 +3,8 @@ import Decimal from 'break_eternity.js';
 import { config } from './core/config';
 import { initialState, graphOf, GRAPHS, SURFACE_GRAPHS, type GameState, type SurfacePreview } from './core/state';
 import { adjacency, buyChartUpg, buyCurvUpg, isActive, maxRing, mods, place, prod, previewDelta, sell, sellValue, survey, tileCost, togglePin } from './core/economy';
+import { placementImpactState, tileInfluenceState } from './core/placement-impact';
+import type { TileGraph } from './core/geometry/graph';
 import { canDrift, canProject, drift, project } from './core/prestige';
 import { applyOffline, simulate } from './core/tick';
 import { exportString, importSave, makeSave, toJson } from './core/save';
@@ -10,7 +12,6 @@ import { TILE_INFO, TILE_TYPES, type TileType } from './core/tiles';
 import { createScene, type QualityLevel } from './render/scene';
 import { Board, DISK_R } from './render/board';
 import { SurfaceBoard } from './render/surface-board';
-import type { TileGraph } from './core/geometry/graph';
 import { cellCorners, circlePts, fitDistance, freeRect, shouldReframe, type Rect, type Role } from './render/framing';
 import {
   fitManifoldProjected, checkManifoldProjectFit, kleinImmersionTargetY,
@@ -19,6 +20,7 @@ import { kleinCameraOffset } from './render/surface-params';
 import type { SquareBoard } from './core/geometry/square';
 import { CartographyFX, type FxContext, type FxQuality } from './render/fx';
 import { analyseCanvasPixels } from './render/canvas-check';
+import type { BoardHighlight } from './render/board-highlight';
 import { productionRoutes, revealSpans, surveyWave, type Route } from './render/fx-graph';
 import { budgetFor } from './render/fx-model';
 import { TRANSITION_S, transitionPhase } from './render/transition';
@@ -313,6 +315,7 @@ const ui = createUI(document.getElementById('ui')!, {
   tool,
   dev,
   selected: () => tap.selected,
+  inspectCell: () => inspectCell,
   cellInfo: (i) => cellHtml(i),
   tutorial: { load: () => store.get(TUTORIAL_KEY), save: (v) => store.set(TUTORIAL_KEY, v) },
   act: {
@@ -509,26 +512,73 @@ const worldAt = (x: number, y: number) => {
   return ray.ray.intersectPlane(plane, new THREE.Vector3());
 };
 let hover = -1; // mouse hover only; touch uses tap.selected
+let qaHover = -1; // layout/capture hook; cleared on pointer move
 let panFrom: THREE.Vector3 | null = null; // hyperbolic one-pointer pan anchor
+const PLACE_TOOLS = new Set<TileType>(['spring', 'mill', 'beacon', 'bridge', 'vault']);
+const isPlaceTool = (t: Tool): t is TileType => PLACE_TOOLS.has(t as TileType);
+let inspectCell = -1;
+let inspectBlend = 0;
+let inspectTarget = 0;
+let bridgePulse = 0;
+
+function bridgeArcEnds(g: TileGraph, tiles: (TileType | null)[], i: number): [number, number] | null {
+  const nb = g.neighbours[i];
+  if (nb.length < 2) return null;
+  const occ = nb.filter((n) => tiles[n]);
+  if (occ.length >= 2) return [occ[0], occ[1]];
+  return [nb[0], nb[1]];
+}
+
+function tryInspect(cell: number): boolean {
+  if (cell < 0 || !s.tiles[cell]) return false;
+  if (tool.current === 'sell' || tool.current === 'pin') return false;
+  if (inspectCell === cell) {
+    inspectCell = -1;
+    inspectTarget = 0;
+  } else {
+    inspectCell = cell;
+    inspectTarget = 1;
+    tap.clearSelection();
+    hover = -1;
+  }
+  return true;
+}
 
 /** Cell description for the hover tooltip (mouse) and the preview card (touch). */
 function cellHtml(i: number): string {
   const t = s.tiles[i], tl = tool.current;
-  if (!isActive(s, i)) return `<b>Unsurveyed</b><br><span class="muted">Survey ring ${graphOf(s).ring[i]} to open this cell.</span>`;
+  const lead = (s: string) => `<div class="info-lead"><b>${s}</b></div>`;
+  const meta = (s: string) => `<div class="info-meta">${s}</div>`;
+  const effect = (s: string) => `<div class="info-effect">${s}</div>`;
+  const note = (s: string) => `<div class="info-note muted">${s}</div>`;
+  if (!isActive(s, i)) {
+    return `${lead('Unsurveyed')}${note(`Survey ring ${graphOf(s).ring[i]} to open this cell.`)}`;
+  }
   const why = placeBlocked(s, i, tl);
-  const whyHtml = why ? `<br><span class="neg">${why}</span>` : '';
+  const whyHtml = why ? `<div class="info-note neg">${why}</div>` : '';
   const delta = (d: number) => `<span class="${d >= 0 ? 'pos' : 'neg'}">${d >= 0 ? '+' : '−'}${fmt(Math.abs(d), s.notation)} Ink/s</span>`;
   const nb = graphOf(s).neighbours[i].length;
   if (!t) {
-    if (tl === 'sell' || tl === 'pin') return `<span class="muted">Empty cell · ${nb} neighbours</span>${whyHtml}`;
+    if (tl === 'sell' || tl === 'pin') return `${meta(`Empty cell · ${nb} neighbours`)}${whyHtml}`;
     const cost = tileCost(s, tl);
-    return `<b>Place ${TILE_INFO[tl].name}</b> · ${fmt(cost, s.notation)} Ink · ${nb} neighbours<br>${delta(previewDelta(s, i, tl))}${whyHtml}`;
+    const dInk = previewDelta(s, i, tl);
+    let fx = delta(dInk);
+    if (tl === 'bridge') {
+      const d = previewDelta(s, i, 'bridge');
+      if (d > 0) fx += `<br><span class="pos">+${fmt(d, s.notation)} Ink/s via new links</span>`;
+    }
+    return `${lead(`Place ${TILE_INFO[tl].name}`)}${meta(`${fmt(cost, s.notation)} Ink · ${nb} neighbours`)}${effect(fx)}${whyHtml}`;
   }
   const out = prod(s).perTile[i];
-  let html = `<b>${TILE_INFO[t].name}</b>${s.pinned.includes(i) ? ' · 📌 pinned' : ''}<br><span class="muted">${out ? `${fmt(out, s.notation)} Ink/s` : TILE_INFO[t].desc}</span>`;
-  if (tl === 'sell') html += `<br>Sell for ${fmt(sellValue(s, t), s.notation)} · ${delta(previewDelta(s, i, null))}`;
-  else if (tl === 'pin') html += `<br>${s.pinned.includes(i) ? 'Unpin' : 'Pin'}: pinned tiles are kept through Drift`;
-  else return `${html}<br><span class="muted">Occupied: pick Sell (S) to remove it</span>`;
+  const title = `${TILE_INFO[t].name}${s.pinned.includes(i) ? ' · pinned' : ''}`;
+  let html = `${lead(title)}${effect(out ? `${fmt(out, s.notation)} Ink/s` : TILE_INFO[t].desc)}`;
+  if (tl === 'sell') {
+    html += `${meta(`Sell for ${fmt(sellValue(s, t), s.notation)} Ink`)}${effect(delta(previewDelta(s, i, null)))}`;
+  } else if (tl === 'pin') {
+    html += note(s.pinned.includes(i) ? 'Unpin: Drift may remove this tile.' : 'Pin: kept through Drift.');
+  } else {
+    html += note('Tap again to inspect · Sell (S) to remove');
+  }
   return html + whyHtml;
 }
 
@@ -556,6 +606,14 @@ addEventListener('pointerup', (e) => {
   const touch = e.pointerType !== 'mouse';
   const a = tap.up(e.pointerId, pickAt(e.clientX, e.clientY));
   endPointer();
+  if (a.kind === 'deselect') {
+    inspectCell = -1;
+    inspectTarget = 0;
+  }
+  if ((a.kind === 'apply' || a.kind === 'select') && tryInspect(a.cell)) {
+    ui.update();
+    return;
+  }
   if (a.kind === 'apply' && !applyTool(a.cell) && touch) tap.selected = a.cell; // keep the preview so the reason stays visible
   if (a.kind !== 'none') ui.update();
 });
@@ -566,6 +624,7 @@ addEventListener('pointercancel', (e) => {
   ui.tooltip(0, 0, null);
 });
 canvas.addEventListener('pointermove', (e) => {
+  qaHover = -1;
   if (tap.move(e.pointerId, e.clientX, e.clientY) && s.geometry === 'hyper' && panFrom && !isSurfaceBoard(board)) {
     const w = worldAt(e.clientX, e.clientY);
     if (w) board.pan(w.x - panFrom.x, w.z - panFrom.z, maxRing(s)), (panFrom = w);
@@ -603,12 +662,35 @@ function frame(now: number) {
   const tiles = rs.tiles;
   const rKey = `${manifoldPreview}|${s.geometry}|${rs.ring}|${reach}|${tiles.join()}`;
   if (rKey !== routeKey) (routeKey = rKey), (routes = productionRoutes(g, tiles, reach));
-  const focus = hover >= 0 ? hover : tap.selected;
-  const hoverAdj = focus >= 0 ? (tiles[focus] ? adjacency(g, tiles, focus, reach) : g.neighbours[focus]) : [];
+  const reduceMotion = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const fadeStep = reduceMotion ? 1 : Math.min(1, dt * 1000 / config.ui.inspectFadeMs);
+  inspectBlend += (inspectTarget - inspectBlend) * fadeStep;
+  if (inspectTarget === 0 && inspectBlend < 0.02) inspectBlend = 0;
+  bridgePulse = (bridgePulse + dt * 0.65) % 1;
+
+  const focus = inspectCell >= 0 ? inspectCell : qaHover >= 0 ? qaHover : hover >= 0 ? hover : tap.selected;
+  let hoverAdj: number[] = [];
+  const hl: BoardHighlight = {};
+  if (inspectCell >= 0 && inspectBlend > 0) {
+    hl.lit = tileInfluenceState(s, inspectCell);
+    hl.dim = inspectBlend;
+  } else if (focus >= 0 && !tiles[focus] && isPlaceTool(tool.current)) {
+    const imp = placementImpactState(s, focus, tool.current);
+    hoverAdj = imp.direct;
+    hl.direct = imp.direct;
+    hl.bridge = imp.viaBridge;
+    hl.pulse = bridgePulse;
+    if (tool.current === 'bridge') {
+      const arc = bridgeArcEnds(g, tiles, focus);
+      if (arc) hl.arc = arc;
+    }
+  } else if (focus >= 0) {
+    hoverAdj = tiles[focus] ? adjacency(g, tiles, focus, reach) : g.neighbours[focus];
+  }
   const perTile = manifoldTiles
     ? tiles.map((t) => (t === 'mill' ? config.manifold.demoMillOut : t === 'spring' ? 1 : 0))
     : p.perTile;
-  board.update(rs, perTile, focus, hoverAdj);
+  board.update(rs, perTile, focus, hoverAdj, hl);
   // prepare binds the new board's embedding before any spawn; update then advances time once
   const ctx = fxContext(perTile, routes);
   fx.prepare(ctx);
@@ -631,7 +713,7 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // ---- QA fixtures (?dev&qa only): deterministic states, no randomness ----
-type QaSeed = 'fresh' | 'midgame' | 'drift-ready' | 'projection-ready' | 'hyper';
+type QaSeed = 'fresh' | 'midgame' | 'drift-ready' | 'projection-ready' | 'hyper' | 'ux-demo';
 /** Tiles on every `every`-th active cell, alternating Mill and Spring. */
 function sprinkle(g: GameState, every: number) {
   g.tiles = g.tiles.map((_, i): TileType | null => (!isActive(g, i) || i % every ? null : (i / every) % 2 ? 'mill' : 'spring'));
@@ -655,6 +737,21 @@ function fixture(name: QaSeed): GameState {
   } else if (name === 'projection-ready') {
     Object.assign(g, { ink: d(1e6), runInk: d(1e5), lifetimeInk: d(3e6), charts: d(30), cycleCharts: d(30), drifts: 1, runTime: 300, totalTime: 3600 });
     sprinkle(g, 4);
+  } else if (name === 'ux-demo') {
+    g.ring = 3;
+    Object.assign(g, {
+      ink: d(4e4), runInk: d(2.5e6), lifetimeInk: d(5e6), runTime: 1200, totalTime: 3600, drifts: 0, projections: 0,
+    });
+    sprinkle(g, 4);
+    const graph = graphOf(g);
+    for (let i = 0; i < g.tiles.length; i++) {
+      if (!isActive(g, i) || g.tiles[i]) continue;
+      const occ = graph.neighbours[i].filter((n) => g.tiles[n]);
+      if (occ.length >= 2) {
+        g.tiles[i] = 'bridge';
+        break;
+      }
+    }
   } else {
     g.ring = 3;
     Object.assign(g, { ink: d(4e4), runInk: d(4e4), lifetimeInk: d(2e5), runTime: 900, totalTime: 3600 });
@@ -733,7 +830,12 @@ if (dev) {
       /** Replaces the save through the import path (board rebuilds). Tutorial is hidden except for 'fresh'. */
       seed: (name: QaSeed) => {
         applyImport(fixture(name));
-        setTutorial(name === 'fresh' ? freshTutorial() : dismissTutorial(freshTutorial()));
+        setTutorial(
+          name === 'fresh'
+            ? freshTutorial()
+            : { ...dismissTutorial(freshTutorial()), done: true },
+        );
+        ui.update();
       },
       tutorial: (step: number) => setTutorial({ step, dismissed: false, done: false }),
       dismissTutorial: () => setTutorial(dismissTutorial(parseTutorial(store.get(TUTORIAL_KEY), s))),
@@ -773,6 +875,13 @@ if (dev) {
         tap.selected = i;
         ui.update();
         return true;
+      },
+      setTool: (name: TileType | 'sell' | 'pin') => {
+        tool.current = name;
+        tap.clearSelection();
+        inspectCell = -1;
+        inspectTarget = 0;
+        ui.update();
       },
       manifold: (which: 'torus' | 'klein' | 'off') => {
         if (which === 'off') exitManifoldPreview();
@@ -838,6 +947,70 @@ if (dev) {
           surface: board.surface, chartMode: board.chartMode, immersion3d: board.immersion3d, seamView: board.seamView,
           minx, maxx, miny, maxy, cnt,
         };
+      },
+      demoCells: () => {
+        const g = graphOf(s);
+        const reach = mods(s).reach;
+        let millAt = -1, millScore = 0;
+        let bridgeAt = -1;
+        let springAt = -1;
+        let springLit = Infinity;
+        for (let i = 0; i < s.tiles.length; i++) {
+          const t = s.tiles[i];
+          if (t === 'spring') {
+            const lit = tileInfluenceState(s, i).length;
+            if (lit < springLit) {
+              springLit = lit;
+              springAt = i;
+            }
+          }
+          if (!isActive(s, i) || t) continue;
+          const springs = adjacency(g, s.tiles, i, reach).filter((n) => s.tiles[n] === 'spring').length;
+          if (springs > millScore) {
+            millScore = springs;
+            millAt = i;
+          }
+          const occ = g.neighbours[i].filter((n) => s.tiles[n]).length;
+          if (occ >= 2 && bridgeAt < 0) bridgeAt = i;
+        }
+        return { millAt, bridgeAt, springAt };
+      },
+      previewAt: (i: number, tl: Tool) => {
+        if (tl === 'sell' || tl === 'pin') return false;
+        if (!isActive(s, i) || s.tiles[i]) return false;
+        qaHover = i;
+        tool.current = tl as TileType;
+        inspectCell = -1;
+        inspectTarget = 0;
+        inspectBlend = 0;
+        tap.clearSelection();
+        ui.update();
+        renderFrame(0);
+        return true;
+      },
+      inspectAt: async (i: number) => {
+        if (i < 0 || !s.tiles[i]) return false;
+        qaHover = -1;
+        hover = -1;
+        inspectCell = i;
+        inspectTarget = 1;
+        inspectBlend = 1;
+        tap.clearSelection();
+        ui.update();
+        renderFrame(0);
+        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+        renderFrame(0);
+        return true;
+      },
+      clearBoardFocus: () => {
+        qaHover = -1;
+        hover = -1;
+        inspectCell = -1;
+        inspectTarget = 0;
+        inspectBlend = 0;
+        tap.clearSelection();
+        ui.update();
+        return true;
       },
       canvasSample: () => {
         renderFrame(0);

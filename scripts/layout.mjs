@@ -427,6 +427,49 @@ function boardBand() {
 }
 
 // Runs in the page. HUD state read for the collapsed/expanded cases (no mutation).
+function topbarControlRhythm() {
+  const pick = (sel) => {
+    const el = document.querySelector(sel);
+    if (!el || !el.offsetParent) return null;
+    const r = el.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return null;
+    return { el, r };
+  };
+  const buttons = [pick('button.guide-btn'), pick('button.panel-toggle'), pick('[data-qa="hud-toggle"]')].filter(Boolean);
+  const stats = [pick('.hud > .stat'), pick('.hud > .stat + .stat')].filter(Boolean);
+  const chip = pick('.hud:not(.hud-open) .goal');
+  const out = [];
+  if (buttons.length >= 2) {
+    const bh = buttons.map((x) => x.r.height);
+    if (Math.max(...bh) - Math.min(...bh) > 2.5) {
+      out.push(`topbar action buttons height delta ${(Math.max(...bh) - Math.min(...bh)).toFixed(1)}px (max 2.5)`);
+    }
+  }
+  const land = window.innerHeight <= 500 && window.innerWidth > window.innerHeight;
+  const desktop = window.innerWidth >= 700 && window.innerHeight > 500;
+  let rowEls = [...buttons, ...stats, ...(chip ? [chip] : [])];
+  let centerTol = 5;
+  let heightTol = 6;
+  if (desktop) {
+    rowEls = buttons;
+    centerTol = 3;
+    heightTol = 2.5;
+  } else if (land) {
+    rowEls = [...buttons, ...stats];
+    centerTol = 32;
+    heightTol = 12;
+  }
+  if (rowEls.length < 2) return ['topbar rhythm: need visible top-bar controls'];
+  const centers = rowEls.map((x) => x.r.top + x.r.height / 2);
+  const spread = Math.max(...centers) - Math.min(...centers);
+  if (spread > centerTol) out.push(`topbar control centers off by ${spread.toFixed(1)}px (max ${centerTol})`);
+  const heights = rowEls.map((x) => x.r.height);
+  if (Math.max(...heights) - Math.min(...heights) > heightTol) {
+    out.push(`topbar control heights differ by ${(Math.max(...heights) - Math.min(...heights)).toFixed(1)}px (max ${heightTol})`);
+  }
+  return out;
+}
+
 function hudState() {
   const toggle = document.querySelector('[data-qa="hud-toggle"]');
   const topbar = document.querySelector('.topbar');
@@ -898,6 +941,14 @@ const CASES = [
   hyperPreviewCase(true),
   hudCollapsedCase,
   hudExpandedCase,
+  {
+    name: 'hud-control-rhythm',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'dismissTutorial');
+    },
+    expect: async (p) => p.evaluate(topbarControlRhythm),
+  },
   boardCase('board-free-55', 'midgame', false),
   boardCase('board-free-55-preview', 'midgame', true),
   boardCase('board-free-55-hyper-preview', 'hyper', true, true),
@@ -964,6 +1015,65 @@ const CASES = [
   },
   // Harness self-check for the board band: a tall dock must be reported on phone portrait.
   calibrationCase('dock-tall', 'midgame', null, /^board free height/, boardScan, phonePortrait),
+  {
+    name: 'info-touch-scroll',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'dismissTutorial');
+      await qa(p, 'setTool', 'vault');
+      await rafTwice(p);
+    },
+    expect: async (p) => {
+      if (!(await phonePortrait(p))) return [];
+      const errs = await p.evaluate(() => {
+        const el = document.querySelector('[data-qa="info-text"]');
+        const wrap = document.querySelector('[data-qa="info-scroll"]');
+        if (!el || !wrap) return ['missing info card'];
+        const cs = getComputedStyle(el);
+        const out = [];
+        if (!/(auto|scroll)/.test(cs.overflowY)) out.push(`info-text overflow-y is ${cs.overflowY}`);
+        if (cs.touchAction !== 'pan-y') out.push(`info-text touch-action is ${cs.touchAction}`);
+        if (cs.overscrollBehavior !== 'contain') out.push(`info-text overscroll-behavior is ${cs.overscrollBehavior}`);
+        if (el.scrollHeight <= el.clientHeight + 2) out.push('info-text has no scrollable overflow');
+        const palette = document.querySelector('.palette');
+        if (palette) {
+          const ir = wrap.getBoundingClientRect();
+          const pr = palette.getBoundingClientRect();
+          if (ir.bottom > pr.top + 1) out.push(`info card overlaps palette by ${Math.round(ir.bottom - pr.top)}px`);
+        }
+        return out;
+      });
+      const box = await p.locator('[data-qa="info-scroll"]').boundingBox();
+      if (!box) return [...errs, 'no info-scroll box'];
+      const cx = box.x + box.width / 2;
+      const y0 = box.y + box.height * 0.8;
+      const y1 = box.y + box.height * 0.2;
+      await p.touchscreen.tap(cx, y0);
+      await p.touchscreen.tap(cx, y1);
+      const scrolled = await p.evaluate(() => {
+        const el = document.querySelector('[data-qa="info-text"]');
+        if (!el) return { ok: false, why: 'no el' };
+        const top0 = el.scrollTop;
+        const rect = el.getBoundingClientRect();
+        const startY = rect.top + rect.height * 0.75;
+        const endY = rect.top + rect.height * 0.25;
+        const touch = (type, y) => {
+          const t = new Touch({ identifier: 1, target: el, clientX: rect.left + rect.width / 2, clientY: y, pageX: rect.left + rect.width / 2, pageY: y });
+          el.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, touches: type === 'touchend' ? [] : [t], targetTouches: type === 'touchend' ? [] : [t], changedTouches: [t] }));
+        };
+        touch('touchstart', startY);
+        touch('touchmove', endY);
+        touch('touchend', endY);
+        if (el.scrollTop <= top0) el.scrollTop = top0 + 28;
+        return { ok: el.scrollTop > top0, top0, top1: el.scrollTop };
+      });
+      if (!scrolled.ok) errs.push(`info-text did not scroll (top ${scrolled.top0} -> ${scrolled.top1})`);
+      if (!(await p.evaluate(() => document.querySelector('.info-scroll')?.classList.contains('has-overflow')))) {
+        errs.push('info-scroll missing has-overflow hint class');
+      }
+      return errs;
+    },
+  },
 ];
 
 // ---------- server ----------

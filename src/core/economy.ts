@@ -78,6 +78,15 @@ export function previewDelta(s: GameState, i: number, type: TileType | null): nu
 
 export const owned = (s: GameState, t: TileType) => s.tiles.filter((x) => x === t).length;
 
+/** True when some Mill touches a Spring (bridges included via adjacency). */
+export function hasBoostedMill(s: GameState): boolean {
+  const g = graphOf(s);
+  const reach = mods(s).reach;
+  return s.tiles.some(
+    (t, i) => t === 'mill' && adjacency(g, s.tiles, i, reach).some((n) => s.tiles[n] === 'spring'),
+  );
+}
+
 export function tileCost(s: GameState, t: TileType, n = owned(s, t)): Decimal {
   const disc = t === 'spring' ? 0.6 ** s.chartUpg.cheapSprings : 1;
   return new Decimal(config.tiles[t].cost * disc).mul(Decimal.pow(config.costGrowth, n));
