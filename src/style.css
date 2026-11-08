@@ -534,9 +534,11 @@ ul.reset li::before {
     position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
   }
 
-  /* Narrow phones (360px): keep the HUD toggle reachable — compact stat pills, ellipsis goal chip. */
-  @media (max-width: 360px) {
+  /* Narrow phones (360px, 390px): keep the HUD toggle reachable beside the speaker, Guide and Menu buttons —
+     compact stat pills, ellipsis goal chip. */
+  @media (max-width: 419px) {
     .topbar { gap: 4px; }
+    .topbar button.guide-btn, .topbar button.panel-toggle { padding-inline: 4px; }
     .hud:not(.hud-open) {
       gap: 4px;
     }
