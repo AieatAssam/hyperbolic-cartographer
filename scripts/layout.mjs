@@ -933,7 +933,6 @@ const CASES = [
     setup: async (p) => {
       await qa(p, 'seed', 'midgame');
       await qa(p, 'tab', 'save');
-      await p.locator('[data-qa="audio-settings"]').first().scrollIntoViewIfNeeded();
     },
     expect: async (p) => [
       await need(p, 'audio-settings'),
@@ -941,6 +940,30 @@ const CASES = [
       await need(p, 'audio-music'),
       await need(p, 'audio-sfx'),
       await need(p, 'audio-quick-mute'),
+      ...(await p.evaluate(() => {
+        const out = [];
+        const box = (sel) => {
+          const e = document.querySelector(sel);
+          return e && e.getClientRects().length ? e.getBoundingClientRect() : null;
+        };
+        const hit = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+        const panel = box('.panel');
+        for (const sel of ['.topbar', '.palette', '.dock']) {
+          const r = box(sel);
+          if (panel && r && hit(panel, r)) out.push(`settings panel overlaps ${sel}`);
+        }
+        // Opening Settings shows the Sound card from its top: heading and mute fully inside the scrolling body.
+        const body = box('.panel-body');
+        for (const sel of ['[data-qa="audio-settings"] h3', '[data-qa="audio-mute"]']) {
+          const r = box(sel);
+          if (body && r && (r.top < body.top - 1 || r.bottom > body.bottom + 1)) out.push(`${sel} clipped by the panel body`);
+        }
+        const quick = box('.topbar [data-qa="audio-quick-mute"]');
+        const menu = box('.topbar button.panel-toggle');
+        if (!quick) out.push('speaker toggle is not in the top bar');
+        else if (menu && Math.abs(quick.top + quick.height / 2 - (menu.top + menu.height / 2)) > 3) out.push('speaker toggle is off the top-bar row');
+        return out;
+      })),
     ].filter(Boolean),
   },
   {
