@@ -929,6 +929,60 @@ const CASES = [
   },
   ...TABS.map(tabCase),
   {
+    name: 'audio-settings',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'tab', 'save');
+    },
+    expect: async (p) => [
+      await need(p, 'audio-settings'),
+      await need(p, 'audio-mute'),
+      await need(p, 'audio-music'),
+      await need(p, 'audio-sfx'),
+      await need(p, 'audio-quick-mute'),
+      ...(await p.evaluate(() => {
+        const out = [];
+        const box = (sel) => {
+          const e = document.querySelector(sel);
+          return e && e.getClientRects().length ? e.getBoundingClientRect() : null;
+        };
+        const hit = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+        const panel = box('.panel');
+        for (const sel of ['.topbar', '.palette', '.dock']) {
+          const r = box(sel);
+          if (panel && r && hit(panel, r)) out.push(`settings panel overlaps ${sel}`);
+        }
+        // Opening Settings shows the Sound card from its top: heading and mute fully inside the scrolling body.
+        const body = box('.panel-body');
+        for (const sel of ['[data-qa="audio-settings"] h3', '[data-qa="audio-mute"]']) {
+          const r = box(sel);
+          if (body && r && (r.top < body.top - 1 || r.bottom > body.bottom + 1)) out.push(`${sel} clipped by the panel body`);
+        }
+        const quick = box('.topbar [data-qa="audio-quick-mute"]');
+        const menu = box('.topbar button.panel-toggle');
+        if (!quick) out.push('speaker toggle is not in the top bar');
+        else if (menu && Math.abs(quick.top + quick.height / 2 - (menu.top + menu.height / 2)) > 3) out.push('speaker toggle is off the top-bar row');
+        return out;
+      })),
+    ].filter(Boolean),
+  },
+  {
+    name: 'audio-credits',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'tab', 'save');
+      await p.locator('[data-qa="audio-credits-toggle"]').first().click();
+      await p.locator('[data-qa="audio-credits"] li a').first().waitFor({ state: 'attached', timeout: SETUP_LOCATOR_TIMEOUT });
+      await p.locator('[data-qa="audio-credits"]').first().scrollIntoViewIfNeeded();
+    },
+    expect: async (p) => {
+      const out = [await need(p, 'audio-credits')].filter(Boolean);
+      const open = await p.locator('[data-qa="audio-credits"] details[open]').count();
+      if (!open) out.push('audio credits list did not open');
+      return out;
+    },
+  },
+  {
     name: 'drift-confirm',
     setup: async (p) => {
       await qa(p, 'seed', 'drift-ready');
@@ -1388,7 +1442,10 @@ async function main() {
   try {
     browser = await chromium.launch({
       headless: true,
-      args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+      args: [
+        '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+        '--mute-audio', '--disable-audio-output',
+      ],
     }).catch((e) => {
       throw new Error(`could not launch Chromium (run \`npx playwright install chromium\`): ${e.message}`);
     });

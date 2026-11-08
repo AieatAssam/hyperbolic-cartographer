@@ -45,17 +45,17 @@ export const TAB_HELP: Record<Tab, string> = {
   charts: 'Charts buy permanent upgrades. Each upgrade has levels, and the button shows the cost of the next one.',
   proj: 'Projection is the next step after Drift. It spends this cycle\'s Charts on Curvature, moves you to the hyperbolic board, and resets the run.',
   miles: 'Milestones unlock as you Drift and Project. Each one changes how the game plays, so check here when a new feature appears.',
-  save: 'Export or import your progress, change the number format, or wipe everything. Save strings include a checksum, so edits are rejected.',
+  save: 'Sound and music volume, the number format, and your save: export, import or wipe it. Save strings include a checksum, so edits are rejected.',
   guide: 'A short guide to tiles, Survey, Drift and Projection. Open it any time from the Guide button.',
 };
 
 export const BUTTON_HELP: Record<
   'menu' | 'guide' | 'survey' | 'recenter' | 'drift' | 'project' | 'buyChart' | 'buyCurv' | 'autoDrift' |
   'copy' | 'download' | 'import' | 'notation' | 'reset' | 'place' | 'cancel' |
-  'tutNext' | 'tutBack' | 'tutHide' | 'tutRestart' | 'check' | 'overwrite' | 'confirmReset' | 'close',
+  'tutNext' | 'tutBack' | 'tutHide' | 'tutRestart' | 'check' | 'overwrite' | 'confirmReset' | 'close' | 'sound',
   string
 > = {
-  menu: 'Open or close the side panel with the Drift, Charts, Projection and Save tabs.',
+  menu: 'Open or close the side panel with the Drift, Charts, Projection and Settings tabs.',
   guide: 'Open the guide. It explains tiles, Survey, Drift and Projection.',
   survey: 'Add the next ring of cells to the board. Costs Ink, and each ring costs more.',
   recenter: 'Reset the camera to the start view, centred on the board.',
@@ -79,6 +79,7 @@ export const BUTTON_HELP: Record<
   overwrite: 'Replace your current save with the checked one. Your previous save is kept as a backup.',
   confirmReset: 'Confirm the hard reset. It only works after you type RESET.',
   close: 'Close this window and go back to the game.',
+  sound: 'Mute or restore all music and sound effects. Volume sliders are in Menu > Settings.',
 };
 
 export const SURVEY_EXPLAIN =

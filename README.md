@@ -79,6 +79,16 @@ Keys are ignored while focus is in a text field, with Ctrl/Cmd/Alt held, or whil
 - Importing or hard-resetting keeps a one-slot backup of the previous save (`hc-save-backup`).
 - Offline progress is capped at 8 h, plus 4 h per Ship's Log level. It runs at 50% base efficiency, plus 10% per Vault, up to 100%. Offline time is simulated in 60-second steps. Auto-Springs only run while the game is open.
 
+## Sound and music
+
+- Each stage has its own music: Survey, Drift, Projection, the torus and Klein bottle Manifold previews, and (ahead of their gameplay) Dimension and Horizon. Each has 3 or 4 tracks, played in shuffled order with 6-second crossfades. Stage changes crossfade over 4 seconds, and the music dips under Drift and Projection transitions, so nothing cuts off abruptly. [docs/audio/music-by-stage.md](docs/audio/music-by-stage.md) lists the tracks and why each one fits.
+- Every tile has its own instrument: Spring harp, Mill marimba, Beacon glockenspiel, Bridge pizzicato strings, Vault low piano. Choosing a tool plays a softer version. Notes come from a major pentatonic scale in the key of the track that is playing, so effects harmonise with the music.
+- Other effects: UI clicks, a quiet water drop when Ink arrives (at most one every 1.6 s), Survey, upgrades, pins, selling, constellations, network links, invalid placements, and Drift, Projection and Manifold transitions. Automation bursts are capped at 5 placement sounds per second.
+- **Menu → Settings → Sound** has Music and Sound effects sliders and a mute button. The speaker button in the top bar, next to Guide and Menu, mutes and unmutes at any time. Settings are stored in `localStorage` under `hc-audio`.
+- Sound starts on the first tap, click or key press (browser autoplay rules; this also unlocks audio on iOS Safari). It drops to 20% while the tab is hidden.
+- Files are WebM/Opus, with an AAC `.m4a` fallback for browsers without Opus, in `public/audio/`. They are not bundled: a stage's music streams only when that stage plays, and the sound effects (about 230 KB) load after the first gesture. `python3 scripts/audio/build-audio.py` rebuilds them from the sources in `src/audio/assets.json` (needs ffmpeg).
+- `?music=<stage>` (`survey`, `drift`, `projection`, `torus`, `klein`, `dimension`, `horizon`) forces a stage's playlist, for example to hear Dimension and Horizon before their gameplay exists.
+
 ## Performance
 
 There is no guaranteed 60 fps. Frame rate depends on the device and GPU. The renderer lowers its quality automatically on slower devices and on phones.
@@ -96,6 +106,7 @@ npm run pacing      # headless greedy bot; slow and opt-in
 npm run layout      # layout QA; after npm run build and npx playwright install chromium
 ```
 
+- `python3 scripts/audio/build-audio.py` re-encodes `public/audio/` and regenerates `AUDIO-CREDITS.md` (needs ffmpeg with libopus; not part of CI).
 - `npm run pacing` asserts the first Drift comes before 15 minutes and Projection before 90 minutes of game time.
 - Layout QA setup: `npm run build`, then `npx playwright install chromium`, then `npm run layout`. See [Layout QA](#layout-qa).
 - The dev panel toggles with the backtick key. It is on in dev builds, and in production builds when the URL has `?dev`. It can grant currency, jump to Drift or Projection, and change time speed.
@@ -136,6 +147,7 @@ src/
     geometry/      TileGraph (ring[], neighbours[][]), square.ts, hyperbolic.ts (Lorentz 3x3)
   render/        Three.js scene, board mesh, effects and framing
   ui/            plain DOM overlay (styled in src/style.css); help, tutorial and input logic
+  audio/         music and sound effects: stage playlists, tuned cues, settings UI; assets.json lists every file
   main.ts        fixed 10 ticks/s simulation + requestAnimationFrame render loop
 tests/           Vitest suites, plus the opt-in pacing bot
 ```
@@ -170,6 +182,40 @@ Changes from the original brief (all in `src/core/config.ts`; formulas unchanged
 - [Vitest](https://vitest.dev/): tests.
 
 **Art.** All art is original and procedurally generated in code. Textures are drawn at runtime, the backdrop is a GLSL shader, and reflections come from a generated environment. No image, font, HDR or model files are loaded. See `docs/art/style-guide.md`, and `docs/art/particle-language.md` for the particle effects.
+
+**Audio.** Music and sound effects are by other artists, all CC0 or CC BY (no NC, ND or SA). Full details, including every sound-effect sample, are in [AUDIO-CREDITS.md](AUDIO-CREDITS.md), and the same list is in the game under Menu → Settings → Music and sound credits.
+
+| Stage | Track | Author | Licence | Source |
+|---|---|---|---|---|
+| Survey | Calm Piano 1 (Vaporware) | The Cynic Project (cynicmusic) | CC0 1.0 | https://opengameart.org/content/calm-piano-1-vaporware |
+| Survey | Air | Alexandr Zhelanov | CC BY 4.0 | https://opengameart.org/content/air |
+| Survey | Meditation Impromptu 02 | Kevin MacLeod (incompetech.com) | CC BY 4.0 | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Meditation%20Impromptu%2002.mp3 |
+| Survey | Calm Ambient 1 (Synthwave 4k) | The Cynic Project (cynicmusic) | CC0 1.0 | https://opengameart.org/content/calm-ambient-1-synthwave-4k |
+| Drift | November Snow | The Cynic Project (cynicmusic) | CC0 1.0 | https://opengameart.org/content/november-snow |
+| Drift | Calm Ambient 2 (Synthwave 15k) | The Cynic Project (cynicmusic) | CC0 1.0 | https://opengameart.org/content/calm-ambient-2-synthwave-15k |
+| Drift | Dreamy Flashback | Kevin MacLeod (incompetech.com) | CC BY 4.0 | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Dreamy%20Flashback.mp3 |
+| Projection | Crystal Cave (song18) | The Cynic Project (cynicmusic) | CC0 1.0 | https://opengameart.org/content/crystal-cave-song18 |
+| Projection | Mysterious Ambience (song21) | The Cynic Project (cynicmusic) | CC0 1.0 | https://opengameart.org/content/mysterious-ambience-song21 |
+| Projection | Crypto | Kevin MacLeod (incompetech.com) | CC BY 4.0 | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Crypto.mp3 |
+| Manifold (torus) | Global Resonance | Eponasoft | CC0 1.0 | https://opengameart.org/content/global-resonance |
+| Manifold (torus) | Contemplation | Joth | CC0 1.0 | https://opengameart.org/content/contemplation-0 |
+| Manifold (torus) | Echoes of Time v2 | Kevin MacLeod (incompetech.com) | CC BY 4.0 | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Echoes%20of%20Time%20v2.mp3 |
+| Manifold (Klein bottle) | Futuristic Ambient 1 | Alexandr Zhelanov | CC BY 4.0 | https://opengameart.org/content/futuristic-ambient |
+| Manifold (Klein bottle) | Futuristic Ambient 4 | Alexandr Zhelanov | CC BY 4.0 | https://opengameart.org/content/futuristic-ambient |
+| Manifold (Klein bottle) | Unwritten Return | Kevin MacLeod (incompetech.com) | CC BY 4.0 | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Unwritten%20Return.mp3 |
+| Dimension | Observing The Star | yd | CC0 1.0 | https://opengameart.org/content/another-space-background-track |
+| Dimension | Space Atmosphere | Alexandr Zhelanov | CC BY 3.0 | https://opengameart.org/content/space-atmospere |
+| Dimension | Lightless Dawn | Kevin MacLeod (incompetech.com) | CC BY 4.0 | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Lightless%20Dawn.mp3 |
+| Horizon | Infinite Perspective | Kevin MacLeod (incompetech.com) | CC BY 4.0 | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Infinite%20Perspective.mp3 |
+| Horizon | Space Music: Out There | yd | CC0 1.0 | https://opengameart.org/content/space-music-out-there |
+| Horizon | Harmony in the Mists | Tsorthan Grove | CC BY 4.0 | https://opengameart.org/content/harmony-in-the-mists |
+| Horizon | Singularity (calm version) | vitalezzz | CC0 1.0 | https://opengameart.org/content/singularity-0 |
+
+Sound effects:
+
+- VSCO 2 Community Edition (orchestral samples) by Versilian Studios (Sam Gossner, Simon Dalzell) (CC0 1.0): https://github.com/sgossner/VSCO-2-CE
+- Interface Sounds by Kenney (kenney.nl) (CC0 1.0): https://opengameart.org/content/interface-sounds
+- 51 UI sound effects (buttons, switches and clicks) by Kenney (kenney.nl) (CC0 1.0): https://opengameart.org/content/51-ui-sound-effects-buttons-switches-and-clicks
 
 **Related works.** These are named for context only:
 

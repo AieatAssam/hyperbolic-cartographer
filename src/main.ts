@@ -11,6 +11,7 @@ import {
   networkLinkEdges,
 } from './core/constellations';
 import { playChime } from './ui/chime';
+import { AUDIO_KEY, initAudio } from './audio';
 import { placementImpactState, tileInfluenceState } from './core/placement-impact';
 import type { TileGraph } from './core/geometry/graph';
 import { canDrift, canProject, drift, project } from './core/prestige';
@@ -366,6 +367,15 @@ syncBoard();
 // ---- actions ----
 let speed = 1;
 const tool: { current: Tool } = { current: 'spring' };
+const audio = initAudio({
+  state: () => s,
+  tiles: () => manifoldTiles ?? s.tiles,
+  surface: () => manifoldPreview,
+  transition: () => trans?.kind ?? null,
+  tool,
+  load: () => store.get(AUDIO_KEY),
+  save: (v) => store.set(AUDIO_KEY, v),
+});
 /** Applies the current tool to cell i; toasts the reason and returns false when it can't. */
 function applyTool(i: number): boolean {
   if (trans) return false;
@@ -376,7 +386,7 @@ function applyTool(i: number): boolean {
     return true;
   }
   const why = placeBlocked(s, i, tl);
-  if (why) return ui.toast(why), false;
+  if (why) return audio.cue('error'), ui.toast(why), false;
   const delta = tl === 'sell' || tl === 'pin' ? 0 : previewDelta(s, i, tl);
   if (tl === 'sell') return sell(s, i);
   if (tl === 'pin') return togglePin(s, i);
@@ -407,6 +417,7 @@ const ui = createUI(document.getElementById('ui')!, {
   state: () => s,
   tool,
   dev,
+  audio,
   selected: () => tap.selected,
   boardFocus: () => {
     if (inspectCell >= 0) return inspectCell;
@@ -502,7 +513,7 @@ const ui = createUI(document.getElementById('ui')!, {
     manifoldPreview: () => manifoldPreview,
   },
 });
-fx.onInkArrive = (w) => ui.bumpInk(w);
+fx.onInkArrive = (w) => (ui.bumpInk(w), audio.inkTick());
 if (offline) ui.showOffline(offline);
 
 /** Swaps in a loaded state (import, QA fixture): the board rebuilds and the backup keeps the old save. */

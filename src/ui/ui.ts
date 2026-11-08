@@ -22,6 +22,8 @@ import {
   type TutorialState,
 } from './tutorial';
 import { UI, contrastRatio, hexString, tileChipColour } from '../art/palette';
+import type { AudioApi } from '../audio';
+import { creditsCard, soundCard, soundToggle } from '../audio/settings-ui';
 
 export type { Tool } from './help';
 export interface UICtx {
@@ -59,6 +61,8 @@ export interface UICtx {
     manifoldPreview?(): SurfacePreview;
   };
   dev: boolean;
+  /** Sound settings, credits and the header mute button appear only when provided. */
+  audio?: AudioApi;
 }
 export interface UI {
   update(): void; // called ~10x per second; cheap. Rebuilds panel body only on tab/state-key change.
@@ -86,7 +90,7 @@ export interface UI {
 
 type Dec = GameState['ink'];
 const TABS: [Tab, string][] = [
-  ['map', 'Map'], ['constellations', 'Stars'], ['drift', 'Drift'], ['charts', 'Charts'], ['proj', 'Projection'], ['miles', 'Milestones'], ['save', 'Save'], ['guide', 'Guide'],
+  ['map', 'Map'], ['constellations', 'Stars'], ['drift', 'Drift'], ['charts', 'Charts'], ['proj', 'Projection'], ['miles', 'Milestones'], ['save', 'Settings'], ['guide', 'Guide'],
 ];
 const CONST_NAMES: Record<ConstellationId, string> = {
   inkstream: config.constellations.inkstream.name,
@@ -318,7 +322,10 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     update();
   };
   const head = el('div', 'panel-head');
-  head.append(el('h2', '', 'Cartographer'), help(btn('Close', 'panel-close', () => setPanel(false)), 'Close', 'Close this panel and return to the board.'));
+  head.append(
+    el('h2', '', 'Cartographer'),
+    help(btn('Close', 'panel-close', () => setPanel(false)), 'Close', 'Close this panel and return to the board.'),
+  );
   const tabBar = el('div', 'tabs');
   tabBar.setAttribute('role', 'tablist');
   const tabBtns = new Map<Tab, HTMLButtonElement>();
@@ -329,7 +336,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     tabBtns.set(id, b);
     tabBar.append(b);
   }
-  const body = el('div');
+  const body = el('div', 'panel-body');
   body.setAttribute('role', 'tabpanel');
   panel.append(head, tabBar, body);
 
@@ -340,7 +347,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     BUTTON_HELP.guide,
   );
   const actions = el('div', 'top-actions');
-  actions.append(guideBtn, toggle);
+  actions.append(...(ctx.audio ? [help(soundToggle(ctx.audio), 'Sound', BUTTON_HELP.sound)] : []), guideBtn, toggle);
   topbar.append(hud, actions);
   setPanel(!narrow());
 
@@ -822,6 +829,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     const nl = el('label', '', 'Notation ');
     nl.append(notation);
     return [
+      ...(ctx.audio ? [soundCard(ctx.audio)] : []),
       card(
         title('Save'),
         txt('The game autosaves every 10 seconds and when you leave. Export a copy to move or back up progress.'),
@@ -831,6 +839,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
         ctl(btn('Import…', '', () => openImport()), 'Import', BUTTON_HELP.import).box,
       ),
       card(title('Display'), nl, el('p', 'help', BUTTON_HELP.notation)),
+      ...(ctx.audio ? [creditsCard()] : []),
       card(title('Hard reset'), ctl(btn('Hard reset', 'danger', resetOpen), 'Hard reset', BUTTON_HELP.reset).box),
     ];
   };
