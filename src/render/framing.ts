@@ -75,7 +75,7 @@ export function fitDistance(p: FitParams): number {
   }
   const d = Math.max(dW, dH);
   const portrait = phonePortrait(p.W, p.H);
-  if (portrait && p.portraitWidthFirst) return Math.max(d, dW);
+  if (portrait && p.portraitWidthFirst) return Math.max(d, dW, dH);
   if (portrait && dW > dH * 1.01) return d;
   if (portrait && dH > dW * 1.08) return Math.max(dW, dH * 0.94);
   return d;

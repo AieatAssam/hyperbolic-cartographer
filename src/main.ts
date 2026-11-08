@@ -26,7 +26,7 @@ import {
 } from './render/framing';
 import {
   fitManifoldProjected, checkManifoldProjectFit, kleinImmersionTargetY, manifoldFitPolar,
-  resetManifoldFitFov,
+  measureTorusLandscapeBox, resetManifoldFitFov,
 } from './render/manifold-camera-fit';
 import { kleinCameraOffset } from './render/surface-params';
 import { CartographyFX, type FxContext, type FxQuality } from './render/fx';
@@ -108,14 +108,16 @@ let free: Rect = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
 let fitD = 0; // distance that fits the current footprint into `free` (0 = not yet framed)
 let layoutDirty = true;
 /** Playable cells plus ~one cell margin; decorative table / rim may extend past the screen. */
-const PLAYABLE_FRAME_MARGIN = 0.9;
+/** Half-tile (0.45) + half-cell margin on the square grid. */
+const PLAYABLE_FRAME_MARGIN = 1.02;
 
 function footprint(): [number, number][] {
   if (manifoldPreview !== 'off' && board && isSurfaceBoard(board)) return board.bounds();
   const g = graphOf(s);
   if (s.geometry === 'square') {
     const sq = g as SquareBoard;
-    return cellCorners(sq.xy.filter((_, i) => isActive(s, i)), PLAYABLE_FRAME_MARGIN);
+    const h = PLAYABLE_FRAME_MARGIN + Math.max(0, s.ring - 1) * 0.1;
+    return cellCorners(sq.xy.filter((_, i) => isActive(s, i)), h);
   }
   const pts: [number, number][] = [];
   for (let i = 0; i < g.ring.length; i++) {
@@ -126,7 +128,7 @@ function footprint(): [number, number][] {
     const len = Math.hypot(dx, dz) || 1;
     const ux = dx / len, uz = dz / len;
     const px = -uz, pz = ux;
-    const pad = 0.25 * PLAYABLE_FRAME_MARGIN;
+    const pad = 0.45 * PLAYABLE_FRAME_MARGIN;
     const r = len + pad;
     pts.push(
       [cx + ux * r, cz + uz * r],
@@ -142,9 +144,10 @@ const solveFit = () => {
     const polar = board.surface === 'torus' ? config.manifold.torusImmersionPolar : 0;
     return fitManifoldProjected(board, camera, controls.target, free, innerWidth, innerHeight, polar, manifoldAz);
   }
-  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : MARGIN;
   const W = innerWidth, H = innerHeight;
-  const portraitWidthFirst = manifoldPreview === 'off' && phonePortrait(W, H);
+  const portrait = manifoldPreview === 'off' && phonePortrait(W, H);
+  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : (portrait ? MARGIN + 3 : MARGIN);
+  const portraitWidthFirst = portrait;
   return fitDistance({
     pts: footprint(), W, H, free, fov: camera.fov, polar: POLAR, margin, portraitWidthFirst,
   });
@@ -207,9 +210,10 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
   const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : MARGIN;
   const surf = isSurfaceBoard(board) ? board : null;
   const useProjected = manifoldPreview !== 'off' && surf && !surf.isChartFlat();
+  let fitPolar = polar;
   if (useProjected && surf) {
     fitD = fitManifoldProjected(surf, camera, controls.target, free, innerWidth, innerHeight, polar, azimuth);
-    polar = manifoldFitPolar(surf.surface, surf.isChartFlat(), polar, innerWidth, innerHeight);
+    fitPolar = manifoldFitPolar(surf.surface, surf.isChartFlat(), polar, innerWidth, innerHeight);
   } else {
     const W = innerWidth, H = innerHeight;
     const portraitWidthFirst = manifoldPreview === 'off' && phonePortrait(W, H);
@@ -222,7 +226,7 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
     const [ox, oy, oz] = kleinCameraOffset(fitD);
     camera.position.set(controls.target.x + ox, controls.target.y + oy, controls.target.z + oz);
   } else {
-    const cp = Math.cos(polar);
+    const cp = Math.cos(useProjected ? fitPolar : polar);
     camera.position.set(
       controls.target.x + Math.sin(azimuth) * cp * fitD,
       controls.target.y + cp * fitD,
@@ -1070,40 +1074,77 @@ if (dev) {
       },
       manifoldProjectFit: () => {
         if (!isSurfaceBoard(board) || board.isChartFlat()) return { ok: false, failures: ['not-3d'], fill: 0 };
-        const polar = board.surface === 'torus' ? config.manifold.torusImmersionPolar : 0;
-        const klein3d = board.surface === 'klein' && !board.isChartFlat();
-        const tY = board.surface === 'torus' ? 0.1 : klein3d ? kleinImmersionTargetY() : 0;
-        controls.target.set(0, tY, 0);
         ui.update();
-        renderFrame(0);
         layoutDirty = true;
-        layoutView();
-        const fitPolar = manifoldFitPolar(board.surface, board.isChartFlat(), polar, innerWidth, innerHeight);
-        fitD = fitManifoldProjected(
-          board, camera, controls.target, free, innerWidth, innerHeight, polar, manifoldAz,
-        );
-        if (klein3d) {
-          const [ox, oy, oz] = kleinCameraOffset(fitD);
-          camera.position.set(controls.target.x + ox, controls.target.y + oy, controls.target.z + oz);
-        } else {
-          const cp = Math.cos(fitPolar);
-          camera.position.set(
-            controls.target.x + Math.sin(manifoldAz) * cp * fitD,
-            controls.target.y + cp * fitD,
-            controls.target.z + Math.cos(manifoldAz) * cp * fitD,
-          );
-        }
-        camera.lookAt(controls.target);
-        const W = innerWidth, H = innerHeight;
-        camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);
-        camera.updateProjectionMatrix();
+        applyManifoldCamera();
         renderFrame(0);
+        const polar = board.surface === 'torus' ? config.manifold.torusImmersionPolar : 0;
+        const fitPolar = manifoldFitPolar(board.surface, board.isChartFlat(), polar, innerWidth, innerHeight);
         return checkManifoldProjectFit(board, camera, free, innerWidth, innerHeight, {
           target: controls.target,
           polar: fitPolar,
           azimuth: manifoldAz,
           distance: fitD,
         });
+      },
+      torusScreenBounds: () => {
+        if (!isSurfaceBoard(board) || board.surface !== 'torus' || board.isChartFlat()) {
+          return { ok: false, reason: 'not-torus-3d' };
+        }
+        layoutDirty = true;
+        layoutView();
+        renderFrame(0);
+        return measureTorusLandscapeBox(board, camera, free, innerWidth, innerHeight);
+      },
+      playableFramingCheck: (marginPx = 8) => {
+        if (isSurfaceBoard(board)) return { ok: false, reason: 'manifold-preview' };
+        layoutDirty = true;
+        layoutView();
+        renderFrame(0);
+        const W = innerWidth, H = innerHeight;
+        const dock = document.querySelector<HTMLElement>('.dock')?.getBoundingClientRect();
+        const panelTop = dock && dock.height > 0 ? dock.top : H;
+        const g = graphOf(s);
+        const v = new THREE.Vector3();
+        const failures: string[] = [];
+        let minX = Infinity, maxX = -Infinity;
+        const project = (x: number, z: number) => {
+          v.set(x, 0, z).project(camera);
+          return [((v.x + 1) / 2) * W, ((1 - v.y) / 2) * H] as const;
+        };
+        const cornersFor = (i: number) => {
+          if (s.geometry === 'square') {
+            const sq = g as SquareBoard;
+            const [x, y] = sq.xy[i];
+            const h = 0.48;
+            return [[x - h, y - h], [x + h, y - h], [x + h, y + h], [x - h, y + h]] as [number, number][];
+          }
+          const { c, corner } = board.cellWorld(i);
+          const [cx, cz] = c;
+          const dx = corner[0] - cx, dz = corner[1] - cz;
+          const len = Math.hypot(dx, dz) || 1;
+          const ux = dx / len, uz = dz / len;
+          const px = -uz, pz = ux;
+          const h = len;
+          return [
+            [cx + ux * h, cz + uz * h], [cx - ux * h, cz - uz * h],
+            [cx + px * h, cz + pz * h], [cx - px * h, cz - pz * h],
+          ];
+        };
+        for (let i = 0; i < g.ring.length; i++) {
+          if (!isActive(s, i)) continue;
+          for (const [x, z] of cornersFor(i)) {
+            const [px, py] = project(x, z);
+            if (px < marginPx) failures.push(`cell ${i} clipped left (${px.toFixed(1)}px)`);
+            if (px > W - marginPx) failures.push(`cell ${i} clipped right (${px.toFixed(1)}px)`);
+            if (py < marginPx) failures.push(`cell ${i} clipped top (${py.toFixed(1)}px)`);
+            if (py > panelTop - marginPx) failures.push(`cell ${i} below dock band (${py.toFixed(1)}px)`);
+            minX = Math.min(minX, px);
+            maxX = Math.max(maxX, px);
+          }
+        }
+        const widthFill = Number.isFinite(minX) ? (maxX - minX) / W : 0;
+        return { ok: failures.length === 0, failures: failures.slice(0, 6), widthFill };
       },
       manifoldStats: () => {
         if (!isSurfaceBoard(board)) return null;

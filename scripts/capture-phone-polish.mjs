@@ -1,4 +1,4 @@
-/** Before/after captures for phone polish PR. Usage: POLISH_TAG=before|after npm run build && node scripts/capture-phone-polish.mjs */
+/** Phone polish captures + layout assertions. POLISH_TAG=before|after npm run build && node scripts/capture-phone-polish.mjs */
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -32,82 +32,90 @@ async function qa(page, hook, ...args) {
   }, [hook, args]);
 }
 
+async function assertBoard(page, label) {
+  const r = await qa(page, 'playableFramingCheck', 8);
+  if (!r?.ok) {
+    console.error(`${label} board framing failed:`, r?.failures ?? r);
+    process.exitCode = 1;
+  }
+}
+
+async function assertTorus(page, label) {
+  const r = await qa(page, 'torusScreenBounds');
+  if (!r?.ok) {
+    console.error(`${label} torus too small:`, r);
+    process.exitCode = 1;
+  }
+  console.log(`${label} torus: hBand=${r.heightInBand?.toFixed(3)} wView=${r.widthInView?.toFixed(3)}`);
+}
+
 const shots = [
   {
-    file: `polish-${TAG}-constellation-390x844.png`,
+    file: `polish-${TAG}-constellation-both-390x844.png`,
     vp: { width: 390, height: 844 },
     async setup(page) {
       await qa(page, 'quality', 1);
       await qa(page, 'seed', 'midgame');
       await qa(page, 'dismissTutorial');
-      await qa(page, 'manifold', 'off');
       await qa(page, 'constellationCapture');
     },
   },
   {
-    file: `polish-${TAG}-board-midgame-390x844.png`,
-    vp: { width: 390, height: 844 },
-    async setup(page) {
-      await qa(page, 'quality', 1);
-      await qa(page, 'seed', 'midgame');
-      await qa(page, 'dismissTutorial');
-    },
+    file: `polish-${TAG}-board-midgame-360x640.png`,
+    vp: { width: 360, height: 640 },
+    board: 'midgame',
   },
   {
-    file: `polish-${TAG}-board-early-390x844.png`,
+    file: `polish-${TAG}-board-midgame-390x844.png`,
     vp: { width: 390, height: 844 },
-    async setup(page) {
-      await qa(page, 'quality', 1);
-      await qa(page, 'seed', 'fresh');
-      await qa(page, 'dismissTutorial');
-    },
+    board: 'midgame',
+  },
+  {
+    file: `polish-${TAG}-board-midgame-430x932.png`,
+    vp: { width: 430, height: 932 },
+    board: 'midgame',
   },
   {
     file: `polish-${TAG}-board-early-360x640.png`,
     vp: { width: 360, height: 640 },
-    async setup(page) {
-      await qa(page, 'quality', 1);
-      await qa(page, 'seed', 'fresh');
-      await qa(page, 'dismissTutorial');
-    },
+    board: 'fresh',
+  },
+  {
+    file: `polish-${TAG}-board-early-390x844.png`,
+    vp: { width: 390, height: 844 },
+    board: 'fresh',
+  },
+  {
+    file: `polish-${TAG}-board-early-430x932.png`,
+    vp: { width: 430, height: 932 },
+    board: 'fresh',
   },
   {
     file: `polish-${TAG}-palette-360x640.png`,
     vp: { width: 360, height: 640 },
-    async setup(page) {
-      await qa(page, 'quality', 1);
-      await qa(page, 'seed', 'fresh');
-      await qa(page, 'dismissTutorial');
-    },
-    clip: true,
+    board: 'fresh',
+    clip: 'palette',
   },
   {
     file: `polish-${TAG}-torus-844x390.png`,
     vp: { width: 844, height: 390 },
     isMobile: true,
-    async setup(page) {
-      await qa(page, 'quality', 1);
-      await qa(page, 'seed', 'midgame');
-      await qa(page, 'dismissTutorial');
-      await qa(page, 'manifold', 'torus');
-      await page.waitForFunction(() => window.game?.qa?.manifoldStats?.()?.surface === 'torus');
-      await qa(page, 'manifoldProjectFit');
-    },
+    torus: true,
   },
   {
     file: `polish-${TAG}-torus-932x430.png`,
     vp: { width: 932, height: 430 },
     isMobile: true,
-    async setup(page) {
-      await qa(page, 'quality', 1);
-      await qa(page, 'seed', 'midgame');
-      await qa(page, 'dismissTutorial');
-      await qa(page, 'manifold', 'torus');
-      await page.waitForFunction(() => window.game?.qa?.manifoldStats?.()?.surface === 'torus');
-      await qa(page, 'manifoldProjectFit');
-    },
+    torus: true,
   },
 ];
+
+async function setupBoard(page, seed) {
+  await qa(page, 'quality', 1);
+  await qa(page, 'seed', seed);
+  await qa(page, 'dismissTutorial');
+  await qa(page, 'manifold', 'off');
+}
 
 async function main() {
   const port = await freePort();
@@ -129,10 +137,22 @@ async function main() {
     const page = await ctx.newPage();
     await page.goto(url, { waitUntil: 'load' });
     await page.waitForFunction(() => window.game?.qa?.ready);
-    await s.setup(page);
+    if (s.torus) {
+      await setupBoard(page, 'midgame');
+      await qa(page, 'manifold', 'torus');
+      await page.waitForFunction(() => window.game?.qa?.manifoldStats?.()?.surface === 'torus');
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      await assertTorus(page, s.file);
+    } else if (s.setup) {
+      await s.setup(page);
+    } else if (s.board) {
+      await setupBoard(page, s.board);
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      await assertBoard(page, s.file);
+    }
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     const opts = { path: join(ART, s.file) };
-    if (s.clip) {
+    if (s.clip === 'palette') {
       const box = await page.locator('.palette').boundingBox();
       if (box) opts.clip = box;
     }
@@ -142,6 +162,7 @@ async function main() {
   }
   await browser.close();
   child.kill('SIGTERM');
+  if (process.exitCode) process.exit(process.exitCode);
 }
 
 main().catch((e) => {

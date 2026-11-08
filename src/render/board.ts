@@ -141,7 +141,7 @@ export class Board {
   private mats: THREE.Material[] = [];
   private tileType: GameState['tiles'] = [];
   private previewLine: THREE.Line;
-  private constellationLine: THREE.Mesh;
+  private constellationPulse: THREE.LineSegments;
   private constellationFaint: THREE.Mesh;
   private constellationStars: THREE.InstancedMesh;
   private ghostLine: THREE.LineSegments;
@@ -244,8 +244,18 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       this.group.add(m);
       return m;
     };
-    this.constellationLine = mkRibbon(CONSTELLATION.ink, 8);
-    this.constellationFaint = mkRibbon(CONSTELLATION.inkComplete, 6);
+    this.constellationPulse = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineDashedMaterial({
+        color: CONSTELLATION.inkPulse, transparent: true, opacity: CONSTELLATION.opacityPulse,
+        dashSize: 0.22, gapSize: 0.12, depthTest: false, depthWrite: false,
+      }),
+    );
+    this.constellationPulse.visible = false;
+    this.constellationPulse.frustumCulled = false;
+    this.constellationPulse.renderOrder = 8;
+    this.group.add(this.constellationPulse);
+    this.constellationFaint = mkRibbon(CONSTELLATION.inkComplete, 7);
     const starCap = GRAPHS[geometry].ring.length;
     this.constellationStars = new THREE.InstancedMesh(
       new THREE.SphereGeometry(0.13, 10, 8),
@@ -358,17 +368,18 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     const bright = hl?.constellation;
     const faint = hl?.constellationPermanent;
     const ghost = hl?.constellationGhost;
-    const mainOp = bright?.length ? 0.85 + 0.15 * pulse : 0;
-    this.updateConstellationRibbons(
-      bright, this.constellationLine, CONSTELLATION.ribbonWidth * 0.5,
-      mainOp * CONSTELLATION.opacityPulse, 0.52,
-    );
+    const pulseOp = bright?.length ? (0.55 + 0.45 * pulse) * CONSTELLATION.opacityPulse : 0;
+    this.updateEdgeLines(bright, this.constellationPulse, 0.54, pulseOp);
     this.updateConstellationRibbons(
       faint, this.constellationFaint, CONSTELLATION.ribbonWidthComplete * 0.5,
-      CONSTELLATION.opacityComplete, 0.42,
+      CONSTELLATION.opacityComplete, 0.46,
     );
-    this.updateEdgeLines(ghost, this.ghostLine, 0.38, CONSTELLATION.opacityGhost);
-    this.updateConstellationStars(bright, pulse);
+    this.updateEdgeLines(ghost, this.ghostLine, 0.4, CONSTELLATION.opacityGhost);
+    if (pulse <= 0 && bright?.length) {
+      this.constellationStars.count = 0;
+    } else {
+      this.updateConstellationStars(bright, pulse);
+    }
   }
 
   private updatePreviewArc(arc: readonly [number, number] | undefined) {

@@ -124,19 +124,59 @@ function projectExtent(
   return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
 }
 
-/** min(width/boardW, height/boardH) over worst spin sample; landscape torus uses height in the free band. */
+/** min(width/boardW, height/boardH) over worst spin sample. */
 export function projectedFillRatio(
   extent: ProjectedExtent,
   board: BoardScreenRect,
   landscapeTorus = false,
 ): number {
   if (board.width < 1 || board.height < 1) return 0;
-  if (landscapeTorus) return extent.height / board.height;
+  if (landscapeTorus) return 0;
   return Math.min(extent.width / board.width, extent.height / board.height);
 }
 
+export interface TorusLandscapeMetrics {
+  bandHeight: number;
+  extent: ProjectedExtent;
+  heightInBand: number;
+  widthInView: number;
+  ok: boolean;
+}
+
+/** Screen bbox of the torus AABB (corners), same view as the live board. */
+export function measureTorusLandscapeBox(
+  board: SurfaceBoard,
+  camera: THREE.PerspectiveCamera,
+  free: Rect,
+  W: number,
+  H: number,
+): TorusLandscapeMetrics {
+  const corners = manifoldFitCorners(board);
+  const fillSteps = config.manifold.fillMeasureSpins;
+  const bandHeight = Math.max(1, free.bottom - free.top);
+  let best = { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
+  let bestScore = 0;
+  for (const ang of idleSpinAngles(board, fillSteps, true)) {
+    const ext = projectExtent(corners, camera, W, H, ang);
+    const score = Math.max(ext.height / bandHeight, ext.width / W);
+    if (score > bestScore) {
+      bestScore = score;
+      best = ext;
+    }
+  }
+  const heightInBand = best.height / bandHeight;
+  const widthInView = best.width / W;
+  return {
+    bandHeight,
+    extent: best,
+    heightInBand,
+    widthInView,
+    ok: heightInBand >= 0.45 || widthInView >= 0.4,
+  };
+}
+
 const MANIFOLD_BASE_FOV = 45;
-const TORUS_LANDSCAPE_FOV = 36;
+const TORUS_LANDSCAPE_FOV = 40;
 
 export function manifoldFitFov(
   surface: SurfaceBoard['surface'],
@@ -177,6 +217,16 @@ export function manifoldFitPolar(
   return polar;
 }
 
+function fitInsidePoints(
+  board: SurfaceBoard,
+  W: number,
+  H: number,
+  samples: [number, number, number][],
+): [number, number, number][] {
+  return torusLandscapeFill(board.surface, board.isChartFlat(), W, H)
+    ? manifoldFitCorners(board) : samples;
+}
+
 /** Fit samples, at every idle-spin step, must lie inside the board rect (margin already in boardRect). */
 function allSamplesInsideAllSpins(
   samples: [number, number, number][],
@@ -186,10 +236,11 @@ function allSamplesInsideAllSpins(
   H: number,
   boardRect: BoardScreenRect,
 ): boolean {
+  const checkPts = fitInsidePoints(board, W, H, samples);
   const steps = config.manifold.fitSpinSteps;
   const tmp = new THREE.Vector3();
   for (const ang of idleSpinAngles(board, steps, false)) {
-    for (const sv of samples) {
+    for (const sv of checkPts) {
       const [x, y, z] = rotateYp(sv[0], sv[1], sv[2], ang);
       tmp.set(x, y, z);
       tmp.project(camera);
@@ -226,12 +277,19 @@ function worstSpinFill(
   W: number,
   H: number,
   boardRect: BoardScreenRect,
+  free?: Rect,
 ): { fill: number; inside: boolean; extent: ProjectedExtent } {
   let bestFill = 0;
   let bestExt = { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
   const fillSteps = config.manifold.fillMeasureSpins;
   const kleinSway = board.surface === 'klein' && !board.isChartFlat();
   const landTorus = torusLandscapeFill(board.surface, board.isChartFlat(), W, H);
+  if (landTorus && free) {
+    const m = measureTorusLandscapeBox(board, camera, free, W, H);
+    const inside = extentsInsideAllSpins(samples, board, camera, W, H, boardRect);
+    const score = Math.max(m.heightInBand, m.widthInView);
+    return { fill: score, inside, extent: m.extent };
+  }
   for (const ang of idleSpinAngles(board, fillSteps, !kleinSway)) {
     const ext = mergeExtents(
       projectExtent(samples, camera, W, H, ang),
@@ -242,6 +300,47 @@ function worstSpinFill(
   }
   const inside = extentsInsideAllSpins(samples, board, camera, W, H, boardRect);
   return { fill: bestFill, inside, extent: bestExt };
+}
+
+function tuneTorusLandscapeVisual(
+  board: SurfaceBoard,
+  samples: [number, number, number][],
+  camera: THREE.PerspectiveCamera,
+  target: THREE.Vector3,
+  free: Rect,
+  W: number,
+  H: number,
+  polar: number,
+  azimuth: number,
+  boardRect: BoardScreenRect,
+  d0: number,
+): number {
+  const inside = () => allSamplesInsideAllSpins(samples, board, camera, W, H, boardRect);
+  const ok = (d: number) => {
+    setOrbitCamera(camera, target, d, polar, azimuth, free, W, H, board);
+    return measureTorusLandscapeBox(board, camera, free, W, H).ok && inside();
+  };
+  let d = d0;
+  setOrbitCamera(camera, target, d, polar, azimuth, free, W, H, board);
+  for (let i = 0; i < 64 && !inside(); i++) {
+    d *= 1.03;
+    setOrbitCamera(camera, target, d, polar, azimuth, free, W, H, board);
+  }
+  for (let i = 0; i < 72; i++) {
+    const trial = d * 0.972;
+    if (ok(trial)) d = trial;
+    else break;
+  }
+  for (let i = 0; i < 72; i++) {
+    const m = measureTorusLandscapeBox(board, camera, free, W, H);
+    if (m.ok) break;
+    const trial = d * 0.972;
+    setOrbitCamera(camera, target, trial, polar, azimuth, free, W, H, board);
+    if (!inside()) break;
+    d = trial;
+  }
+  setOrbitCamera(camera, target, d, polar, azimuth, free, W, H, board);
+  return d;
 }
 
 function setOrbitCamera(
@@ -365,12 +464,16 @@ export function fitManifoldProjected(
   if (board.surface === 'klein' && !board.isChartFlat()) {
     d = tuneKleinFillDistance(board, samples, camera, target, free, W, H, fitPolar, azimuth, boardRect, d);
   } else if (board.surface === 'torus' && !board.isChartFlat()) {
-    const fillMin = phoneLandscape(W, H) ? 0.45 : config.manifold.boardFillMin;
-    const fillMax = phoneLandscape(W, H) ? 0.6 : config.manifold.boardFillMax;
-    d = tuneManifoldFillDistance(
-      board, samples, camera, target, free, W, H, fitPolar, azimuth, boardRect, d,
-      fillMin, fillMax,
-    );
+    if (phoneLandscape(W, H)) {
+      d = tuneTorusLandscapeVisual(
+        board, samples, camera, target, free, W, H, fitPolar, azimuth, boardRect, d,
+      );
+    } else {
+      d = tuneManifoldFillDistance(
+        board, samples, camera, target, free, W, H, fitPolar, azimuth, boardRect, d,
+        config.manifold.boardFillMin, config.manifold.boardFillMax,
+      );
+    }
   }
 
   board.group.rotation.y = savedRotY;
@@ -392,6 +495,7 @@ export interface ProjectFitReport {
   /** Orbit distance after fit (QA / layout diagnostics). */
   cameraDistance?: number;
   canZoomIn?: boolean;
+  torusScreen?: TorusLandscapeMetrics;
 }
 
 /** True if an orbit zoom-in step keeps samples inside (same model as fit tuning, not a camera lerp hack). */
@@ -434,26 +538,36 @@ export function checkManifoldProjectFit(
   camera.updateProjectionMatrix();
   const inside = extentsInsideAllSpins(samples, board, camera, W, H, rect);
   const landTorus = torusLandscapeFill(board.surface, board.isChartFlat(), W, H);
-  const { fill } = worstSpinFill(samples, corners, board, camera, W, H, rect);
-  if (!inside) {
-    failures.push('sample projected extent outside board at some spin');
+  let fill = 0;
+  let torusScreen: TorusLandscapeMetrics | undefined;
+  if (landTorus) {
+    torusScreen = measureTorusLandscapeBox(board, camera, free, W, H);
+    fill = Math.max(torusScreen.heightInBand, torusScreen.widthInView);
+    if (!inside) failures.push('sample projected extent outside board at some spin');
+    if (!torusScreen.ok) {
+      failures.push(
+        `torus screen box small: height ${torusScreen.heightInBand.toFixed(3)} of band, `
+        + `width ${torusScreen.widthInView.toFixed(3)} of view (need h≥0.45 or w≥0.40)`,
+      );
+    }
+  } else {
+    const w = worstSpinFill(samples, corners, board, camera, W, H, rect, free);
+    fill = w.fill;
+    if (!inside) failures.push('sample projected extent outside board at some spin');
+    const fillMin = board.surface === 'klein' && !board.isChartFlat()
+      ? config.manifold.kleinBoardFillMin : config.manifold.boardFillMin;
+    const fillMax = board.surface === 'klein' && !board.isChartFlat()
+      ? config.manifold.kleinBoardFillMax : config.manifold.boardFillMax;
+    if (fill < fillMin && inside && orbit) {
+      const canZoomIn = orbitCanZoomInWhileInside(samples, board, camera, orbit, free, W, H, rect);
+      if (canZoomIn) failures.push(`projected fill ${fill.toFixed(3)} < min ${fillMin}`);
+      return { ok: failures.length === 0, failures, rect, fill, canZoomIn, torusScreen };
+    }
+    if (fill > fillMax && inside) {
+      failures.push(`projected fill ${fill.toFixed(3)} > max ${fillMax}`);
+    }
   }
-  const fillMin = board.surface === 'klein' && !board.isChartFlat()
-    ? config.manifold.kleinBoardFillMin
-    : landTorus ? 0.45 : config.manifold.boardFillMin;
-  const fillMax = board.surface === 'klein' && !board.isChartFlat()
-    ? config.manifold.kleinBoardFillMax
-    : landTorus ? 0.6 : config.manifold.boardFillMax;
   const targetY = board.surface === 'torus' ? 0.1 : !board.isChartFlat() ? kleinImmersionTargetY() : 0;
   const cameraDistance = camera.position.distanceTo(new THREE.Vector3(0, targetY, 0));
-  let canZoomIn = false;
-  if (fill < fillMin && inside && orbit) {
-    canZoomIn = orbitCanZoomInWhileInside(samples, board, camera, orbit, free, W, H, rect);
-    if (canZoomIn) {
-      failures.push(`projected fill ${fill.toFixed(3)} < min ${fillMin}`);
-    }
-  } else if (fill > fillMax && inside) {
-    failures.push(`projected fill ${fill.toFixed(3)} > max ${fillMax}`);
-  }
-  return { ok: failures.length === 0, failures, rect, fill, cameraDistance, canZoomIn };
+  return { ok: failures.length === 0, failures, rect, fill, cameraDistance, canZoomIn: false, torusScreen };
 }
