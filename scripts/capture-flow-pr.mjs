@@ -1,4 +1,4 @@
-/** Flow links + UI spacing captures. POLISH_TAG=before|after. Tag=after: seed links-demo, inspect tile roles. */
+/** Flow links captures. POLISH_TAG=before|after. After: seed links-demo, inspect each role, assert panel title. */
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -22,7 +22,12 @@ const VIEWS = [
   { w: 1280, h: 800 },
 ];
 
-const ROLES = ['mill', 'spring', 'bridge', 'beacon'];
+const ROLES = [
+  { id: 'mill', title: 'Mill' },
+  { id: 'spring', title: 'Spring' },
+  { id: 'bridge', title: 'Bridge' },
+  { id: 'beacon', title: 'Beacon' },
+];
 
 async function qa(page, hook, ...args) {
   return page.evaluate(async ([h, a]) => {
@@ -34,13 +39,26 @@ async function qa(page, hook, ...args) {
 async function waitReady(page) {
   await page.goto(URL, { waitUntil: 'load' });
   await page.waitForFunction(() => window.game?.qa?.ready);
-  if (TAG === 'after') {
-    await qa(page, 'seed', 'links-demo');
-  } else {
-    await qa(page, 'seed', 'ux-demo');
-  }
+  if (TAG === 'after') await qa(page, 'seed', 'links-demo');
+  else await qa(page, 'seed', 'ux-demo');
   await qa(page, 'dismissTutorial');
   await qa(page, 'menu', false);
+  await page.evaluate(() => document.querySelector('.tutorial')?.classList.add('hidden'));
+  await page.waitForTimeout(500);
+}
+
+async function inspectRole(page, role) {
+  const cells = await qa(page, 'linksDemoTiles');
+  const idx = cells?.[role.id];
+  if (!(idx >= 0)) throw new Error(`linksDemoTiles missing ${role.id}: ${JSON.stringify(cells)}`);
+  const ok = await qa(page, 'inspectAt', idx);
+  if (!ok) throw new Error(`inspectAt(${idx}) failed for ${role.id}`);
+  await page.waitForFunction((name) => {
+    const t = document.querySelector('.info-lead b')?.textContent ?? '';
+    return t.includes(name);
+  }, role.title, { timeout: 8000 });
+  const legend = await page.locator('.flow-legend').count();
+  if (!legend) throw new Error(`no .flow-legend after inspecting ${role.id}`);
   await page.waitForTimeout(400);
 }
 
@@ -59,31 +77,23 @@ const browser = await chromium.launch({
 for (const { w, h } of VIEWS) {
   const page = await browser.newPage({ viewport: { width: w, height: h } });
   await waitReady(page);
-  await page.evaluate(() => document.querySelector('.tutorial')?.classList.add('hidden'));
   const name = `flow-${TAG}-ui-${w}x${h}.png`;
   await page.screenshot({ path: join(ART, name) });
   console.log('wrote', join(ART, name));
   await page.close();
 }
 
-async function inspectRole(page, role) {
-  const cells = await qa(page, 'linksDemoTiles');
-  const idx = cells?.[role] ?? -1;
-  if (idx >= 0) await qa(page, 'inspectAt', idx);
-  await page.waitForTimeout(700);
-}
-
-for (const { w, h } of VIEWS) {
-  if (TAG !== 'after') continue;
-  for (const role of ROLES) {
-    const page = await browser.newPage({ viewport: { width: w, height: h } });
-    await waitReady(page);
-    await page.evaluate(() => document.querySelector('.tutorial')?.classList.add('hidden'));
-    await inspectRole(page, role);
-    const name = `flow-after-board-${role}-${w}x${h}.png`;
-    await page.screenshot({ path: join(ART, name) });
-    console.log('wrote', join(ART, name));
-    await page.close();
+if (TAG === 'after') {
+  for (const { w, h } of VIEWS) {
+    for (const role of ROLES) {
+      const page = await browser.newPage({ viewport: { width: w, height: h } });
+      await waitReady(page);
+      await inspectRole(page, role);
+      const name = `flow-after-board-${role.id}-${w}x${h}.png`;
+      await page.screenshot({ path: join(ART, name) });
+      console.log('wrote', join(ART, name));
+      await page.close();
+    }
   }
 }
 
@@ -97,6 +107,7 @@ await qa(stab, 'clearBoardFocus');
 const tapped = await qa(stab, 'cameraStabilitySample', 60);
 writeFileSync(join(ART, `flow-${TAG}-stability-taps.json`), JSON.stringify(tapped, null, 2));
 console.log('stability', idle?.ok, tapped?.ok);
+await stab.close();
 
 const clipPath = join(ART, 'flow-after-links-clip-390x844.webm');
 if (TAG === 'after') {
@@ -106,12 +117,8 @@ if (TAG === 'after') {
   });
   const vPage = await clip.newPage();
   await waitReady(vPage);
-  const cells = await qa(vPage, 'linksDemoTiles');
-  if (cells?.mill >= 0) {
-    await qa(vPage, 'inspectAt', cells.mill);
-    await vPage.waitForTimeout(6000);
-  }
-  await vPage.evaluate(() => document.querySelector('.tutorial')?.classList.add('hidden'));
+  await inspectRole(vPage, { id: 'mill', title: 'Mill' });
+  await vPage.waitForTimeout(3500);
   const vpath = await vPage.video()?.path();
   await clip.close();
   if (vpath) {
@@ -132,6 +139,5 @@ if (TAG === 'after') {
   }
 }
 
-await stab.close();
 await browser.close();
 if (server) server.kill();

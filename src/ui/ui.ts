@@ -1008,11 +1008,15 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     const hint = step && tutVisible() ? step.tool : undefined;
     for (const x of tileBtns) x.b.classList.toggle('hint', x.t === hint && ctx.tool.current !== hint);
 
-    // Info card: focused/hovered control help > touch cell preview > selected tool
+    // Info card: inspect > focused help > touch cell preview > selected tool
     const sel = ctx.selected();
     const tl = ctx.tool.current;
-    // A selected touch cell beats stale hover help; keyboard/focus help still wins.
-    if (helpFor?.isConnected && !(hoverHelp && sel >= 0)) {
+    const inspected = ctx.inspectCell();
+    if (inspected >= 0) {
+      const far = s.geometry === 'hyper' ? '<div class="info-note muted">Edge cells shrink. Drag closer or centre this cell.</div>' : '';
+      setInfo(ctx.cellInfo(inspected) + far);
+      infoActs.hidden = true;
+    } else if (helpFor?.isConnected && !(hoverHelp && sel >= 0)) {
       setInfo(`<b>${escape(helpFor.dataset.helpName ?? '')}</b> · ${escape(helpFor.dataset.help ?? '')}${helpFor.matches(':disabled') ? ' <span class="neg">(unavailable now; see the red note)</span>' : ''}`);
       infoActs.hidden = true;
     } else if (sel >= 0) {

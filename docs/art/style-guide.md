@@ -105,10 +105,10 @@ Shadow maps are off.
 | `FLOW_LINK.boost` | `#ff5a7a` | Beacon multiplier. |
 | `FLOW_LINK.shadow` | `#0a0e18` | Under-stroke for tubes on bright tiles. |
 | `FLOW_LINK.bridge` | `#c080ff` | Bridge neighbour link (violet tube). |
-| `FLOW_LINK.relay` | `#ffc840` | Multi-hop bridge relay (gold). |
+| `FLOW_LINK.relay` | `#aa66ff` | Bridge-to-bridge relay (violet). |
 | `FLOW_LINK.penalty` | `#ff6b6b` | Downstream loss / blocked feed. |
 
-Inspect flow tubes use a dark under-stroke (`FLOW_LINK.shadow`), saturated emissive cores (~2.5× prior radius), foot rings at both endpoints, and dash motes for direction (respect `prefers-reduced-motion`).
+Inspect flow uses one smooth quadratic arch per source–target pair (no hop trunks), a dark under-stroke (`FLOW_LINK.shadow`), foot rings, and small motes for direction (respect `prefers-reduced-motion`).
 
 **Placement / inspect preview (`PREVIEW`, Wired).** `bridgeOutline` `#e8c872`, plus dim/saturation scalars for inspect and bridge mixes.
 

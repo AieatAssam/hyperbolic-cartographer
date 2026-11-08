@@ -173,7 +173,7 @@ export const FLOW_LINK = {
   feed: 0x5fd4ff,
   boost: 0xff5a7a,
   bridge: 0xc080ff,
-  relay: 0xffc840,
+  relay: 0xaa66ff,
   penalty: 0xff6b6b,
   foot: 0xffffff,
   shadow: 0x0a0e18,

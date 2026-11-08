@@ -1,6 +1,5 @@
 import { adjacency, mods, prod } from '../core/economy';
 import { bridgeComponents, bridgeTouchSet } from '../core/bridge-relay';
-import { bridgePath } from './fx-graph';
 import { config } from '../core/config';
 import type { TileGraph } from '../core/geometry/graph';
 import { graphOf, type GameState } from '../core/state';
@@ -14,38 +13,16 @@ export interface FlowLink {
   kind: FlowLinkKind;
   /** Ink/s carried or delta sign for labels (0 = omit). */
   rate: number;
-  path?: readonly number[];
 }
 
 const keyOf = (L: FlowLink) => `${L.from}>${L.to}:${L.kind}`;
 
-function pushPath(out: FlowLink[], path: readonly number[], kind: FlowLinkKind, rate: number) {
-  for (let k = 0; k + 1 < path.length; k++) {
-    out.push({ from: path[k], to: path[k + 1], kind: k === path.length - 2 ? kind : 'relay', rate: k === path.length - 2 ? rate : 0 });
-  }
-}
-
-function linkPath(
-  out: FlowLink[],
-  g: TileGraph,
-  tiles: (TileType | null)[],
-  from: number,
-  to: number,
-  kind: FlowLinkKind,
-  reach: number,
-  rate: number,
-) {
+function pushPair(out: FlowLink[], from: number, to: number, kind: FlowLinkKind, rate: number) {
   if (from === to) return;
-  const path = bridgePath(g, tiles, from, to, reach);
-  if (path && path.length > 2) pushPath(out, path, kind, rate);
-  else out.push({ from, to, kind, rate, path: path ?? undefined });
+  out.push({ from, to, kind, rate });
 }
 
-function millFeedRate(m: ReturnType<typeof mods>): number {
-  return config.tiles.spring.out * m.global;
-}
-
-/** All inspect flow edges for tile `focus`. */
+/** One smooth source→target arch per relationship. Never split into hop segments. */
 export function flowLinksForTile(
   g: TileGraph,
   tiles: (TileType | null)[],
@@ -58,42 +35,32 @@ export function flowLinksForTile(
   const kind = tiles[focus]!;
   const out: FlowLink[] = [];
   const adj = adjacency(g, tiles, focus, reach);
+  const springOut = config.tiles.spring.out * m.global;
 
   if (kind === 'mill') {
     for (const n of adj) {
       if (tiles[n] === 'spring') {
-        const rate = perTile[focus] > 0 ? perTile[n] ?? millFeedRate(m) : millFeedRate(m);
-        linkPath(out, g, tiles, n, focus, 'feed', reach, rate);
+        const rate = perTile[n] > 0 ? perTile[n] : springOut;
+        pushPair(out, n, focus, 'feed', rate);
       }
-      if (tiles[n] === 'beacon') linkPath(out, g, tiles, n, focus, 'boost', reach, 0);
-    }
-    for (const n of adj) {
-      if (tiles[n] !== 'beacon') continue;
-      for (const v of adjacency(g, tiles, n, reach)) {
-        if (v === focus) continue;
-        linkPath(out, g, tiles, n, v, 'boost', reach, 0);
-      }
+      if (tiles[n] === 'beacon') pushPair(out, n, focus, 'boost', 0);
     }
   }
 
   if (kind === 'spring') {
     for (const n of adj) {
-      if (tiles[n] === 'mill') linkPath(out, g, tiles, focus, n, 'feed', reach, perTile[focus] ?? config.tiles.spring.out);
-      if (tiles[n] === 'beacon') linkPath(out, g, tiles, n, focus, 'boost', reach, 0);
-    }
-    for (const n of adj) {
-      if (tiles[n] !== 'beacon') continue;
-      for (const v of adjacency(g, tiles, n, reach)) {
-        if (v === focus) continue;
-        linkPath(out, g, tiles, n, v, 'boost', reach, 0);
+      if (tiles[n] === 'mill') {
+        const rate = perTile[focus] > 0 ? perTile[focus] : springOut;
+        pushPair(out, focus, n, 'feed', rate);
       }
+      if (tiles[n] === 'beacon') pushPair(out, n, focus, 'boost', 0);
     }
   }
 
   if (kind === 'beacon') {
     for (const n of adj) {
       const tn = tiles[n];
-      if (tn === 'spring' || tn === 'mill') linkPath(out, g, tiles, focus, n, 'boost', reach, 0);
+      if (tn === 'spring' || tn === 'mill') pushPair(out, focus, n, 'boost', 0);
     }
   }
 
@@ -101,22 +68,20 @@ export function flowLinksForTile(
     for (const comp of bridgeComponents(g, tiles)) {
       if (!comp.includes(focus)) continue;
       const touch = [...bridgeTouchSet(g, tiles, comp)];
-      for (let i = 0; i < touch.length; i++) {
-        for (let j = i + 1; j < touch.length; j++) {
-          const a = touch[i], b = touch[j];
-          if (tiles[a] === 'bridge' && tiles[b] === 'bridge') continue;
-          const lk = tiles[a] === 'bridge' || tiles[b] === 'bridge' ? 'bridge' : 'relay';
-          linkPath(out, g, tiles, a, b, lk, reach, 0);
+      for (const n of touch) {
+        if (n === focus) continue;
+        const lk = tiles[n] === 'bridge' ? 'relay' : 'bridge';
+        pushPair(out, focus, n, lk, 0);
+      }
+      for (const a of touch) {
+        if (tiles[a] !== 'spring') continue;
+        for (const b of touch) {
+          if (tiles[b] !== 'mill') continue;
+          const rate = perTile[a] > 0 ? perTile[a] : springOut;
+          pushPair(out, a, b, 'feed', rate);
         }
       }
-      for (const n of touch) {
-        if (n !== focus) linkPath(out, g, tiles, focus, n, 'relay', reach, 0);
-      }
     }
-  }
-
-  if (kind === 'vault') {
-    for (const n of adj) linkPath(out, g, tiles, focus, n, 'relay', reach, 0);
   }
 
   const seen = new Set<string>();

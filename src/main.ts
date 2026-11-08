@@ -14,7 +14,7 @@ import { playChime } from './ui/chime';
 import { AUDIO_KEY, initAudio } from './audio';
 import { placementImpactState, tileInfluenceState } from './core/placement-impact';
 import { flowLinksForState } from './render/flow-links';
-import { archPeakY } from './render/flow-arch';
+import { archControl, fanForLink } from './render/flow-arch';
 import type { TileGraph } from './core/geometry/graph';
 import { canDrift, canProject, drift, project } from './core/prestige';
 import { applyOffline, simulate } from './core/tick';
@@ -174,15 +174,13 @@ const solveFit = () => {
   }
   const W = innerWidth, H = innerHeight;
   const portrait = manifoldPreview === 'off' && phonePortrait(W, H);
-  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : (portrait ? MARGIN + 8 : MARGIN);
+  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : (portrait ? MARGIN + 6 : MARGIN + 18);
   const portraitWidthFirst = portrait;
   let d = fitDistance({
     pts: footprint(), W, H, free, fov: camera.fov, polar: POLAR, margin, portraitWidthFirst,
   });
   if (portrait && manifoldPreview === 'off' && s.geometry === 'square') {
-    const narrow = innerWidth <= 430;
-    const ringK = Math.max(0, s.ring - 1);
-    d *= (narrow ? 1.1 : 1.04) + ringK * (narrow ? 0.016 : 0.008);
+    d *= 1.06 + Math.max(0, s.ring - 1) * 0.016;
   }
   return d;
 };
@@ -192,9 +190,9 @@ const solveFit = () => {
 function layoutView() {
   layoutDirty = false;
   const W = innerWidth, H = innerHeight;
-  const overlays = [...document.querySelectorAll<HTMLElement>('#ui .hud, #ui .panel, #ui .dock, #ui .manifold-bar')].map((el) => ({
+  const overlays = [...document.querySelectorAll<HTMLElement>('#ui .hud, #ui .panel, #ui .dock, #ui .palette, #ui .manifold-bar')].map((el) => ({
     role: (el.classList.contains('hud') ? 'hud'
-      : (el.classList.contains('dock') || el.classList.contains('manifold-bar')) ? 'dock' : 'panel') as Role,
+      : (el.classList.contains('dock') || el.classList.contains('palette') || el.classList.contains('manifold-bar')) ? 'dock' : 'panel') as Role,
     rect: el.getBoundingClientRect(),
   }));
   const nextFree = freeRect(overlays, W, H);
@@ -204,7 +202,7 @@ function layoutView() {
   const ink = document.querySelector<HTMLElement>('[data-fx-target="ink"]')?.getBoundingClientRect();
   if (ink && ink.width > 0) inkTarget = [((ink.left + ink.width / 2) / W) * 2 - 1, 1 - ((ink.top + ink.height / 2) / H) * 2];
   const portrait = phonePortrait(W, H);
-  const lift = portrait ? (free.bottom - free.top) * 0.07 : 0;
+  const lift = portrait ? (free.bottom - free.top) * 0.04 : 0;
   camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2 - lift, W, H);
   camera.updateProjectionMatrix();
   const manifold3d = manifoldPreview !== 'off' && board && isSurfaceBoard(board) && !board.isChartFlat();
@@ -252,7 +250,7 @@ if (window.visualViewport) {
     clearPreviewOnLayoutChange(false);
   });
 }
-const observeUI = () => document.querySelectorAll('#ui .hud, #ui .panel, #ui .dock, #ui .manifold-bar').forEach((el) => ro.observe(el));
+const observeUI = () => document.querySelectorAll('#ui .hud, #ui .panel, #ui .dock, #ui .palette, #ui .manifold-bar').forEach((el) => ro.observe(el));
 new MutationObserver(() => ((layoutDirty = true), observeUI())).observe(document.getElementById('ui')!, { childList: true });
 
 let manifoldAz = Math.PI * 0.32;
@@ -275,8 +273,8 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
     fitD = fitManifoldProjected(surf, camera, controls.target, free, innerWidth, innerHeight, polar, azimuth);
     fitPolar = manifoldFitPolar(surf.surface, surf.isChartFlat(), polar, innerWidth, innerHeight);
   } else {
-    const effFill = portraitBoard ? Math.min(fill, 0.8) : fill;
-    fitD = solveFit() / Math.max(1, Math.min(1.08, effFill));
+    const effFill = portraitBoard ? Math.min(fill, 1) : Math.min(fill, 1);
+    fitD = solveFit() / Math.max(1, effFill);
   }
   controls.maxDistance = Math.max(40, fitD * 1.5);
   if (klein3d) {
@@ -293,7 +291,7 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
   camera.lookAt(controls.target);
   const W = innerWidth, H = innerHeight;
   const portrait = phonePortrait(W, H);
-  const lift = portrait ? (free.bottom - free.top) * 0.07 : 0;
+  const lift = portrait ? (free.bottom - free.top) * 0.04 : 0;
   camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2 - lift, W, H);
   camera.updateProjectionMatrix();
 };
@@ -448,16 +446,15 @@ function applyTool(i: number): boolean {
   return true;
 }
 
-function linkMidScreen(from: number, to: number): { x: number; y: number } | null {
+function linkApexScreen(links: readonly { from: number; to: number }[], i: number): { x: number; y: number } | null {
   if (isSurfaceBoard(board)) return null;
-  const ta = board.tops[from];
-  const tb = board.tops[to];
+  const L = links[i];
+  const ta = board.tops[L.from];
+  const tb = board.tops[L.to];
   if (!ta || !tb) return null;
-  const dist = Math.hypot(tb.x - ta.x, tb.z - ta.z);
-  const peak = archPeakY(ta.y, tb.y, dist);
-  const mx = (ta.x + tb.x) / 2;
-  const mz = (ta.z + tb.z) / 2;
-  const v = new THREE.Vector3(mx, peak, mz).project(camera);
+  const fan = fanForLink(links as import('./render/flow-links').FlowLink[], i);
+  const apex = archControl(ta.x, ta.y, ta.z, tb.x, tb.y, tb.z, fan);
+  const v = apex.project(camera);
   const W = innerWidth;
   const H = innerHeight;
   if (v.z > 1) return null;
@@ -498,14 +495,15 @@ const ui = createUI(document.getElementById('ui')!, {
     const links = flowLinksForState(s, inspectCell);
     const seen = new Set<string>();
     const out: { x: number; y: number; text: string }[] = [];
-    for (const L of links) {
-      if (L.rate <= 0 || (L.kind !== 'feed' && L.kind !== 'boost')) continue;
+    for (let i = 0; i < links.length; i++) {
+      const L = links[i];
+      if (L.rate <= 0 || L.kind !== 'feed') continue;
       const k = `${L.from}>${L.to}:${L.kind}`;
       if (seen.has(k)) continue;
       seen.add(k);
-      const pos = linkMidScreen(L.to, L.from);
+      const pos = linkApexScreen(links, i);
       if (!pos) continue;
-      out.push({ x: pos.x, y: pos.y - 6, text: `+${fmt(L.rate, s.notation)}/s` });
+      out.push({ x: pos.x, y: pos.y, text: `+${fmt(L.rate, s.notation)}/s` });
     }
     return out;
   },
@@ -785,19 +783,16 @@ function cellHtml(i: number): string {
     ? adjacency(g0, s.tiles, i, reach0).filter((n) => s.tiles[n] === 'spring').length
     : 0;
   const flowLegend = inspectCell === i
-    ? `<div class="flow-legend"><span class="feed">Feed</span><span class="boost">Beacon</span><span class="relay">Relay</span><span class="bridge">Bridge</span><span class="penalty">Penalty</span></div>`
+    ? `<div class="flow-legend"><span class="feed">Feed</span><span class="boost">Beacon</span><span class="bridge">Bridge</span></div>`
     : '';
-  let html = `${lead(title)}${effect(out ? `${fmt(out, s.notation)} Ink/s` : TILE_INFO[t].desc)}`;
+  let html = `${lead(title)}${flowLegend}${effect(out ? `${fmt(out, s.notation)} Ink/s` : TILE_INFO[t].desc)}`;
   if (t === 'mill' && inspectCell === i) {
-    html += meta(`${springN} Spring(s) in link range (reach ${reach0})`);
+    html += meta(`${springN} Spring(s) in link range`);
   }
-  if (flowLegend) html += flowLegend;
   if (tl === 'sell') {
     html += `${meta(`Sell for ${fmt(sellValue(s, t), s.notation)} Ink`)}${effect(delta(previewDelta(s, i, null)))}`;
   } else if (tl === 'pin') {
     html += note(s.pinned.includes(i) ? 'Unpin: Drift may remove this tile.' : 'Pin: kept through Drift.');
-  } else {
-    html += note('Tap again to inspect · Sell (S) to remove');
   }
   return html + whyHtml;
 }
@@ -1024,15 +1019,18 @@ function fixture(name: QaSeed): GameState {
     const graph = graphOf(g);
     const sq = graph as import('./core/geometry/square').SquareBoard;
     const by = (x: number, y: number) => sq.xy.findIndex(([a, b]) => a === x && b === y);
-    const c = by(0, 0);
-    const springs = [by(-1, 0), by(0, 1)].filter((i) => i >= 0);
-    const millBr = by(1, -1);
-    const mills = [millBr, by(1, 0)].filter((i) => i >= 0);
-    const bridges = [by(-1, -1), by(0, -1)].filter((i) => i >= 0);
-    if (c >= 0) g.tiles[c] = 'beacon';
-    for (const i of springs) g.tiles[i] = 'spring';
-    for (const i of mills) g.tiles[i] = 'mill';
-    for (const i of bridges) g.tiles[i] = 'bridge';
+    const put = (x: number, y: number, t: TileType) => {
+      const i = by(x, y);
+      if (i >= 0) g.tiles[i] = t;
+    };
+    put(-1, 1, 'mill');
+    put(0, 1, 'spring');
+    put(1, 1, 'mill');
+    put(-1, 0, 'spring');
+    put(0, 0, 'beacon');
+    put(-1, -1, 'bridge');
+    put(0, -1, 'bridge');
+    put(1, -1, 'mill');
   } else if (name === 'ux-demo') {
     g.ring = 3;
     Object.assign(g, {
@@ -1441,19 +1439,12 @@ if (dev) {
       },
       linksDemoTiles: () => {
         const g = graphOf(s);
-        let mill = -1, spring = -1, bridge = -1, beacon = -1, millScore = -Infinity;
-        s.tiles.forEach((t, i) => {
-          if (!isActive(s, i) || !t) return;
-          const [x, y] = 'xy' in g ? (g as import('./core/geometry/square').SquareBoard).xy[i] : [0, 0];
-          const score = x * 4 - y;
-          if (t === 'mill' && score > millScore) {
-            millScore = score;
-            mill = i;
-          }
-          if (t === 'spring' && spring < 0) spring = i;
-          if (t === 'bridge' && bridge < 0) bridge = i;
-          if (t === 'beacon' && beacon < 0) beacon = i;
-        });
+        const sq = 'xy' in g ? (g as import('./core/geometry/square').SquareBoard) : null;
+        const at = (x: number, y: number) => sq ? sq.xy.findIndex(([a, b]) => a === x && b === y) : -1;
+        const mill = at(1, -1);
+        const spring = at(-1, 0);
+        const bridge = at(0, -1);
+        const beacon = at(0, 0);
         return { mill, spring, bridge, beacon };
       },
       demoCells: () => {
