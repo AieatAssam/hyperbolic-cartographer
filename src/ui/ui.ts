@@ -37,6 +37,7 @@ export interface UICtx {
   cellInfo(i: number): string; // HTML describing cell i for the current tool (cost, Ink/s delta, blocked reason)
   cellScreenPos?(i: number): { x: number; y: number } | null;
   bridgePreviewDelta?(): number | null;
+  flowRateLabels?(): readonly { x: number; y: number; text: string }[];
   tutorial: { load(): string | null; save(v: string): void }; // stored apart from the game save
   act: {
     survey(): void; drift(): void; project(): void;
@@ -68,6 +69,8 @@ export interface UI {
   update(): void; // called ~10x per second; cheap. Rebuilds panel body only on tab/state-key change.
   /** Repositions the floating bridge +Ink/s label (call every frame while previewing). */
   syncBridgeGain(): void;
+  /** Repositions +Ink/s labels on inspect flow arcs. */
+  syncFlowLabels(): void;
   tooltip(x: number, y: number, html: string | null): void; // null hides
   showOffline(r: OfflineReport): void;
   toast(msg: string): void;
@@ -912,6 +915,8 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   };
   const boardGain = el('div', 'board-gain-label hidden');
   boardGain.setAttribute('aria-hidden', 'true');
+  const flowLabelRoot = el('div', 'flow-rate-labels');
+  flowLabelRoot.setAttribute('aria-hidden', 'true');
   const toastEl = el('div', 'toast');
   toastEl.setAttribute('role', 'status');
   let toastTimer = 0;
@@ -1030,6 +1035,29 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       infoActs.hidden = true;
     }
     syncBridgeGainLabel();
+    syncFlowRateLabels();
+  }
+
+  const flowLabelPool: HTMLDivElement[] = [];
+  function syncFlowRateLabels() {
+    const labels = ctx.flowRateLabels?.() ?? [];
+    while (flowLabelPool.length < labels.length) {
+      const n = el('div', 'flow-rate-label hidden');
+      flowLabelRoot.append(n);
+      flowLabelPool.push(n);
+    }
+    for (let i = 0; i < flowLabelPool.length; i++) {
+      const node = flowLabelPool[i];
+      const L = labels[i];
+      if (!L) {
+        node.classList.add('hidden');
+        continue;
+      }
+      node.textContent = L.text;
+      node.style.left = `${Math.round(L.x)}px`;
+      node.style.top = `${Math.round(L.y)}px`;
+      node.classList.remove('hidden');
+    }
   }
 
   function syncBridgeGainLabel() {
@@ -1139,10 +1167,10 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
 
   // ---- Mount ----
   root.append(topbar, panel, dock, palette, manifoldBar, tip, toastEl, dev, backdrop);
-  document.body.append(boardGain);
+  document.body.append(boardGain, flowLabelRoot);
   update();
   return {
-    update, syncBridgeGain: syncBridgeGainLabel, tooltip, showOffline, toast, flash, bumpInk, setTransition, setManifoldPreview,
+    update, syncBridgeGain: syncBridgeGainLabel, syncFlowLabels: syncFlowRateLabels, tooltip, showOffline, toast, flash, bumpInk, setTransition, setManifoldPreview,
     qa: {
       tab: (id: string) => tabBtns.has(id as Tab) && openTab(id as Tab),
       openImport: (text?: string) => openImport(text),

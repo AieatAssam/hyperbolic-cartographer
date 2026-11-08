@@ -1,30 +1,31 @@
 import { adjacency, mods, prod } from '../core/economy';
+import { bridgeComponents, bridgeTouchSet } from '../core/bridge-relay';
 import { bridgePath } from './fx-graph';
+import { config } from '../core/config';
 import type { TileGraph } from '../core/geometry/graph';
 import { graphOf, type GameState } from '../core/state';
 import type { TileType } from '../core/tiles';
 
-export type FlowLinkKind = 'feed' | 'boost' | 'bridge' | 'relay';
+export type FlowLinkKind = 'feed' | 'boost' | 'bridge' | 'relay' | 'penalty';
 
 export interface FlowLink {
   from: number;
   to: number;
   kind: FlowLinkKind;
+  /** Ink/s carried or delta sign for labels (0 = omit). */
   rate: number;
   path?: readonly number[];
 }
 
-const keyOf = (L: FlowLink) => `${L.kind}|${Math.min(L.from, L.to)}:${Math.max(L.from, L.to)}`;
+const keyOf = (L: FlowLink) => `${L.from}>${L.to}:${L.kind}`;
 
 function pushPath(out: FlowLink[], path: readonly number[], kind: FlowLinkKind, rate: number) {
   for (let k = 0; k + 1 < path.length; k++) {
-    out.push({
-      from: path[k], to: path[k + 1], kind, rate: k === path.length - 2 ? rate : 0, path,
-    });
+    out.push({ from: path[k], to: path[k + 1], kind: k === path.length - 2 ? kind : 'relay', rate: k === path.length - 2 ? rate : 0 });
   }
 }
 
-function connect(
+function linkPath(
   out: FlowLink[],
   g: TileGraph,
   tiles: (TileType | null)[],
@@ -32,48 +33,59 @@ function connect(
   to: number,
   kind: FlowLinkKind,
   reach: number,
-  rate = 0,
+  rate: number,
 ) {
   if (from === to) return;
   const path = bridgePath(g, tiles, from, to, reach);
-  if (path && path.length > 2 && kind !== 'bridge') pushPath(out, path, kind === 'feed' ? 'relay' : kind, rate);
+  if (path && path.length > 2) pushPath(out, path, kind, rate);
   else out.push({ from, to, kind, rate, path: path ?? undefined });
 }
 
-/** Flow edges to draw when inspecting tile `focus`. */
+function millFeedRate(m: ReturnType<typeof mods>): number {
+  return config.tiles.spring.out * m.global;
+}
+
+/** All inspect flow edges for tile `focus`. */
 export function flowLinksForTile(
   g: TileGraph,
   tiles: (TileType | null)[],
   focus: number,
   reach: number,
   perTile: number[],
+  m: ReturnType<typeof mods>,
 ): FlowLink[] {
   if (focus < 0 || !tiles[focus]) return [];
   const kind = tiles[focus]!;
   const out: FlowLink[] = [];
   const adj = adjacency(g, tiles, focus, reach);
 
-  if (kind === 'mill' || kind === 'spring') {
+  if (kind === 'mill') {
     for (const n of adj) {
-      const tn = tiles[n];
-      if (kind === 'mill' && tn === 'spring') connect(out, g, tiles, n, focus, 'feed', reach, perTile[n] ?? 0);
-      if (kind === 'spring' && tn === 'mill') connect(out, g, tiles, focus, n, 'feed', reach, perTile[focus] ?? 0);
-      if (tn === 'beacon') connect(out, g, tiles, n, focus, 'boost', reach);
+      if (tiles[n] === 'spring') {
+        const rate = perTile[focus] > 0 ? perTile[n] ?? millFeedRate(m) : millFeedRate(m);
+        linkPath(out, g, tiles, n, focus, 'feed', reach, rate);
+      }
+      if (tiles[n] === 'beacon') linkPath(out, g, tiles, n, focus, 'boost', reach, 0);
     }
     for (const n of adj) {
       if (tiles[n] !== 'beacon') continue;
       for (const v of adjacency(g, tiles, n, reach)) {
         if (v === focus) continue;
-        const tv = tiles[v];
-        if (tv === 'spring' || tv === 'mill') connect(out, g, tiles, n, v, 'boost', reach);
+        linkPath(out, g, tiles, n, v, 'boost', reach, 0);
       }
     }
+  }
+
+  if (kind === 'spring') {
     for (const n of adj) {
-      if (g.neighbours[focus].includes(n)) continue;
-      if (!tiles[n]) continue;
-      const path = bridgePath(g, tiles, focus, n, reach);
-      if (path?.some((p) => p !== focus && p !== n && tiles[p] === 'bridge')) {
-        connect(out, g, tiles, focus, n, 'relay', reach, perTile[n] ?? 0);
+      if (tiles[n] === 'mill') linkPath(out, g, tiles, focus, n, 'feed', reach, perTile[focus] ?? config.tiles.spring.out);
+      if (tiles[n] === 'beacon') linkPath(out, g, tiles, n, focus, 'boost', reach, 0);
+    }
+    for (const n of adj) {
+      if (tiles[n] !== 'beacon') continue;
+      for (const v of adjacency(g, tiles, n, reach)) {
+        if (v === focus) continue;
+        linkPath(out, g, tiles, n, v, 'boost', reach, 0);
       }
     }
   }
@@ -81,15 +93,30 @@ export function flowLinksForTile(
   if (kind === 'beacon') {
     for (const n of adj) {
       const tn = tiles[n];
-      if (tn === 'spring' || tn === 'mill') connect(out, g, tiles, focus, n, 'boost', reach);
+      if (tn === 'spring' || tn === 'mill') linkPath(out, g, tiles, focus, n, 'boost', reach, 0);
     }
   }
 
   if (kind === 'bridge') {
-    const occ = g.neighbours[focus].filter((n) => tiles[n]);
-    for (let i = 0; i < occ.length; i++)
-      for (let j = i + 1; j < occ.length; j++) connect(out, g, tiles, occ[i], occ[j], 'bridge', reach);
-    for (const n of occ) connect(out, g, tiles, focus, n, 'relay', reach);
+    for (const comp of bridgeComponents(g, tiles)) {
+      if (!comp.includes(focus)) continue;
+      const touch = [...bridgeTouchSet(g, tiles, comp)];
+      for (let i = 0; i < touch.length; i++) {
+        for (let j = i + 1; j < touch.length; j++) {
+          const a = touch[i], b = touch[j];
+          if (tiles[a] === 'bridge' && tiles[b] === 'bridge') continue;
+          const lk = tiles[a] === 'bridge' || tiles[b] === 'bridge' ? 'bridge' : 'relay';
+          linkPath(out, g, tiles, a, b, lk, reach, 0);
+        }
+      }
+      for (const n of touch) {
+        if (n !== focus) linkPath(out, g, tiles, focus, n, 'relay', reach, 0);
+      }
+    }
+  }
+
+  if (kind === 'vault') {
+    for (const n of adj) linkPath(out, g, tiles, focus, n, 'relay', reach, 0);
   }
 
   const seen = new Set<string>();
@@ -103,6 +130,6 @@ export function flowLinksForTile(
 
 export function flowLinksForState(s: GameState, focus: number): FlowLink[] {
   const g = graphOf(s);
-  const reach = mods(s).reach;
-  return flowLinksForTile(g, s.tiles, focus, reach, prod(s).perTile);
+  const m = mods(s);
+  return flowLinksForTile(g, s.tiles, focus, m.reach, prod(s).perTile, m);
 }

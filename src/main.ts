@@ -14,6 +14,7 @@ import { playChime } from './ui/chime';
 import { AUDIO_KEY, initAudio } from './audio';
 import { placementImpactState, tileInfluenceState } from './core/placement-impact';
 import { flowLinksForState } from './render/flow-links';
+import { archPeakY } from './render/flow-arch';
 import type { TileGraph } from './core/geometry/graph';
 import { canDrift, canProject, drift, project } from './core/prestige';
 import { applyOffline, simulate } from './core/tick';
@@ -179,7 +180,9 @@ const solveFit = () => {
     pts: footprint(), W, H, free, fov: camera.fov, polar: POLAR, margin, portraitWidthFirst,
   });
   if (portrait && manifoldPreview === 'off' && s.geometry === 'square') {
-    d *= 1.06 + Math.max(0, s.ring - 1) * 0.01;
+    const narrow = innerWidth <= 430;
+    const ringK = Math.max(0, s.ring - 1);
+    d *= (narrow ? 1.1 : 1.04) + ringK * (narrow ? 0.016 : 0.008);
   }
   return d;
 };
@@ -200,7 +203,9 @@ function layoutView() {
   free = nextFree;
   const ink = document.querySelector<HTMLElement>('[data-fx-target="ink"]')?.getBoundingClientRect();
   if (ink && ink.width > 0) inkTarget = [((ink.left + ink.width / 2) / W) * 2 - 1, 1 - ((ink.top + ink.height / 2) / H) * 2];
-  camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);
+  const portrait = phonePortrait(W, H);
+  const lift = portrait ? (free.bottom - free.top) * 0.07 : 0;
+  camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2 - lift, W, H);
   camera.updateProjectionMatrix();
   const manifold3d = manifoldPreview !== 'off' && board && isSurfaceBoard(board) && !board.isChartFlat();
   const d = solveFit();
@@ -287,7 +292,9 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
   }
   camera.lookAt(controls.target);
   const W = innerWidth, H = innerHeight;
-  camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);
+  const portrait = phonePortrait(W, H);
+  const lift = portrait ? (free.bottom - free.top) * 0.07 : 0;
+  camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2 - lift, W, H);
   camera.updateProjectionMatrix();
 };
 const applyManifoldCamera = () => {
@@ -440,6 +447,23 @@ function applyTool(i: number): boolean {
   }
   return true;
 }
+
+function linkMidScreen(from: number, to: number): { x: number; y: number } | null {
+  if (isSurfaceBoard(board)) return null;
+  const ta = board.tops[from];
+  const tb = board.tops[to];
+  if (!ta || !tb) return null;
+  const dist = Math.hypot(tb.x - ta.x, tb.z - ta.z);
+  const peak = archPeakY(ta.y, tb.y, dist);
+  const mx = (ta.x + tb.x) / 2;
+  const mz = (ta.z + tb.z) / 2;
+  const v = new THREE.Vector3(mx, peak, mz).project(camera);
+  const W = innerWidth;
+  const H = innerHeight;
+  if (v.z > 1) return null;
+  return { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H };
+}
+
 const ui = createUI(document.getElementById('ui')!, {
   state: () => s,
   tool,
@@ -468,6 +492,22 @@ const ui = createUI(document.getElementById('ui')!, {
     if (i < 0 || tool.current !== 'bridge' || s.tiles[i]) return null;
     const d = previewDelta(s, i, 'bridge');
     return d > 0 ? d : null;
+  },
+  flowRateLabels: () => {
+    if (inspectCell < 0 || inspectBlend < 0.45) return [];
+    const links = flowLinksForState(s, inspectCell);
+    const seen = new Set<string>();
+    const out: { x: number; y: number; text: string }[] = [];
+    for (const L of links) {
+      if (L.rate <= 0 || (L.kind !== 'feed' && L.kind !== 'boost')) continue;
+      const k = `${L.from}>${L.to}:${L.kind}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const pos = linkMidScreen(L.to, L.from);
+      if (!pos) continue;
+      out.push({ x: pos.x, y: pos.y - 6, text: `+${fmt(L.rate, s.notation)}/s` });
+    }
+    return out;
   },
   tutorial: { load: () => store.get(TUTORIAL_KEY), save: (v) => store.set(TUTORIAL_KEY, v) },
   act: {
@@ -745,7 +785,7 @@ function cellHtml(i: number): string {
     ? adjacency(g0, s.tiles, i, reach0).filter((n) => s.tiles[n] === 'spring').length
     : 0;
   const flowLegend = inspectCell === i
-    ? `<div class="flow-legend"><span class="feed">Spring feed</span> · <span class="boost">Beacon</span> · <span class="relay">Bridge relay</span> · <span class="bridge">Bridge link</span></div>`
+    ? `<div class="flow-legend"><span class="feed">Feed</span><span class="boost">Beacon</span><span class="relay">Relay</span><span class="bridge">Bridge</span><span class="penalty">Penalty</span></div>`
     : '';
   let html = `${lead(title)}${effect(out ? `${fmt(out, s.notation)} Ink/s` : TILE_INFO[t].desc)}`;
   if (t === 'mill' && inspectCell === i) {
@@ -912,6 +952,7 @@ function frame(now: number) {
   controls.update();
   renderFrame(dt);
   if (tool.current === 'bridge' || constellationPulseUntil > now / 1000) ui.syncBridgeGain();
+  ui.syncFlowLabels();
   if ((uiAcc += dt) > 0.1) (uiAcc = 0), ui.update();
 }
 requestAnimationFrame(frame);
@@ -985,13 +1026,12 @@ function fixture(name: QaSeed): GameState {
     const by = (x: number, y: number) => sq.xy.findIndex(([a, b]) => a === x && b === y);
     const c = by(0, 0);
     const springs = [by(-1, 0), by(0, 1)].filter((i) => i >= 0);
-    const mills = [by(1, 1), by(1, 0), by(0, -1)].filter((i) => i >= 0);
-    const beacon = by(1, -1);
+    const millBr = by(1, -1);
+    const mills = [millBr, by(1, 0)].filter((i) => i >= 0);
     const bridges = [by(-1, -1), by(0, -1)].filter((i) => i >= 0);
     if (c >= 0) g.tiles[c] = 'beacon';
     for (const i of springs) g.tiles[i] = 'spring';
     for (const i of mills) g.tiles[i] = 'mill';
-    if (beacon >= 0 && beacon !== c) g.tiles[beacon] = 'beacon';
     for (const i of bridges) g.tiles[i] = 'bridge';
   } else if (name === 'ux-demo') {
     g.ring = 3;
@@ -1401,19 +1441,20 @@ if (dev) {
       },
       linksDemoTiles: () => {
         const g = graphOf(s);
-        let mill = -1, spring = -1, bridge = -1, millScore = -Infinity;
+        let mill = -1, spring = -1, bridge = -1, beacon = -1, millScore = -Infinity;
         s.tiles.forEach((t, i) => {
           if (!isActive(s, i) || !t) return;
           const [x, y] = 'xy' in g ? (g as import('./core/geometry/square').SquareBoard).xy[i] : [0, 0];
-          const score = x + y;
+          const score = x * 4 - y;
           if (t === 'mill' && score > millScore) {
             millScore = score;
             mill = i;
           }
           if (t === 'spring' && spring < 0) spring = i;
           if (t === 'bridge' && bridge < 0) bridge = i;
+          if (t === 'beacon' && beacon < 0) beacon = i;
         });
-        return { mill, spring, bridge };
+        return { mill, spring, bridge, beacon };
       },
       demoCells: () => {
         const g = graphOf(s);

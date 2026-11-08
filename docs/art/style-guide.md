@@ -101,10 +101,14 @@ Shadow maps are off.
 
 | Token | Hex | Meaning |
 |---|---|---|
-| `FLOW_LINK.feed` | `#6cc4ff` | Spring → Mill production. |
-| `FLOW_LINK.boost` | `#ff7a92` | Beacon multiplier. |
-| `FLOW_LINK.bridge` | `#b07cff` | Bridge neighbour link. |
-| `FLOW_LINK.relay` | `#e8c872` | Multi-hop bridge relay. |
+| `FLOW_LINK.feed` | `#5fd4ff` | Spring → Mill production. |
+| `FLOW_LINK.boost` | `#ff5a7a` | Beacon multiplier. |
+| `FLOW_LINK.shadow` | `#0a0e18` | Under-stroke for tubes on bright tiles. |
+| `FLOW_LINK.bridge` | `#c080ff` | Bridge neighbour link (violet tube). |
+| `FLOW_LINK.relay` | `#ffc840` | Multi-hop bridge relay (gold). |
+| `FLOW_LINK.penalty` | `#ff6b6b` | Downstream loss / blocked feed. |
+
+Inspect flow tubes use a dark under-stroke (`FLOW_LINK.shadow`), saturated emissive cores (~2.5× prior radius), foot rings at both endpoints, and dash motes for direction (respect `prefers-reduced-motion`).
 
 **Placement / inspect preview (`PREVIEW`, Wired).** `bridgeOutline` `#e8c872`, plus dim/saturation scalars for inspect and bridge mixes.
 

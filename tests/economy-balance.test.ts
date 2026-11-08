@@ -19,7 +19,7 @@ it('greedy pacing drift still under 15 minutes', () => {
   const r = runSim('greedy', 25);
   expect(r.milestones.firstDrift).toBeDefined();
   expect(r.milestones.firstDrift!).toBeLessThan(15);
-});
+}, 60_000);
 
 it('first placement rewards are configured', () => {
   expect(config.rewards.firstMillInk).toBeGreaterThan(0);

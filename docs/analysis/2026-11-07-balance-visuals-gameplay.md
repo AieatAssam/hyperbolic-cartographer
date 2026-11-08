@@ -18,6 +18,7 @@ Offline sample: 4h simulated at **5 min** play time (`applyOffline`).
 | 6 | Visuals | Backdrop read flat at phone scale vs §10 references (Hyperbolica / Manifold Garden richness). | Stronger backdrop drift multiplier, richer empty-slot rims. |
 | 7 | Gameplay | First 10 s: only Spring — clear but low drama; first 5 min: surveys unlock before Mill puzzle. | Still true; mitigated by faster Ink ramp and survey timing in casual policy. |
 | 8 | Gameplay | Hyperbolic / Klein payoff — reward is mostly visual; needs more explicit milestone toasts (future). | Out of scope beyond existing map unlock pacing. |
+| 9 | Gameplay | Two-bridge chains did not relay Springs to far Mills at default reach — looked broken. | **Bridge relay closure:** tiles touching a contiguous bridge chain are mutually adjacent; **Long Bridges** adds hops past chain ends only. |
 
 ---
 

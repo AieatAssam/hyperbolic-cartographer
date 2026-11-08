@@ -1,5 +1,5 @@
-/** Flow links + UI spacing captures. POLISH_TAG=before|after. Tag=after: seed links-demo, inspect mill. */
-import { spawn } from 'node:child_process';
+/** Flow links + UI spacing captures. POLISH_TAG=before|after. Tag=after: seed links-demo, inspect tile roles. */
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +21,8 @@ const VIEWS = [
   { w: 932, h: 430 },
   { w: 1280, h: 800 },
 ];
+
+const ROLES = ['mill', 'spring', 'bridge', 'beacon'];
 
 async function qa(page, hook, ...args) {
   return page.evaluate(async ([h, a]) => {
@@ -64,33 +66,39 @@ for (const { w, h } of VIEWS) {
   await page.close();
 }
 
-const flowPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
-await waitReady(flowPage);
-if (TAG === 'after') {
-  await flowPage.evaluate(() => {
-    const mills = [...document.querySelectorAll('.palette button.tool')].find((b) => b.textContent?.includes('Mill'));
-    mills?.click();
-  });
-  await flowPage.waitForTimeout(200);
-  const cell = await qa(flowPage, 'linksDemoTiles');
-  const millAt = cell?.mill >= 0 ? cell.mill : 0;
-  await qa(flowPage, 'inspectAt', millAt);
-  await flowPage.waitForTimeout(900);
+async function inspectRole(page, role) {
+  const cells = await qa(page, 'linksDemoTiles');
+  const idx = cells?.[role] ?? -1;
+  if (idx >= 0) await qa(page, 'inspectAt', idx);
+  await page.waitForTimeout(700);
 }
-await flowPage.evaluate(() => document.querySelector('.tutorial')?.classList.add('hidden'));
-await flowPage.screenshot({ path: join(ART, `flow-${TAG}-board-links-390x844.png`) });
-console.log('wrote', join(ART, `flow-${TAG}-board-links-390x844.png`));
+
+for (const { w, h } of VIEWS) {
+  if (TAG !== 'after') continue;
+  for (const role of ROLES) {
+    const page = await browser.newPage({ viewport: { width: w, height: h } });
+    await waitReady(page);
+    await page.evaluate(() => document.querySelector('.tutorial')?.classList.add('hidden'));
+    await inspectRole(page, role);
+    const name = `flow-after-board-${role}-${w}x${h}.png`;
+    await page.screenshot({ path: join(ART, name) });
+    console.log('wrote', join(ART, name));
+    await page.close();
+  }
+}
 
 const stab = await browser.newPage({ viewport: { width: 390, height: 844 } });
 await waitReady(stab);
 const idle = await qa(stab, 'cameraStabilitySample', 90);
 writeFileSync(join(ART, `flow-${TAG}-stability-idle.json`), JSON.stringify(idle, null, 2));
-await qa(stab, 'inspectAt', 0);
+const cells0 = await qa(stab, 'linksDemoTiles');
+if (cells0?.mill >= 0) await qa(stab, 'inspectAt', cells0.mill);
 await qa(stab, 'clearBoardFocus');
 const tapped = await qa(stab, 'cameraStabilitySample', 60);
 writeFileSync(join(ART, `flow-${TAG}-stability-taps.json`), JSON.stringify(tapped, null, 2));
 console.log('stability', idle?.ok, tapped?.ok);
 
+const clipPath = join(ART, 'flow-after-links-clip-390x844.webm');
 if (TAG === 'after') {
   const clip = await browser.newContext({
     viewport: { width: 390, height: 844 },
@@ -103,18 +111,27 @@ if (TAG === 'after') {
     await qa(vPage, 'inspectAt', cells.mill);
     await vPage.waitForTimeout(6000);
   }
+  await vPage.evaluate(() => document.querySelector('.tutorial')?.classList.add('hidden'));
   const vpath = await vPage.video()?.path();
   await clip.close();
   if (vpath) {
     const { rename } = await import('node:fs/promises');
     try {
-      await rename(vpath, join(ART, 'flow-after-links-clip-390x844.webm'));
+      await rename(vpath, clipPath);
       console.log('wrote clip');
     } catch { /* */ }
   }
+  for (const sec of [0, 1, 2]) {
+    const out = join(ART, `flow-after-links-frame-${sec}s-390x844.png`);
+    const ff = spawnSync('ffmpeg', [
+      '-y', '-ss', String(sec), '-i', clipPath,
+      '-frames:v', '1', '-q:v', '2', out,
+    ], { stdio: 'ignore' });
+    if (ff.status === 0) console.log('wrote', out);
+    else console.warn('ffmpeg frame', sec, 'failed');
+  }
 }
 
-await flowPage.close();
 await stab.close();
 await browser.close();
 if (server) server.kill();

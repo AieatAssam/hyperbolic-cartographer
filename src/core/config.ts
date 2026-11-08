@@ -5,7 +5,7 @@ export const config = {
     spring: { cost: 10, out: 1.15 },
     mill: { cost: 85, out: 9, perSpring: 1 },
     beacon: { cost: 1000, mult: 1.5 },
-    bridge: { cost: 5000 },
+    bridge: { cost: 5200 },
     vault: { cost: 25000, offline: 0.1, global: 0.02 },
   },
   costGrowth: 1.12,
@@ -103,7 +103,7 @@ export const curvUpgrades: UpgradeDef<CurvUpgradeId>[] = [
   { id: 'beaconDegree', name: 'Negative Curvature', desc: 'Beacons +0.05x per neighbour of the cell', max: 3, cost: (l) => 1 * 2 ** l },
   { id: 'driftGain', name: 'Tailwind', desc: 'x1.5 Charts on Drift', max: 4, cost: (l) => 1 * 2 ** l },
   { id: 'keepUpgrades', name: 'Bound Atlas', desc: 'Keep the first N Chart upgrades on Projection', max: 4, cost: (l) => 1 * 2 ** l },
-  { id: 'bridgeReach', name: 'Long Bridges', desc: 'Bridges reach +1 hop', max: 2, cost: (l) => 2 + 2 * l },
+  { id: 'bridgeReach', name: 'Long Bridges', desc: 'Bridge relay +1 extra hop past chain ends', max: 2, cost: (l) => 2 + 2 * l },
 ];
 
 export const curvatureGain = (charts: number) => (charts < 1 ? 0 : Math.floor(Math.log2(charts)));

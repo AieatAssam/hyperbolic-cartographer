@@ -326,7 +326,9 @@ ul.reset li::before {
 .info-actions:empty { display: none; }
 .flow-legend {
   display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3);
-  margin: var(--space-2) 0 0; font-size: 11px; color: var(--muted); line-height: 1.3;
+  margin: var(--space-2) 0 0; padding-top: var(--space-1);
+  font-size: 11px; color: var(--text); line-height: 1.35;
+  flex: 0 0 auto;
 }
 .flow-legend span { display: inline-flex; align-items: center; gap: var(--space-1); }
 .flow-legend span::before {
@@ -336,6 +338,7 @@ ul.reset li::before {
 .flow-legend .boost::before { background: #ff7a92; }
 .flow-legend .relay::before { background: var(--gold); }
 .flow-legend .bridge::before { background: #b07cff; }
+.flow-legend .penalty::before { background: #ff6b4a; }
 .info-actions { flex: 0 0 auto; flex-wrap: wrap; gap: var(--space-2); }
 .info-actions button { min-height: 44px; min-width: 44px; padding-inline: 12px; }
 /* While the guide is open, its text replaces the duplicate tool help to save board space. */
@@ -404,6 +407,16 @@ ul.reset li::before {
 }
 .board-gain-label.hidden { display: none; }
 
+.flow-rate-labels { position: fixed; inset: 0; z-index: 54; pointer-events: none; }
+.flow-rate-label {
+  position: fixed; pointer-events: none; transform: translate(-50%, -50%);
+  padding: 2px 7px; border-radius: 8px; font-size: 11px; font-weight: 700; line-height: 1.2;
+  font-variant-numeric: tabular-nums; color: #e8f6ff;
+  background: rgba(8, 14, 24, 0.82); border: 1px solid rgba(95, 212, 255, 0.65);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+.flow-rate-label.hidden { display: none; }
+
 /* Toast: centred, around 40% from top, never blocks input */
 .toast {
   position: fixed; z-index: 40; top: 40%; left: 50%; transform: translate(-50%, -50%);
@@ -447,14 +460,18 @@ ul.reset li::before {
   .palette { gap: 6px; padding: 6px 28px 6px 6px; }
   .palette-scroll-hint { opacity: 0.9; color: var(--gold); font-size: 20px; font-weight: 700; }
   button.tool { min-width: 78px; padding: 4px 8px; }
-  .dock { max-height: min(24vh, 8.75rem); overflow: hidden; touch-action: pan-y; }
+  .dock {
+    max-height: min(26vh, 9.5rem); overflow-y: auto; overflow-x: hidden; touch-action: pan-y;
+    align-self: end;
+  }
   .infocard.capture-hide { display: none !important; }
   .tutorial { max-height: 23vh; padding: 8px 10px; }
   .infocard {
-    padding: 6px 10px; max-height: min(22vh, 8.25rem);
-    overflow: hidden;
+    padding: 6px 10px; max-height: min(27vh, 9.75rem); overflow: hidden; flex: 0 1 auto;
+    display: flex; flex-direction: column; gap: var(--space-2);
   }
-  .info-scroll { max-height: min(13vh, 4.1rem); flex: 1 1 auto; }
+  .info-scroll { max-height: min(17vh, 6.25rem); flex: 1 1 auto; min-height: 3.25rem; }
+  .info-text { max-height: min(17vh, 6.25rem); }
   /* Compact lines on top; longer help scrolls inside the card so the board keeps >= 55% of the height */
   .info-text { font-size: 12.5px; line-height: 1.3; }
   .info-lead { font-size: 13px; }

@@ -197,7 +197,10 @@ export function runSim(policy: PolicyId, limitMin: number, opts?: { offlineAtMin
       if (policy === 'greedy') {
         const raw = s.runInk.div(config.drift.divisor).pow(config.drift.exponent).toNumber();
         const chartRate = raw / Math.max(1, s.runTime);
-        if (chartRate < bestChartRate * 0.95) {
+        const readyMin = milestones.firstDriftReady ?? sec / 60;
+        const stallMin = sec / 60 - readyMin;
+        const stallDrift = canDrift(s) && stallMin >= 9 && s.drifts < 2;
+        if (chartRate < bestChartRate * 0.95 || stallDrift) {
           if (s.drifts === 0) milestones.firstDrift = sec / 60;
           drift(s);
           bestChartRate = 0;

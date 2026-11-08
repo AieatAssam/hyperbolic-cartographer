@@ -4,6 +4,8 @@
 // Positions are table world units (the same space as Board.tops). Normals and tangents are unit length.
 // Route and wave functions only see a TileGraph (ring[], neighbours[][]), never the geometry.
 
+import { bridgeComponents, bridgeTouchSet } from '../core/bridge-relay';
+import { adjacency } from '../core/economy';
 import type { TileGraph } from '../core/geometry/graph';
 import type { TileType } from '../core/tiles';
 
@@ -317,7 +319,7 @@ const clampReach = (r: number) => (Number.isFinite(r) ? Math.max(0, Math.floor(r
 function bridgeTree(g: TileGraph, tiles: (TileType | null)[], a: number, reach: number): Map<number, number[]> {
   const found = new Map<number, number[]>();
   const seen = new Set<number>([a]);
-  const maxEdges = reach + 1; // d edges give d - 1 interior nodes
+  const maxEdges = Math.min(g.ring.length, Math.max(reach + 3, 12));
   let layer: number[][] = [[a]];
   for (let d = 1; d <= maxEdges && layer.length; d++) {
     const next: number[][] = [];
@@ -337,11 +339,56 @@ function bridgeTree(g: TileGraph, tiles: (TileType | null)[], a: number, reach: 
   return found;
 }
 
-/** Shortest path a→b whose interior nodes are all bridges, with at most `reach` of them. Null if none. */
+/**
+ * Shortest walk a→b along real graph edges: direct neighbour, bridge-interior path within reach, or
+ * a path through a shared bridge-chain touch set (relay closure).
+ */
+export function routePath(g: TileGraph, tiles: (TileType | null)[], a: number, b: number, reach: number): number[] | null {
+  if (a === b || !(a >= 0 && a < g.ring.length) || !(b >= 0 && b < g.ring.length)) return null;
+  if (g.neighbours[a].includes(b)) return [a, b];
+  const r = clampReach(reach);
+  const viaBridge = bridgeTree(g, tiles, a, r).get(b);
+  if (viaBridge) return viaBridge.slice();
+  for (const comp of bridgeComponents(g, tiles)) {
+    const touch = bridgeTouchSet(g, tiles, comp);
+    if (!touch.has(a) || !touch.has(b)) continue;
+    const q: number[][] = [[a]];
+    const seen = new Set<number>([a]);
+    while (q.length) {
+      const path = q.shift()!;
+      const u = path[path.length - 1]!;
+      if (u === b) return path;
+      for (const v of g.neighbours[u]) {
+        if (!touch.has(v)) continue;
+        if (seen.has(v)) continue;
+        seen.add(v);
+        q.push([...path, v]);
+      }
+    }
+  }
+  if (!adjacency(g, tiles, a, r).includes(b)) return null;
+  const q: number[][] = [[a]];
+  const seen = new Set<number>([a]);
+  const maxLen = Math.min(g.ring.length, 32);
+  while (q.length) {
+    const path = q.shift()!;
+    const u = path[path.length - 1]!;
+    if (u === b) return path;
+    if (path.length >= maxLen) continue;
+    for (const v of g.neighbours[u]) {
+      if (seen.has(v)) continue;
+      seen.add(v);
+      q.push([...path, v]);
+    }
+  }
+  return null;
+}
+
+/** @deprecated name — use routePath; kept for callers expecting `bridgePath`. */
 export function bridgePath(g: TileGraph, tiles: (TileType | null)[], a: number, b: number, reach: number): number[] | null {
   if (a === b || !(a >= 0 && a < g.ring.length) || !(b >= 0 && b < g.ring.length)) return null;
-  const p = bridgeTree(g, tiles, a, clampReach(reach)).get(b);
-  return p ? p.slice() : null;
+  if (reach < 0 || !Number.isFinite(reach)) return null;
+  return routePath(g, tiles, a, b, reach);
 }
 
 const routeCache = new WeakMap<TileGraph, { key: string; routes: Route[] }>();
@@ -357,16 +404,19 @@ export function productionRoutes(g: TileGraph, tiles: (TileType | null)[], reach
   const hit = routeCache.get(g);
   if (hit?.key === key) return hit.routes;
   const routes: Route[] = [];
-  for (let a = 0; a < g.ring.length; a++) {
-    const ta = tiles[a];
-    if (ta !== 'spring' && ta !== 'beacon') continue;
-    const tree = bridgeTree(g, tiles, a, r);
-    for (const b of [...tree.keys()].sort((x, y) => x - y)) {
-      const tb = tiles[b];
-      const kind: RouteKind | null = ta === 'spring' && tb === 'mill' ? 'feed' : ta === 'beacon' && (tb === 'mill' || tb === 'spring') ? 'boost' : null;
-      if (kind) routes.push({ nodes: tree.get(b)!, source: ta, kind });
+  tiles.forEach((t, i) => {
+    if (t !== 'mill' && t !== 'spring') return;
+    for (const n of adjacency(g, tiles, i, r)) {
+      if (t === 'mill' && tiles[n] === 'spring') {
+        const nodes = routePath(g, tiles, n, i, r);
+        if (nodes) routes.push({ nodes, source: 'spring', kind: 'feed' });
+      }
+      if (tiles[n] === 'beacon') {
+        const nodes = routePath(g, tiles, n, i, r);
+        if (nodes) routes.push({ nodes, source: 'beacon', kind: 'boost' });
+      }
     }
-  }
+  });
   routeCache.set(g, { key, routes });
   return routes;
 }
