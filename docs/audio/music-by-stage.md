@@ -77,4 +77,4 @@ Dimension and Horizon have no gameplay yet. Their playlists are wired up and can
 
 ## Loudness and size
 
-Every track is normalised to about -20 LUFS with a peak limiter, so a stage change never jumps in volume. "Shortened" tracks were cut to 200 seconds with an 8-second fade-out, which keeps the download small. Files are 32 kbps stereo Opus (WebM), with a 40 kbps mono AAC fallback. A stage's playlist is about 2.5 to 3.5 MB, streamed only while that stage plays.
+Every track is normalised to about -20 LUFS with a peak limiter, so a stage change never jumps in volume. "Shortened" tracks were cut to 200 seconds with an 8-second fade-out, which keeps the download small. Files are 32 kbps stereo Opus (WebM), with a 40 kbps mono AAC fallback. A stage's playlist is 1.5 to 3.5 MB, streamed only while that stage plays.
