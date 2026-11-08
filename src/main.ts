@@ -399,6 +399,9 @@ syncBoard();
 // ---- actions ----
 let speed = 1;
 const tool: { current: Tool } = { current: 'spring' };
+let inspectCell = -1;
+let inspectBlend = 0;
+let inspectTarget = 0;
 const audio = initAudio({
   state: () => s,
   tiles: () => manifoldTiles ?? s.tiles,
@@ -706,9 +709,6 @@ let qaHover = -1; // layout/capture hook; cleared on pointer move
 let panFrom: THREE.Vector3 | null = null; // hyperbolic one-pointer pan anchor
 const PLACE_TOOLS = new Set<TileType>(['spring', 'mill', 'beacon', 'bridge', 'vault']);
 const isPlaceTool = (t: Tool): t is TileType => PLACE_TOOLS.has(t as TileType);
-let inspectCell = -1;
-let inspectBlend = 0;
-let inspectTarget = 0;
 let bridgePulse = 0;
 let constellationPulseUntil = 0;
 let constellationBurstEdges: [number, number][] = [];
