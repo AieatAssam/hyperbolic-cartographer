@@ -4,6 +4,7 @@ import { GRAPHS, graphOf, type GameState } from './state';
 import type { TileType } from './tiles';
 import type { TileGraph } from './geometry/graph';
 import { has } from './milestones';
+import { bridgeComponents, bridgeTouchSet, bridgeTouchSetExtended } from './bridge-relay';
 
 export interface Mods {
   global: number;
@@ -21,22 +22,55 @@ export function mods(s: GameState): Mods {
   };
 }
 
-/** Effective adjacency: direct neighbours plus anything reachable through up to `reach` consecutive Bridges. */
-export function adjacency(g: TileGraph, tiles: (TileType | null)[], i: number, reach: number): number[] {
-  const out = new Set(g.neighbours[i]);
-  let frontier = g.neighbours[i].filter((n) => tiles[n] === 'bridge');
-  for (let hop = 0; hop < reach && frontier.length; hop++) {
-    const next: number[] = [];
-    for (const b of frontier)
-      for (const n of g.neighbours[b])
-        if (n !== i && !out.has(n)) {
-          out.add(n);
-          if (tiles[n] === 'bridge') next.push(n);
-        }
-    frontier = next;
+/**
+ * Effective adjacency: graph neighbours, plus every tile on the same bridge-relay footprint.
+ * A contiguous bridge chain acts as one connector — anything touching any bridge in the chain
+ * is adjacent to everything else touching that chain. `reach` adds extra bridge-only BFS hops
+ * beyond that (Long Bridges upgrade).
+ */
+const relayCache = new WeakMap<TileGraph, Map<string, Map<number, Set<number>>>>();
+
+function relayOneWay(g: TileGraph, tiles: (TileType | null)[], reach: number): Map<number, Set<number>> {
+  const hops = Math.max(0, Math.floor(reach) - 1);
+  const out = new Map<number, Set<number>>();
+  for (let i = 0; i < tiles.length; i++) {
+    const seen = new Set(g.neighbours[i]);
+    for (const comp of bridgeComponents(g, tiles)) {
+      const touch = hops > 0 ? bridgeTouchSetExtended(g, tiles, comp, hops) : bridgeTouchSet(g, tiles, comp);
+      if (touch.has(i) || g.neighbours[i].some((x) => touch.has(x))) {
+        for (const t of touch) if (t !== i) seen.add(t);
+      }
+    }
+    seen.delete(i);
+    out.set(i, seen);
   }
-  out.delete(i);
-  return [...out];
+  return out;
+}
+
+/** Cached symmetric relay adjacency. */
+function relayAdjacency(g: TileGraph, tiles: (TileType | null)[], reach: number): Map<number, Set<number>> {
+  const key = `${reach}|${tiles.join(',')}`;
+  let byKey = relayCache.get(g);
+  if (byKey?.has(key)) return byKey.get(key)!;
+  const one = relayOneWay(g, tiles, reach);
+  const sym = new Map<number, Set<number>>();
+  for (let i = 0; i < tiles.length; i++) {
+    const mates = new Set<number>();
+    for (const j of one.get(i) ?? []) {
+      if ((one.get(j) ?? new Set()).has(i)) mates.add(j);
+    }
+    sym.set(i, mates);
+  }
+  if (!byKey) {
+    byKey = new Map();
+    relayCache.set(g, byKey);
+  }
+  byKey.set(key, sym);
+  return sym;
+}
+
+export function adjacency(g: TileGraph, tiles: (TileType | null)[], i: number, reach: number): number[] {
+  return [...(relayAdjacency(g, tiles, reach).get(i) ?? [])];
 }
 
 export interface Production {

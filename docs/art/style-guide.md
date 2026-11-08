@@ -97,7 +97,22 @@ Shadow maps are off.
 | `CONSTELLATION.inkGhost` | `#ffd033` | Ghost hint while previewing. |
 | `CONSTELLATION.star` | `#ffcc33` | Star markers on completed shapes. |
 
+**Inspect ink-flow arches (`FLOW_LINK`, Wired).** Emissive tube colours for tile inspect (below bloom); foot rings at each tile anchor.
+
+| Token | Hex | Meaning |
+|---|---|---|
+| `FLOW_LINK.feed` | `#5fd4ff` | Spring → Mill production. |
+| `FLOW_LINK.boost` | `#ff5a7a` | Beacon multiplier. |
+| `FLOW_LINK.shadow` | `#0a0e18` | Under-stroke for tubes on bright tiles. |
+| `FLOW_LINK.bridge` | `#c080ff` | Bridge neighbour link (violet tube). |
+| `FLOW_LINK.relay` | `#aa66ff` | Bridge-to-bridge relay (violet). |
+| `FLOW_LINK.penalty` | `#ff6b6b` | Downstream loss / blocked feed. |
+
+Inspect flow uses one smooth quadratic arch per source–target pair (no hop trunks), a dark under-stroke (`FLOW_LINK.shadow`), foot rings, and small motes for direction (respect `prefers-reduced-motion`).
+
 **Placement / inspect preview (`PREVIEW`, Wired).** `bridgeOutline` `#e8c872`, plus dim/saturation scalars for inspect and bridge mixes.
+
+**DOM spacing (`style.css`, Wired).** `--space-1` (4px) through `--space-6` (16px), `--shell-gap`, `--chrome-pad-x/y` rhythm the HUD, dock, palette, panel and modal padding.
 
 **FX particle colours (Wired in `fx.ts`).** Selected hex tokens:
 

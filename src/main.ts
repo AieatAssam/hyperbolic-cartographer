@@ -13,6 +13,8 @@ import {
 import { playChime } from './ui/chime';
 import { AUDIO_KEY, initAudio } from './audio';
 import { placementImpactState, tileInfluenceState } from './core/placement-impact';
+import { flowLinksForState } from './render/flow-links';
+import { archControl, fanForLink } from './render/flow-arch';
 import type { TileGraph } from './core/geometry/graph';
 import { canDrift, canProject, drift, project } from './core/prestige';
 import { applyOffline, simulate } from './core/tick';
@@ -109,6 +111,9 @@ const MARGIN = config.camera.margin;
 const boardFill = () => config.camera.phoneFill;
 let free: Rect = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
 let fitD = 0; // distance that fits the current footprint into `free` (0 = not yet framed)
+let layoutFree: ReturnType<typeof freeRect> | null = null;
+const freeJitter = (a: ReturnType<typeof freeRect>, b: ReturnType<typeof freeRect>) =>
+  Math.max(Math.abs(a.left - b.left), Math.abs(a.right - b.right), Math.abs(a.top - b.top), Math.abs(a.bottom - b.bottom));
 let layoutDirty = true;
 /** Matches board.ts: placed tiles, active empties, and next-ring (locked) slots. */
 function isRenderedCell(st: GameState, i: number): boolean {
@@ -169,13 +174,13 @@ const solveFit = () => {
   }
   const W = innerWidth, H = innerHeight;
   const portrait = manifoldPreview === 'off' && phonePortrait(W, H);
-  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : (portrait ? MARGIN + 8 : MARGIN);
+  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : (portrait ? MARGIN + 6 : MARGIN + 18);
   const portraitWidthFirst = portrait;
   let d = fitDistance({
     pts: footprint(), W, H, free, fov: camera.fov, polar: POLAR, margin, portraitWidthFirst,
   });
   if (portrait && manifoldPreview === 'off' && s.geometry === 'square') {
-    d *= 1.06 + Math.max(0, s.ring - 1) * 0.01;
+    d *= 1.06 + Math.max(0, s.ring - 1) * 0.016;
   }
   return d;
 };
@@ -185,19 +190,29 @@ const solveFit = () => {
 function layoutView() {
   layoutDirty = false;
   const W = innerWidth, H = innerHeight;
-  const overlays = [...document.querySelectorAll<HTMLElement>('#ui .hud, #ui .panel, #ui .dock, #ui .manifold-bar')].map((el) => ({
+  const overlays = [...document.querySelectorAll<HTMLElement>('#ui .hud, #ui .panel, #ui .dock, #ui .palette, #ui .manifold-bar')].map((el) => ({
     role: (el.classList.contains('hud') ? 'hud'
-      : (el.classList.contains('dock') || el.classList.contains('manifold-bar')) ? 'dock' : 'panel') as Role,
+      : (el.classList.contains('dock') || el.classList.contains('palette') || el.classList.contains('manifold-bar')) ? 'dock' : 'panel') as Role,
     rect: el.getBoundingClientRect(),
   }));
-  free = freeRect(overlays, W, H);
+  const nextFree = freeRect(overlays, W, H);
+  const structural = layoutFree === null || freeJitter(layoutFree, nextFree) > 3;
+  layoutFree = nextFree;
+  free = nextFree;
   const ink = document.querySelector<HTMLElement>('[data-fx-target="ink"]')?.getBoundingClientRect();
   if (ink && ink.width > 0) inkTarget = [((ink.left + ink.width / 2) / W) * 2 - 1, 1 - ((ink.top + ink.height / 2) / H) * 2];
-  camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);
+  const portrait = phonePortrait(W, H);
+  const lift = portrait ? (free.bottom - free.top) * 0.04 : 0;
+  camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2 - lift, W, H);
   camera.updateProjectionMatrix();
   const manifold3d = manifoldPreview !== 'off' && board && isSurfaceBoard(board) && !board.isChartFlat();
   const d = solveFit();
-  if (fitD > 0 && !manifold3d) setDistance(camera.position.distanceTo(controls.target) * (d / fitD));
+  const stable = fitD > 0 && Math.abs(d - fitD) / fitD < 0.007;
+  if (structural && fitD > 0 && !manifold3d && !stable) {
+    setDistance(camera.position.distanceTo(controls.target) * (d / fitD));
+  } else if (fitD <= 0 && !manifold3d) {
+    setDistance(d);
+  }
   fitD = d;
   controls.maxDistance = Math.max(40, d * 1.5);
 }
@@ -219,8 +234,23 @@ const clearPreviewOnLayoutChange = (always: boolean) => {
 addEventListener('resize', () => ((layoutDirty = true), clearPreviewOnLayoutChange(false)));
 addEventListener('orientationchange', () => ((layoutDirty = true), clearPreviewOnLayoutChange(true)));
 // panel toggles (display:none) and dock growth show up as size changes; no per-frame DOM reads
-const ro = new ResizeObserver(() => (layoutDirty = true));
-const observeUI = () => document.querySelectorAll('#ui .hud, #ui .panel, #ui .dock, #ui .manifold-bar').forEach((el) => ro.observe(el));
+const roSizes = new WeakMap<Element, { w: number; h: number }>();
+const ro = new ResizeObserver((entries) => {
+  for (const e of entries) {
+    const { width: w, height: h } = e.contentRect;
+    const prev = roSizes.get(e.target);
+    if (prev && Math.abs(prev.w - w) < 2 && Math.abs(prev.h - h) < 2) continue;
+    roSizes.set(e.target, { w, h });
+    layoutDirty = true;
+  }
+});
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    layoutDirty = true;
+    clearPreviewOnLayoutChange(false);
+  });
+}
+const observeUI = () => document.querySelectorAll('#ui .hud, #ui .panel, #ui .dock, #ui .palette, #ui .manifold-bar').forEach((el) => ro.observe(el));
 new MutationObserver(() => ((layoutDirty = true), observeUI())).observe(document.getElementById('ui')!, { childList: true });
 
 let manifoldAz = Math.PI * 0.32;
@@ -243,8 +273,8 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
     fitD = fitManifoldProjected(surf, camera, controls.target, free, innerWidth, innerHeight, polar, azimuth);
     fitPolar = manifoldFitPolar(surf.surface, surf.isChartFlat(), polar, innerWidth, innerHeight);
   } else {
-    const effFill = portraitBoard ? Math.min(fill, 0.8) : fill;
-    fitD = solveFit() / Math.max(1, Math.min(1.08, effFill));
+    const effFill = portraitBoard ? Math.min(fill, 1) : Math.min(fill, 1);
+    fitD = solveFit() / Math.max(1, effFill);
   }
   controls.maxDistance = Math.max(40, fitD * 1.5);
   if (klein3d) {
@@ -260,7 +290,9 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
   }
   camera.lookAt(controls.target);
   const W = innerWidth, H = innerHeight;
-  camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);
+  const portrait = phonePortrait(W, H);
+  const lift = portrait ? (free.bottom - free.top) * 0.04 : 0;
+  camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2 - lift, W, H);
   camera.updateProjectionMatrix();
 };
 const applyManifoldCamera = () => {
@@ -367,6 +399,9 @@ syncBoard();
 // ---- actions ----
 let speed = 1;
 const tool: { current: Tool } = { current: 'spring' };
+let inspectCell = -1;
+let inspectBlend = 0;
+let inspectTarget = 0;
 const audio = initAudio({
   state: () => s,
   tiles: () => manifoldTiles ?? s.tiles,
@@ -413,6 +448,22 @@ function applyTool(i: number): boolean {
   }
   return true;
 }
+
+function linkApexScreen(links: readonly { from: number; to: number }[], i: number): { x: number; y: number } | null {
+  if (isSurfaceBoard(board)) return null;
+  const L = links[i];
+  const ta = board.tops[L.from];
+  const tb = board.tops[L.to];
+  if (!ta || !tb) return null;
+  const fan = fanForLink(links as import('./render/flow-links').FlowLink[], i);
+  const apex = archControl(ta.x, ta.y, ta.z, tb.x, tb.y, tb.z, fan);
+  const v = apex.project(camera);
+  const W = innerWidth;
+  const H = innerHeight;
+  if (v.z > 1) return null;
+  return { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H };
+}
+
 const ui = createUI(document.getElementById('ui')!, {
   state: () => s,
   tool,
@@ -441,6 +492,23 @@ const ui = createUI(document.getElementById('ui')!, {
     if (i < 0 || tool.current !== 'bridge' || s.tiles[i]) return null;
     const d = previewDelta(s, i, 'bridge');
     return d > 0 ? d : null;
+  },
+  flowRateLabels: () => {
+    if (inspectCell < 0 || inspectBlend < 0.45) return [];
+    const links = flowLinksForState(s, inspectCell);
+    const seen = new Set<string>();
+    const out: { x: number; y: number; text: string }[] = [];
+    for (let i = 0; i < links.length; i++) {
+      const L = links[i];
+      if (L.rate <= 0 || L.kind !== 'feed') continue;
+      const k = `${L.from}>${L.to}:${L.kind}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const pos = linkApexScreen(links, i);
+      if (!pos) continue;
+      out.push({ x: pos.x, y: pos.y, text: `+${fmt(L.rate, s.notation)}/s` });
+    }
+    return out;
   },
   tutorial: { load: () => store.get(TUTORIAL_KEY), save: (v) => store.set(TUTORIAL_KEY, v) },
   act: {
@@ -641,9 +709,6 @@ let qaHover = -1; // layout/capture hook; cleared on pointer move
 let panFrom: THREE.Vector3 | null = null; // hyperbolic one-pointer pan anchor
 const PLACE_TOOLS = new Set<TileType>(['spring', 'mill', 'beacon', 'bridge', 'vault']);
 const isPlaceTool = (t: Tool): t is TileType => PLACE_TOOLS.has(t as TileType);
-let inspectCell = -1;
-let inspectBlend = 0;
-let inspectTarget = 0;
 let bridgePulse = 0;
 let constellationPulseUntil = 0;
 let constellationBurstEdges: [number, number][] = [];
@@ -712,15 +777,27 @@ function cellHtml(i: number): string {
   }
   const out = prod(s).perTile[i];
   const title = `${TILE_INFO[t].name}${s.pinned.includes(i) ? ' · pinned' : ''}`;
-  let html = `${lead(title)}${effect(out ? `${fmt(out, s.notation)} Ink/s` : TILE_INFO[t].desc)}`;
-  if (tl === 'sell') {
-    html += `${meta(`Sell for ${fmt(sellValue(s, t), s.notation)} Ink`)}${effect(delta(previewDelta(s, i, null)))}`;
-  } else if (tl === 'pin') {
-    html += note(s.pinned.includes(i) ? 'Unpin: Drift may remove this tile.' : 'Pin: kept through Drift.');
-  } else {
-    html += note('Tap again to inspect · Sell (S) to remove');
+  const g0 = graphOf(s);
+  const reach0 = mods(s).reach;
+  const springN = t === 'mill'
+    ? adjacency(g0, s.tiles, i, reach0).filter((n) => s.tiles[n] === 'spring').length
+    : 0;
+  const flowLegend = inspectCell === i
+    ? `<div class="flow-legend"><span class="feed">Feed</span><span class="boost">Beacon</span><span class="bridge">Bridge</span></div>`
+    : '';
+  let html = `${lead(title)}${flowLegend}${effect(out ? `${fmt(out, s.notation)} Ink/s` : TILE_INFO[t].desc)}`;
+  if (t === 'mill' && inspectCell === i) {
+    html += meta(`${springN} Spring(s) in link range`);
   }
-  return html + whyHtml;
+  if (inspectCell !== i) {
+    if (tl === 'sell') {
+      html += `${meta(`Sell for ${fmt(sellValue(s, t), s.notation)} Ink`)}${effect(delta(previewDelta(s, i, null)))}`;
+    } else if (tl === 'pin') {
+      html += note(s.pinned.includes(i) ? 'Unpin: Drift may remove this tile.' : 'Pin: kept through Drift.');
+    }
+    html += whyHtml;
+  }
+  return html;
 }
 
 const pickAt = (x: number, y: number) => {
@@ -821,6 +898,10 @@ function frame(now: number) {
   if (inspectCell >= 0 && inspectBlend > 0) {
     hl.lit = tileInfluenceState(s, inspectCell);
     hl.dim = inspectBlend;
+    if (inspectBlend > 0.45) {
+      hl.flowLinks = flowLinksForState(s, inspectCell);
+      hl.flowPhase = reduceMotion ? 0 : (now / 1000) % 1;
+    }
   } else if (focus >= 0 && !tiles[focus] && isPlaceTool(tool.current)) {
     const imp = placementImpactState(s, focus, tool.current);
     hoverAdj = imp.direct;
@@ -847,7 +928,10 @@ function frame(now: number) {
     ? tiles.map((t) => (t === 'mill' ? config.manifold.demoMillOut : t === 'spring' ? 1 : 0))
     : p.perTile;
   board.update(rs, perTile, focus, hoverAdj, hl);
-  if (!isSurfaceBoard(board)) board.overlayConstellations(hl);
+  if (!isSurfaceBoard(board)) {
+    board.overlayConstellations(hl);
+    board.overlayFlow(hl, reduceMotion);
+  }
   // prepare binds the new board's embedding before any spawn; update then advances time once
   const ctx = fxContext(perTile, routes);
   fx.prepare(ctx);
@@ -866,6 +950,7 @@ function frame(now: number) {
   controls.update();
   renderFrame(dt);
   if (tool.current === 'bridge' || constellationPulseUntil > now / 1000) ui.syncBridgeGain();
+  ui.syncFlowLabels();
   if ((uiAcc += dt) > 0.1) (uiAcc = 0), ui.update();
 }
 requestAnimationFrame(frame);
@@ -880,7 +965,8 @@ type QaSeed =
   | 'ux-demo'
   | 'constellation-demo'
   | 'network-demo'
-  | 'bridge-gain';
+  | 'bridge-gain'
+  | 'links-demo';
 /** Tiles on every `every`-th active cell, alternating Mill and Spring. */
 function sprinkle(g: GameState, every: number) {
   g.tiles = g.tiles.map((_, i): TileType | null => (!isActive(g, i) || i % every ? null : (i / every) % 2 ? 'mill' : 'spring'));
@@ -930,6 +1016,25 @@ function fixture(name: QaSeed): GameState {
     g.tiles[1] = 'spring';
     const third = graph.neighbours[0].find((n) => graph.neighbours[1].includes(n) && n !== 0 && n !== 1);
     if (third !== undefined) g.tiles[third] = null;
+  } else if (name === 'links-demo') {
+    g.ring = 1;
+    Object.assign(g, { ink: d(2e5), runInk: d(800), totalTime: 200, runTime: 200 });
+    const graph = graphOf(g);
+    const sq = graph as import('./core/geometry/square').SquareBoard;
+    const by = (x: number, y: number) => sq.xy.findIndex(([a, b]) => a === x && b === y);
+    const put = (x: number, y: number, t: TileType) => {
+      const i = by(x, y);
+      if (i >= 0) g.tiles[i] = t;
+    };
+    // Visual top is −Z (away from camera); +Z is the near/bottom row.
+    put(-1, -1, 'mill');
+    put(0, -1, 'spring');
+    put(1, -1, 'mill');
+    put(-1, 0, 'spring');
+    put(0, 0, 'beacon');
+    put(-1, 1, 'bridge');
+    put(0, 1, 'bridge');
+    put(1, 1, 'mill');
   } else if (name === 'ux-demo') {
     g.ring = 3;
     Object.assign(g, {
@@ -1040,6 +1145,25 @@ if (dev) {
       /** Read-only: view matrix, camera zoom (orbit distance), previewed cell, occupied count, visible cells. */
       phoneSnapshot,
       /** Palette tool dots must use TILE_IDENTITIES.base (see tileChipColour). */
+      cameraStabilitySample: async (frames = 100) => {
+        const samples: { ty: number; cy: number; d: number }[] = [];
+        for (let i = 0; i < frames; i++) {
+          renderFrame(0);
+          samples.push({
+            ty: controls.target.y,
+            cy: camera.position.y,
+            d: camera.position.distanceTo(controls.target),
+          });
+          await new Promise<void>((r) => requestAnimationFrame(() => r()));
+        }
+        const ty = samples.map((s) => s.ty);
+        const cy = samples.map((s) => s.cy);
+        const maxTargetY = Math.max(...ty.map(Math.abs));
+        const camYRange = Math.max(...cy) - Math.min(...cy);
+        const dRange = Math.max(...samples.map((s) => s.d)) - Math.min(...samples.map((s) => s.d));
+        const ok = maxTargetY < 0.003 && camYRange < 0.025 && dRange / (samples[0]?.d || 1) < 0.012;
+        return { ok, frames: samples.length, maxTargetY, camYRange, distRangeRatio: dRange / (samples[0]?.d || 1) };
+      },
       paletteChipCheck: () => {
         const dots = [...document.querySelectorAll<HTMLElement>('.palette button.tool .palette-dot')];
         const failures: string[] = [];
@@ -1316,6 +1440,16 @@ if (dev) {
         ui.update();
         renderFrame(0);
         return ok;
+      },
+      linksDemoTiles: () => {
+        const g = graphOf(s);
+        const sq = 'xy' in g ? (g as import('./core/geometry/square').SquareBoard) : null;
+        const at = (x: number, y: number) => sq ? sq.xy.findIndex(([a, b]) => a === x && b === y) : -1;
+        const mill = at(1, 1);
+        const spring = at(-1, 0);
+        const bridge = at(0, 1);
+        const beacon = at(0, 0);
+        return { mill, spring, bridge, beacon };
       },
       demoCells: () => {
         const g = graphOf(s);

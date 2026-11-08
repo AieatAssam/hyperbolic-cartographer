@@ -1,3 +1,5 @@
+import type { FlowLink } from './flow-links';
+
 /** Optional per-frame board emphasis (placement preview, inspect fade). Pure data; consumed by Board.update. */
 export interface BoardHighlight {
   /** Neighbour outlines (solid adj colour). */
@@ -20,4 +22,8 @@ export interface BoardHighlight {
   constellationPermanent?: readonly [number, number][];
   /** Dashed ghost hint for a pattern that would complete on place. */
   constellationGhost?: readonly [number, number][];
+  /** Animated inspect ink-flow arches. */
+  flowLinks?: FlowLink[];
+  /** 0..1 dash phase for flow animation. */
+  flowPhase?: number;
 }

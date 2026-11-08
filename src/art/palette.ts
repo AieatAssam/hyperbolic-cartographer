@@ -153,8 +153,8 @@ export const MATERIAL = {
 export const PREVIEW = {
   bridgeOutline: 0xe8c872,
   bridgePulse: 0.32,
-  inspectDim: 0.97,
-  inspectSatMul: 0.28,
+  inspectDim: 0.82,
+  inspectSatMul: 0.48,
   directMix: 0.68,
   bridgeMix: 0.78,
 } as const;
@@ -168,6 +168,17 @@ export const BOARD = {
 /**
  * Constellation edge ink on the board (ribbons, no bloom). Saturated gold for phone readability; glow stays on Klein seams only.
  */
+/** Inspect-time ink flow arches (emissive tubes, below bloom). */
+export const FLOW_LINK = {
+  feed: 0x5fd4ff,
+  boost: 0xff5a7a,
+  bridge: 0xc080ff,
+  relay: 0xaa66ff,
+  penalty: 0xff6b6b,
+  foot: 0xffffff,
+  shadow: 0x0a0e18,
+} as const;
+
 export const CONSTELLATION = {
   /** In-progress burst (saturated gold, dashed line). */
   inkPulse: 0xffb800,
