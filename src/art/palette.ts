@@ -277,6 +277,43 @@ export const SURFACE = {
   skinGrid: 0x5fd4ff,
 } as const;
 
+/** sRGB hex as `#rrggbb` for DOM / CSS. */
+export const hexString = (h: number) => `#${(h & 0xffffff).toString(16).padStart(6, '0')}`;
+
+/**
+ * DOM / HUD chrome (plain CSS, not Three.js). Values are wired on `:root` via `applyUiCssVars` in ui-theme.ts.
+ * `--gold` and `--cyan` mirror `BOARD.gold` and `BOARD.rim`.
+ */
+export const UI = {
+  bg: 0x070b14,
+  ink: 0xd8e2f0,
+  muted: 0x7d8aa3,
+  primaryOnGold: 0x1a1405,
+  controlBg: 0x0f1828,
+  fieldBg: 0x050a14,
+  panelBg: 0x0c1424,
+  barLo: 0xb8912e,
+  barHi: 0xfff3c4,
+  danger: 0xff6b6b,
+  dangerRgb: [255, 107, 107] as const,
+  pos: 0x7fd9a0,
+  dangerSoft: 0xffb3b3,
+  gainLabel: 0xffe7a8,
+  gainLabelBg: 0x04060e,
+  flash: 0xffffff,
+  /** Solid fill behind palette chips for WCAG contrast (HUD glass over bg). */
+  hudChipBg: 0x0c1220,
+  glassRgb: [12, 18, 32] as const,
+  glassAlpha: 0.78,
+  lineRgb: [95, 212, 255] as const,
+  lineAlpha: 0.22,
+  devPanelBg: [30, 8, 12] as const,
+  devPanelBgAlpha: 0.8,
+} as const;
+
+/** Palette tool-chip fill: tile `base` from TILE_IDENTITIES. */
+export const tileChipColour = (t: keyof typeof TILE_IDENTITIES) => TILE_IDENTITIES[t].base;
+
 export const FX = {
   ink: 0x6cc4ff, production: 0x8fe6ff, sell: 0xc9b8e8, ring: 0x5fd4ff, beacon: 0xff7a92, bridge: 0xb07cff,
   wash: 0x2a6bd6, vortex: 0xe8c872,

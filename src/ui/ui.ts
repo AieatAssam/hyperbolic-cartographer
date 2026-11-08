@@ -21,6 +21,7 @@ import {
   STEPS, currentStep, dismissTutorial, nextStep, parseTutorial, prevStep, reopenTutorial, restartTutorial, serializeTutorial, syncTutorial,
   type TutorialState,
 } from './tutorial';
+import { UI, contrastRatio, hexString, tileChipColour } from '../art/palette';
 
 export type { Tool } from './help';
 export interface UICtx {
@@ -146,7 +147,15 @@ const ctl = (b: HTMLElement, name: string, text: string) => {
   return { box, why: (reason: string | null) => ((why.hidden = !reason), (why.textContent = reason ?? '')) };
 };
 const clamp = (x: number) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0);
-const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
+const hex = hexString;
+
+/** 8×8 px tool chip: tile `base` fill; ring when base contrast on HUD glass is low. */
+const paletteDot = (base: number) => {
+  const dot = el('span', 'palette-dot');
+  dot.style.background = hex(base);
+  if (contrastRatio(base, UI.hudChipBg) < 2.8) dot.classList.add('palette-dot--ring');
+  return dot;
+};
 const narrow = () => innerWidth < 700 || innerHeight <= 500;
 /** Compact-chip glyphs (24x24 stroke icons), shown when the chip is too narrow for its short name. Semantic per branch, not parsed from text. */
 const GOAL_ICON_SVG: Record<GoalIcon, string> = {
@@ -249,15 +258,13 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const palette = el('div', 'palette');
   palette.setAttribute('role', 'toolbar');
   palette.setAttribute('aria-label', 'Tools');
-  const addTool = (t: Tool, key: string, desc: string, color?: number) => {
+  const addTool = (t: Tool, key: string, desc: string, tile?: TileType) => {
     const b = help(el('button', 'tool'), `${TOOL_NAME[t]} (${key})`, desc);
     b.type = 'button';
     b.setAttribute('aria-label', `${TOOL_NAME[t]}, key ${key}. ${desc}`);
     const n = el('span', 'name');
-    if (color !== undefined) {
-      const dot = el('span');
-      dot.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:${hex(color)}`;
-      n.append(dot);
+    if (tile !== undefined) {
+      n.append(paletteDot(tileChipColour(tile)));
     }
     n.append(TOOL_NAME[t]);
     const cost = el('span', 'cost');
@@ -273,7 +280,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     return { t, b, cost };
   };
   const tileBtns: { t: TileType; b: HTMLButtonElement; cost: HTMLElement }[] = TILE_TYPES.map((t, i) => ({
-    ...addTool(t, `${i + 1}`, TOOL_HELP[t], TILE_INFO[t].color),
+    ...addTool(t, `${i + 1}`, TOOL_HELP[t], t),
     t,
   }));
   const sellBtn = addTool('sell', 'S', TOOL_HELP.sell);

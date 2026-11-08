@@ -34,12 +34,15 @@ import type { BoardHighlight } from './render/board-highlight';
 import { productionRoutes, revealSpans, surveyWave, type Route } from './render/fx-graph';
 import { budgetFor } from './render/fx-model';
 import { TRANSITION_S, transitionPhase } from './render/transition';
-import { TILE_IDENTITIES } from './art/palette';
+import { TILE_IDENTITIES, hexString, tileChipColour } from './art/palette';
+import { applyUiCssVars } from './art/ui-theme';
 import { createUI, type Tool } from './ui/ui';
 import { fmt } from './ui/format';
 import { placeBlocked } from './ui/help';
 import { TapController, type PointerKind } from './ui/input';
 import { TUTORIAL_KEY, dismissTutorial, freshTutorial, parseTutorial, serializeTutorial, type TutorialState } from './ui/tutorial';
+applyUiCssVars();
+
 const KEY = 'hc-save', BACKUP = 'hc-save-backup';
 const dev = import.meta.env.DEV || location.search.includes('dev');
 const qa = dev && new URLSearchParams(location.search).has('qa'); // QA: deterministic, no localStorage writes
@@ -1025,6 +1028,26 @@ if (dev) {
       quality: (n: number) => setQuality(n as QualityLevel),
       /** Read-only: view matrix, camera zoom (orbit distance), previewed cell, occupied count, visible cells. */
       phoneSnapshot,
+      /** Palette tool dots must use TILE_IDENTITIES.base (see tileChipColour). */
+      paletteChipCheck: () => {
+        const dots = [...document.querySelectorAll<HTMLElement>('.palette button.tool .palette-dot')];
+        const failures: string[] = [];
+        if (dots.length !== TILE_TYPES.length) {
+          failures.push(`expected ${TILE_TYPES.length} palette dots, got ${dots.length}`);
+        }
+        const rgbToHex = (css: string) => {
+          const m = css.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+          if (!m) return css;
+          return hexString((+m[1] << 16) + (+m[2] << 8) + +m[3]).toLowerCase();
+        };
+        dots.forEach((el, i) => {
+          const t = TILE_TYPES[i];
+          const want = hexString(tileChipColour(t)).toLowerCase();
+          const got = rgbToHex(getComputedStyle(el).backgroundColor);
+          if (got !== want) failures.push(`${t}: dot ${got} !== base ${want}`);
+        });
+        return { ok: failures.length === 0, failures };
+      },
       /**
        * Real GPU draw calls: composer.render with the FX group hidden, then shown, counted by renderer.info. Visibility,
        * autoReset and the info counters are restored in finally. fxDraws is the FX share (1 when FX is in the frame).
