@@ -972,7 +972,7 @@ const CASES = [
       await qa(p, 'seed', 'midgame');
       await qa(p, 'tab', 'save');
       await p.locator('[data-qa="audio-credits-toggle"]').first().click();
-      await p.locator('[data-qa="audio-credits"] li a').first().waitFor();
+      await p.locator('[data-qa="audio-credits"] li a').first().waitFor({ state: 'attached', timeout: SETUP_LOCATOR_TIMEOUT });
       await p.locator('[data-qa="audio-credits"]').first().scrollIntoViewIfNeeded();
     },
     expect: async (p) => {
@@ -1442,7 +1442,10 @@ async function main() {
   try {
     browser = await chromium.launch({
       headless: true,
-      args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+      args: [
+        '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+        '--mute-audio', '--disable-audio-output',
+      ],
     }).catch((e) => {
       throw new Error(`could not launch Chromium (run \`npx playwright install chromium\`): ${e.message}`);
     });

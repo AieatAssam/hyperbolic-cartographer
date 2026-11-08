@@ -46,13 +46,41 @@ const upgradeLevels = (s: GameState) =>
 
 export function initAudio(host: AudioHost): AudioApi {
   let settings = parseAudioSettings(host.load());
+  const params = new URLSearchParams(location.search);
+  /** Layout QA (?qa): settings UI only — no AudioContext, media elements, or decode work in headless runs. */
+  if (params.has('qa')) {
+    const subs = new Set<() => void>();
+    const notify = () => subs.forEach((f) => f());
+    const musicParam = params.get('music');
+    let forced: MusicStage | null = isMusicStage(musicParam) ? musicParam : null;
+    const stageNow = () => forced ?? musicStage(host.state(), host.surface());
+    const api: AudioApi = {
+      settings: () => settings,
+      set(patch) {
+        settings = { ...settings, ...patch };
+        host.save(serializeAudioSettings(settings));
+        notify();
+      },
+      stage: stageNow,
+      nowPlaying: () => null,
+      supported: () => true,
+      cue: () => {},
+      inkTick: () => {},
+      subscribe(f) {
+        subs.add(f);
+        return () => subs.delete(f);
+      },
+    };
+    active = api;
+    return api;
+  }
+
   const engine = new AudioEngine(settings);
   const cues = new Cues(engine);
   const subs = new Set<() => void>();
   const notify = () => subs.forEach((f) => f());
   engine.onTrack = notify;
 
-  const params = new URLSearchParams(location.search);
   const musicParam = params.get('music');
   let forced: MusicStage | null = isMusicStage(musicParam) ? musicParam : null;
   const stageNow = () => forced ?? musicStage(host.state(), host.surface());
