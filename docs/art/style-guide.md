@@ -88,6 +88,55 @@ Shadow maps are off.
 
 **Board chrome.** `BOARD`: `table` `#3b2a4f`, `tableEdge` `#7a5a3a`, `rim` `#5fd4ff`, `gold` `#e8c872` (pin outline and reward highlight), `hover` `#ffffff`, `adjacency` `#5fd4ff`, `glowAccentIntensity` 2.4 (the accent cap; motif cores sit just under it).
 
+**Constellation ink (Wired in `board.ts`).** Ribbons use saturated golds; no bloom.
+
+| Token | Hex | Meaning |
+|---|---|---|
+| `CONSTELLATION.inkPulse` | `#ffb800` | In-progress burst (dashed). |
+| `CONSTELLATION.inkComplete` | `#c88700` | Completed ribbons. |
+| `CONSTELLATION.inkGhost` | `#ffd033` | Ghost hint while previewing. |
+| `CONSTELLATION.star` | `#ffcc33` | Star markers on completed shapes. |
+
+**Placement / inspect preview (`PREVIEW`, Wired).** `bridgeOutline` `#e8c872`, plus dim/saturation scalars for inspect and bridge mixes.
+
+**FX particle colours (Wired in `fx.ts`).** Selected hex tokens:
+
+| Token | Hex | Meaning |
+|---|---|---|
+| `FX.ink` | `#6cc4ff` | Ink mote default. |
+| `FX.production` | `#8fe6ff` | Production overlay accent. |
+| `FX.sell` | `#c9b8e8` | Sell puff. |
+| `FX.wash` | `#2a6bd6` | Drift ink-wash. |
+| `FX.ring` | `#5fd4ff` | Survey / idle rings. |
+| `FX.beacon` | `#ff7a92` | Beacon aura legs. |
+| `FX.bridge` | `#b07cff` | Bridge relay glint. |
+| `FX.vortex` | `#e8c872` | Projection vortex. |
+
+**DOM UI (`UI`, Wired).** Plain CSS chrome on `#ui`; `main.ts` calls `applyUiCssVars` so `style.css` reads custom properties. `--gold` and `--cyan` mirror `BOARD.gold` and `BOARD.rim`.
+
+| Token | Hex | CSS variable | Role |
+|---|---|---|---|
+| `UI.bg` | `#070b14` | `--bg` | Page / canvas letterbox. |
+| `UI.ink` | `#d8e2f0` | `--ink` | Primary text. |
+| `UI.muted` | `#7d8aa3` | `--muted` | Labels, secondary text. |
+| `UI.controlBg` | `#0f1828` | `--control-bg` | Default buttons. |
+| `UI.fieldBg` | `#050a14` | `--field-bg` | Inputs, modal fields. |
+| `UI.panelBg` | `#0c1424` | `--panel-bg` | Modal surface. |
+| `UI.primaryOnGold` | `#1a1405` | `--primary-on-gold` | Text on gold primary buttons. |
+| `UI.barLo` / `UI.barHi` | `#b8912e` / `#fff3c4` | `--bar-lo` / `--bar-hi` | Progress bar gradient ends. |
+| `UI.danger` | `#ff6b6b` | `--red` | Errors, blocked costs. |
+| `UI.pos` | `#7fd9a0` | `--green` | Positive deltas. |
+| `UI.dangerSoft` | `#ffb3b3` | `--danger-soft` | Dev panel text. |
+| `UI.gainLabel` | `#ffe7a8` | `--gain-label` | Bridge +Ink/s floater. |
+| `UI.gainLabelBg` | `#04060e` | `--gain-label-bg` | Floater backdrop. |
+| `UI.flash` | `#ffffff` | `--flash` | Prestige flash. |
+| `UI.hudChipBg` | `#0c1220` | (contrast ref) | Solid fill under HUD glass for palette-dot contrast. |
+| `UI.glassRgb` + `glassAlpha` | rgba(12, 18, 32, 0.78) | `--glass` | HUD / toast glass. |
+| `UI.lineRgb` + `lineAlpha` | rgba(95, 212, 255, 0.22) | `--line` | Borders. |
+| `UI.devPanelBg` + alpha | rgba(30, 8, 12, 0.8) | `--dev-bg` | Dev panel fill. |
+
+**Palette tool chips (Wired in `ui.ts`).** Each build-tool button shows an 8×8 px dot filled with `tileChipColour(type)` = `TILE_IDENTITIES[type].base`. When contrast on `UI.hudChipBg` is low, a `--ink` ring is drawn; the fill never substitutes another hue.
+
 **Material coefficients.** `MATERIAL`, multipliers on the tokens above:
 
 | Field | Value | Meaning |
@@ -268,8 +317,10 @@ These works inform readability and framing. They are **not** sources to copy or 
 
 | Token / behaviour | Meaning |
 |---|---|
-| `SURFACE.seamA` / `seamB` | Orientable seam pair hues on chart and 3D patch rims. |
+| `SURFACE.seamA` / `seamB` | `#ff6b9d` / `#5fd4ff` — orientable seam pair hues on chart and 3D patch rims. |
 | `SURFACE.seamFlip` | Klein vertical flip seam (distinct from seamA/B). |
+| `SURFACE.skin` / `skinInk` | `#4a3568` / `#8b6cc4` — Klein immersion parchment skin and ink lines. |
+| `SURFACE.ghost` | `#6a4e86` — manifold ghost tile tint. |
 | `SURFACE.seamGlow` / `seamGlowEmissive` | Klein self-intersection ring glow beads (just under bloom threshold). |
 | `config.manifold.kleinSkinAlpha` | Klein immersion glass (~32%); torus uses `skinAlpha` (~50%). |
 | `config.manifold.kleinTileAlpha` | Opaque tile patches over Klein glass; back faces dimmed via `kleinBackfaceDim`. |

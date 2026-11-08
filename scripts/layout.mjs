@@ -886,6 +886,21 @@ const hudExpandedCase = {
   },
 };
 
+const paletteChipCase = {
+  name: 'palette-chip-base',
+  setup: async (p) => {
+    await qa(p, 'seed', 'fresh');
+    await qa(p, 'dismissTutorial');
+    await qa(p, 'menu', false);
+    await rafTwice(p);
+  },
+  expect: async (p) => {
+    const r = await qa(p, 'paletteChipCheck');
+    if (!r?.ok) return (r?.failures ?? [`paletteChipCheck failed: ${JSON.stringify(r)}`]).slice(0, 4);
+    return [];
+  },
+};
+
 const CASES = [
   {
     name: 'firstload',
@@ -1021,6 +1036,7 @@ const CASES = [
   },
   hyperPreviewCase(false),
   hyperPreviewCase(true),
+  paletteChipCase,
   hudCollapsedCase,
   hudExpandedCase,
   {

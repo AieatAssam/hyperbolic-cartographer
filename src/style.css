@@ -1,7 +1,13 @@
+/* Colour vars are set from palette.ts in main.ts (`applyUiCssVars`). Fallbacks match UI tokens for first paint. */
 :root {
   --bg: #070b14; --ink: #d8e2f0; --muted: #7d8aa3;
   --gold: #e8c872; --cyan: #5fd4ff; --red: #ff6b6b; --green: #7fd9a0;
   --glass: rgba(12, 18, 32, 0.78); --line: rgba(95, 212, 255, 0.22);
+  --control-bg: #0f1828; --field-bg: #050a14; --panel-bg: #0c1424;
+  --primary-on-gold: #1a1405; --bar-lo: #b8912e; --bar-hi: #fff3c4;
+  --danger-soft: #ffb3b3; --gain-label: #ffe7a8; --gain-label-bg: #04060e;
+  --dev-bg: rgba(30, 8, 12, 0.8); --dev-border: rgba(255, 107, 107, 0.5);
+  --flash: #ffffff;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -47,18 +53,18 @@ html, body {
 
 /* Generic controls: every interactive target is at least 44px */
 button {
-  font: inherit; cursor: pointer; background: #0f1828; color: var(--ink);
+  font: inherit; cursor: pointer; background: var(--control-bg); color: var(--ink);
   border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
   min-height: 44px; min-width: 44px;
 }
 button:disabled { cursor: not-allowed; opacity: 0.4; }
 button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
-button.primary { background: var(--gold); border-color: var(--gold); color: #1a1405; font-weight: 600; }
+button.primary { background: var(--gold); border-color: var(--gold); color: var(--primary-on-gold); font-weight: 600; }
 button.danger { background: transparent; border-color: var(--red); color: var(--red); }
 
 select, input[type=number], input[type=text] {
   font: inherit; min-height: 44px; padding: 6px 8px; color: var(--ink);
-  background: #050a14; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--field-bg); border: 1px solid var(--line); border-radius: 8px;
 }
 label.check, label:has(> input[type=checkbox]) {
   display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer;
@@ -111,7 +117,7 @@ input[type=checkbox] {
 .next .bar { flex: 1 1 auto; height: 4px; }
 .bar { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
 .fill {
-  height: 100%; width: 0; background: linear-gradient(90deg, #b8912e, var(--gold), #fff3c4);
+  height: 100%; width: 0; background: linear-gradient(90deg, var(--bar-lo), var(--gold), var(--bar-hi));
   transition: width 0.4s ease;
 }
 
@@ -159,7 +165,11 @@ button.tool {
   align-items: flex-start; justify-content: center; min-width: 96px; min-height: 44px;
   padding: 4px 12px; text-align: left; line-height: 1.2;
 }
-.tool .name { font-weight: 600; font-size: 13px; padding-right: 12px; }
+.tool .name { font-weight: 600; font-size: 13px; padding-right: 12px; display: inline-flex; align-items: center; }
+.palette-dot {
+  display: inline-block; flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px;
+}
+.palette-dot--ring { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 55%, transparent); }
 .tool .cost { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--cyan); }
 .tool .key {
   position: absolute; top: 3px; right: 5px; font-family: ui-monospace, monospace;
@@ -323,7 +333,7 @@ ul.reset li::before {
   display: flex; flex-direction: column; width: 100%;
   max-width: min(560px, calc(100vw - 24px));
   max-height: 100vh; max-height: calc(100dvh - 24px);
-  padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: #0c1424;
+  padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-bg);
 }
 .modal > h2 { flex: none; margin: 0 0 8px; font-size: 20px; color: var(--gold); }
 .modal-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }
@@ -334,7 +344,7 @@ ul.reset li::before {
 .modal ul li { margin-bottom: 3px; }
 .modal textarea, .modal input[type=text] {
   display: block; width: 100%; max-width: 100%; box-sizing: border-box; margin-bottom: 10px; padding: 8px;
-  border: 1px solid var(--line); border-radius: 8px; background: #050a14; color: var(--ink); font: inherit;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--field-bg); color: var(--ink); font: inherit;
 }
 .modal textarea { font-family: ui-monospace, monospace; font-size: 12px; resize: vertical; }
 .modal button { min-height: 44px; min-width: 44px; }
@@ -348,8 +358,8 @@ ul.reset li::before {
   position: fixed; z-index: 30; left: 12px;
   bottom: calc(max(8px, env(safe-area-inset-bottom)) + 112px);
   max-width: 260px; padding: 8px;
-  border: 1px solid rgba(255, 107, 107, 0.5); border-radius: 8px;
-  background: rgba(30, 8, 12, 0.8); color: #ffb3b3;
+  border: 1px solid var(--dev-border); border-radius: 8px;
+  background: var(--dev-bg); color: var(--danger-soft);
   font-family: ui-monospace, monospace; font-size: 11px;
 }
 .dev.hidden { display: none; }
@@ -358,9 +368,9 @@ ul.reset li::before {
 .board-gain-label {
   position: fixed; z-index: 55; pointer-events: none; transform: translate(-50%, -100%);
   padding: 6px 12px; border-radius: 10px; font-size: 16px; font-weight: 800; line-height: 1.2;
-  font-variant-numeric: tabular-nums; color: #ffe7a8;
-  background: rgba(4, 6, 14, 0.94); border: 2px solid var(--gold);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.65), 0 0 16px rgba(232, 200, 114, 0.4);
+  font-variant-numeric: tabular-nums; color: var(--gain-label);
+  background: color-mix(in srgb, var(--gain-label-bg) 94%, transparent); border: 2px solid var(--gold);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.65), 0 0 16px color-mix(in srgb, var(--gold) 40%, transparent);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
   transition: opacity 0.15s ease;
   min-width: 4.5rem; text-align: center;
@@ -378,7 +388,7 @@ ul.reset li::before {
 
 /* Prestige flash */
 .flash {
-  position: fixed; z-index: 60; inset: 0; background: #fff; opacity: 0; pointer-events: none;
+  position: fixed; z-index: 60; inset: 0; background: var(--flash); opacity: 0; pointer-events: none;
   animation: flash 1.2s ease-in-out forwards;
 }
 @keyframes flash { 0% { opacity: 0; } 50% { opacity: 0.9; } 100% { opacity: 0; } }
