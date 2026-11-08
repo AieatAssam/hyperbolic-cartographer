@@ -789,12 +789,15 @@ function cellHtml(i: number): string {
   if (t === 'mill' && inspectCell === i) {
     html += meta(`${springN} Spring(s) in link range`);
   }
-  if (tl === 'sell') {
-    html += `${meta(`Sell for ${fmt(sellValue(s, t), s.notation)} Ink`)}${effect(delta(previewDelta(s, i, null)))}`;
-  } else if (tl === 'pin') {
-    html += note(s.pinned.includes(i) ? 'Unpin: Drift may remove this tile.' : 'Pin: kept through Drift.');
+  if (inspectCell !== i) {
+    if (tl === 'sell') {
+      html += `${meta(`Sell for ${fmt(sellValue(s, t), s.notation)} Ink`)}${effect(delta(previewDelta(s, i, null)))}`;
+    } else if (tl === 'pin') {
+      html += note(s.pinned.includes(i) ? 'Unpin: Drift may remove this tile.' : 'Pin: kept through Drift.');
+    }
+    html += whyHtml;
   }
-  return html + whyHtml;
+  return html;
 }
 
 const pickAt = (x: number, y: number) => {
@@ -1023,14 +1026,15 @@ function fixture(name: QaSeed): GameState {
       const i = by(x, y);
       if (i >= 0) g.tiles[i] = t;
     };
-    put(-1, 1, 'mill');
-    put(0, 1, 'spring');
-    put(1, 1, 'mill');
+    // Visual top is −Z (away from camera); +Z is the near/bottom row.
+    put(-1, -1, 'mill');
+    put(0, -1, 'spring');
+    put(1, -1, 'mill');
     put(-1, 0, 'spring');
     put(0, 0, 'beacon');
-    put(-1, -1, 'bridge');
-    put(0, -1, 'bridge');
-    put(1, -1, 'mill');
+    put(-1, 1, 'bridge');
+    put(0, 1, 'bridge');
+    put(1, 1, 'mill');
   } else if (name === 'ux-demo') {
     g.ring = 3;
     Object.assign(g, {
@@ -1441,9 +1445,9 @@ if (dev) {
         const g = graphOf(s);
         const sq = 'xy' in g ? (g as import('./core/geometry/square').SquareBoard) : null;
         const at = (x: number, y: number) => sq ? sq.xy.findIndex(([a, b]) => a === x && b === y) : -1;
-        const mill = at(1, -1);
+        const mill = at(1, 1);
         const spring = at(-1, 0);
-        const bridge = at(0, -1);
+        const bridge = at(0, 1);
         const beacon = at(0, 0);
         return { mill, spring, bridge, beacon };
       },

@@ -1,5 +1,5 @@
 /** Flow links captures. POLISH_TAG=before|after. After: seed links-demo, inspect each role, assert panel title. */
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -111,6 +111,17 @@ await stab.close();
 
 const clipPath = join(ART, 'flow-after-links-clip-390x844.webm');
 if (TAG === 'after') {
+  const framesPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await waitReady(framesPage);
+  await inspectRole(framesPage, { id: 'mill', title: 'Mill' });
+  for (const sec of [0, 1, 2]) {
+    if (sec > 0) await framesPage.waitForTimeout(1000);
+    const out = join(ART, `flow-after-links-frame-${sec}s-390x844.png`);
+    await framesPage.screenshot({ path: out });
+    console.log('wrote', out);
+  }
+  await framesPage.close();
+
   const clip = await browser.newContext({
     viewport: { width: 390, height: 844 },
     recordVideo: { dir: ART, size: { width: 390, height: 844 } },
@@ -127,15 +138,6 @@ if (TAG === 'after') {
       await rename(vpath, clipPath);
       console.log('wrote clip');
     } catch { /* */ }
-  }
-  for (const sec of [0, 1, 2]) {
-    const out = join(ART, `flow-after-links-frame-${sec}s-390x844.png`);
-    const ff = spawnSync('ffmpeg', [
-      '-y', '-ss', String(sec), '-i', clipPath,
-      '-frames:v', '1', '-q:v', '2', out,
-    ], { stdio: 'ignore' });
-    if (ff.status === 0) console.log('wrote', out);
-    else console.warn('ffmpeg frame', sec, 'failed');
   }
 }
 
