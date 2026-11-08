@@ -1,0 +1,66 @@
+{
+  "music": [
+    { "id": "survey-vaporware", "stage": "survey", "title": "Calm Piano 1 (Vaporware)", "author": "The Cynic Project (cynicmusic)", "licence": "CC0", "page": "https://opengameart.org/content/calm-piano-1-vaporware", "url": "https://opengameart.org/sites/default/files/003_Vaporware_2.mp3", "root": 0 },
+    { "id": "survey-air", "stage": "survey", "title": "Air", "author": "Alexandr Zhelanov", "licence": "CC-BY-4.0", "page": "https://opengameart.org/content/air", "url": "https://opengameart.org/sites/default/files/Air.ogg", "root": 4 },
+    { "id": "survey-meditation", "stage": "survey", "title": "Meditation Impromptu 02", "author": "Kevin MacLeod (incompetech.com)", "licence": "CC-BY-4.0", "page": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Meditation%20Impromptu%2002.mp3", "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Meditation%20Impromptu%2002.mp3", "root": 1, "maxSec": 200 },
+    { "id": "survey-synthwave4k", "stage": "survey", "title": "Calm Ambient 1 (Synthwave 4k)", "author": "The Cynic Project (cynicmusic)", "licence": "CC0", "page": "https://opengameart.org/content/calm-ambient-1-synthwave-4k", "url": "https://opengameart.org/sites/default/files/001_Synthwave_4k_0.mp3", "root": 0 },
+
+    { "id": "drift-november-snow", "stage": "drift", "title": "November Snow", "author": "The Cynic Project (cynicmusic)", "licence": "CC0", "page": "https://opengameart.org/content/november-snow", "url": "https://opengameart.org/sites/default/files/155%20November_snow-33_tape_leveled.mp3", "root": 0, "maxSec": 200 },
+    { "id": "drift-synthwave15k", "stage": "drift", "title": "Calm Ambient 2 (Synthwave 15k)", "author": "The Cynic Project (cynicmusic)", "licence": "CC0", "page": "https://opengameart.org/content/calm-ambient-2-synthwave-15k", "url": "https://opengameart.org/sites/default/files/002_Synthwave_15k.mp3", "root": 0, "maxSec": 200 },
+    { "id": "drift-dreamy-flashback", "stage": "drift", "title": "Dreamy Flashback", "author": "Kevin MacLeod (incompetech.com)", "licence": "CC-BY-4.0", "page": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Dreamy%20Flashback.mp3", "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Dreamy%20Flashback.mp3", "root": 0 },
+
+    { "id": "projection-crystal-cave", "stage": "projection", "title": "Crystal Cave (song18)", "author": "The Cynic Project (cynicmusic)", "licence": "CC0", "page": "https://opengameart.org/content/crystal-cave-song18", "url": "https://opengameart.org/sites/default/files/song18_0.mp3", "root": 5, "loopSec": 150 },
+    { "id": "projection-mysterious-ambience", "stage": "projection", "title": "Mysterious Ambience (song21)", "author": "The Cynic Project (cynicmusic)", "licence": "CC0", "page": "https://opengameart.org/content/mysterious-ambience-song21", "url": "https://opengameart.org/sites/default/files/song21_0.mp3", "root": 2, "loopSec": 130 },
+    { "id": "projection-crypto", "stage": "projection", "title": "Crypto", "author": "Kevin MacLeod (incompetech.com)", "licence": "CC-BY-4.0", "page": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Crypto.mp3", "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Crypto.mp3", "root": 8, "maxSec": 200 },
+
+    { "id": "torus-global-resonance", "stage": "torus", "title": "Global Resonance", "author": "Eponasoft", "licence": "CC0", "page": "https://opengameart.org/content/global-resonance", "url": "https://opengameart.org/sites/default/files/global_resonance.ogg", "root": 10 },
+    { "id": "torus-contemplation", "stage": "torus", "title": "Contemplation", "author": "Joth", "licence": "CC0", "page": "https://opengameart.org/content/contemplation-0", "url": "https://opengameart.org/sites/default/files/Contemplation.mp3", "root": 0 },
+    { "id": "torus-echoes-of-time", "stage": "torus", "title": "Echoes of Time v2", "author": "Kevin MacLeod (incompetech.com)", "licence": "CC-BY-4.0", "page": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Echoes%20of%20Time%20v2.mp3", "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Echoes%20of%20Time%20v2.mp3", "root": 3, "maxSec": 200 },
+
+    { "id": "klein-futuristic-1", "stage": "klein", "title": "Futuristic Ambient 1", "author": "Alexandr Zhelanov", "licence": "CC-BY-4.0", "page": "https://opengameart.org/content/futuristic-ambient", "url": "https://opengameart.org/sites/default/files/Futuristic_ambient_1.ogg", "root": 6, "maxSec": 200 },
+    { "id": "klein-futuristic-4", "stage": "klein", "title": "Futuristic Ambient 4", "author": "Alexandr Zhelanov", "licence": "CC-BY-4.0", "page": "https://opengameart.org/content/futuristic-ambient", "url": "https://opengameart.org/sites/default/files/Futuristic_ambient_4.ogg", "root": 3 },
+    { "id": "klein-unwritten-return", "stage": "klein", "title": "Unwritten Return", "author": "Kevin MacLeod (incompetech.com)", "licence": "CC-BY-4.0", "page": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Unwritten%20Return.mp3", "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Unwritten%20Return.mp3", "root": 3, "maxSec": 200 },
+
+    { "id": "dimension-observing-the-star", "stage": "dimension", "title": "Observing The Star", "author": "yd", "licence": "CC0", "page": "https://opengameart.org/content/another-space-background-track", "url": "https://opengameart.org/sites/default/files/ObservingTheStar.zip", "zipMember": "ObservingTheStar.ogg", "root": 10 },
+    { "id": "dimension-space-atmosphere", "stage": "dimension", "title": "Space Atmosphere", "author": "Alexandr Zhelanov", "licence": "CC-BY-3.0", "page": "https://opengameart.org/content/space-atmospere", "url": "https://opengameart.org/sites/default/files/Space%20Atmosphere.mp3", "root": 5, "maxSec": 200 },
+    { "id": "dimension-lightless-dawn", "stage": "dimension", "title": "Lightless Dawn", "author": "Kevin MacLeod (incompetech.com)", "licence": "CC-BY-4.0", "page": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Lightless%20Dawn.mp3", "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Lightless%20Dawn.mp3", "root": 5, "maxSec": 200 },
+
+    { "id": "horizon-infinite-perspective", "stage": "horizon", "title": "Infinite Perspective", "author": "Kevin MacLeod (incompetech.com)", "licence": "CC-BY-4.0", "page": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Infinite%20Perspective.mp3", "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Infinite%20Perspective.mp3", "root": 2, "maxSec": 200 },
+    { "id": "horizon-out-there", "stage": "horizon", "title": "Space Music: Out There", "author": "yd", "licence": "CC0", "page": "https://opengameart.org/content/space-music-out-there", "url": "https://opengameart.org/sites/default/files/OutThere_0.ogg", "root": 0, "maxSec": 200 },
+    { "id": "horizon-harmony-in-the-mists", "stage": "horizon", "title": "Harmony in the Mists", "author": "Tsorthan Grove", "licence": "CC-BY-4.0", "page": "https://opengameart.org/content/harmony-in-the-mists", "url": "https://opengameart.org/sites/default/files/harmony_in_the_mists.flac", "root": 1 },
+    { "id": "horizon-singularity", "stage": "horizon", "title": "Singularity (calm version)", "author": "vitalezzz", "licence": "CC0", "page": "https://opengameart.org/content/singularity-0", "url": "https://opengameart.org/sites/default/files/singularity_calm_0.mp3", "root": 6, "maxSec": 200 }
+  ],
+  "sfx": [
+    { "id": "harp-c", "use": "Spring, Survey, completion", "title": "Harp C5", "pack": "vsco", "path": "Strings/Harp/KSHarp_C5_mf.wav", "midi": 72, "len": 1.6 },
+    { "id": "harp-g", "use": "Spring, Survey, completion", "title": "Harp G5", "pack": "vsco", "path": "Strings/Harp/KSHarp_G5_mf.wav", "midi": 79, "len": 1.6 },
+    { "id": "marimba-c", "use": "Mill, upgrades", "title": "Marimba C4", "pack": "vsco", "path": "Percussion/Marimba/Marimba_hit_Outrigger_C4_loud_01.wav", "midi": 60, "len": 1.1 },
+    { "id": "marimba-g", "use": "Mill, upgrades", "title": "Marimba G4", "pack": "vsco", "path": "Percussion/Marimba/Marimba_hit_Outrigger_G4_loud_01.wav", "midi": 67, "len": 1.1 },
+    { "id": "marimba-low", "use": "Sell", "title": "Marimba G2", "pack": "vsco", "path": "Percussion/Marimba/Marimba_hit_Outrigger_G2_loud_01.wav", "midi": 43, "len": 1.2 },
+    { "id": "glock-c", "use": "Beacon, links, upgrades", "title": "Glockenspiel C6", "pack": "vsco", "path": "Percussion/Glock/glock_medium_C6.wav", "midi": 84, "len": 1.6 },
+    { "id": "glock-g", "use": "Beacon, links, upgrades", "title": "Glockenspiel G5", "pack": "vsco", "path": "Percussion/Glock/glock_medium_G5.wav", "midi": 79, "len": 1.6 },
+    { "id": "pizz-c", "use": "Bridge", "title": "Violin section pizzicato C4", "pack": "vsco", "path": "Strings/Violin Section/Pizz/VlnEns_Pizz_C4_v1_rr1.wav", "midi": 60, "len": 0.6 },
+    { "id": "pizz-g", "use": "Bridge", "title": "Violin section pizzicato G4", "pack": "vsco", "path": "Strings/Violin Section/Pizz/VlnEns_Pizz_G4_v1_rr1.wav", "midi": 67, "len": 0.7 },
+    { "id": "piano-low", "use": "Vault", "title": "Upright piano C#3, soft", "pack": "vsco", "path": "Keys/Upright Piano/Player_dyn1_rr1_014.wav", "midi": 49, "len": 2.0 },
+    { "id": "xylo", "use": "Pin", "title": "Xylophone C6", "pack": "vsco", "path": "Percussion/Xylo/Xylo_Medium_C6_ff_01_far.wav", "midi": 84, "len": 0.6 },
+    { "id": "bass-pizz", "use": "Invalid action", "title": "Contrabass pizzicato A1", "pack": "vsco", "path": "Strings/Solo Contrabass/Pizz/BKCtbss_Pizz_A1_v1_rr1.wav", "midi": 33, "len": 0.7 },
+    { "id": "triangle", "use": "Survey", "title": "Triangle, soft hit", "pack": "vsco", "path": "VSCO 1 Percussion/varMetal/triangle/2/triangle2_hit_p.wav", "midi": null, "len": 1.6 },
+    { "id": "glock-gliss", "use": "Completion (constellation), Projection", "title": "Glockenspiel pentatonic glissando", "pack": "vsco", "path": "Miscellania Raw/Misc 2/glock_glisses/glock_fx_up_pentatonic_med_01.wav", "midi": 78, "len": 2.4 },
+    { "id": "timpani-roll", "use": "Drift transition", "title": "Timpani roll", "pack": "vsco", "path": "Percussion/Timpani/Rolls/Timpani3_Roll_v3_rr1_Sum.wav", "midi": 49, "len": 3.2, "fadeIn": 0.6 },
+    { "id": "gong", "use": "Projection transition", "title": "Gong, soft hit", "pack": "vsco", "path": "VSCO 1 Percussion/varMetal/Gong/gong_hit_p.wav", "midi": null, "len": 4.0 },
+    { "id": "bells-a", "use": "Manifold (torus, Klein) transition", "title": "Nepalese bells", "pack": "vsco", "path": "Miscellania Raw/Misc 2/NepaleseBells/fx1_short_r01_main.wav", "midi": null, "len": 2.2 },
+    { "id": "bells-b", "use": "Manifold (torus, Klein) transition", "title": "Nepalese bells", "pack": "vsco", "path": "Miscellania Raw/Misc 2/NepaleseBells/fx2_short_r01_main.wav", "midi": null, "len": 3.0 },
+    { "id": "ink-drop", "use": "Ink arriving (production)", "title": "Water drop", "pack": "kenney-interface", "path": "Audio/drop_003.ogg", "midi": 78, "len": 0.3 },
+    { "id": "toggle", "use": "Settings toggles", "title": "Toggle", "pack": "kenney-interface", "path": "Audio/toggle_001.ogg", "midi": null, "len": 0.3 },
+    { "id": "click", "use": "UI buttons and tabs", "title": "Click", "pack": "kenney-ui", "path": "click5.wav", "midi": null, "len": 0.2 }
+  ],
+  "packs": {
+    "vsco": { "title": "VSCO 2 Community Edition (orchestral samples)", "author": "Versilian Studios (Sam Gossner, Simon Dalzell)", "licence": "CC0", "page": "https://github.com/sgossner/VSCO-2-CE", "base": "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/" },
+    "kenney-interface": { "title": "Interface Sounds", "author": "Kenney (kenney.nl)", "licence": "CC0", "page": "https://opengameart.org/content/interface-sounds", "zip": "https://opengameart.org/sites/default/files/kenney_interfaceSounds.zip" },
+    "kenney-ui": { "title": "51 UI sound effects (buttons, switches and clicks)", "author": "Kenney (kenney.nl)", "licence": "CC0", "page": "https://opengameart.org/content/51-ui-sound-effects-buttons-switches-and-clicks", "zip": "https://opengameart.org/sites/default/files/UI_SFX_Set.zip" }
+  },
+  "licences": {
+    "CC0": { "name": "CC0 1.0 (public domain dedication)", "url": "https://creativecommons.org/publicdomain/zero/1.0/" },
+    "CC-BY-3.0": { "name": "CC BY 3.0", "url": "https://creativecommons.org/licenses/by/3.0/" },
+    "CC-BY-4.0": { "name": "CC BY 4.0", "url": "https://creativecommons.org/licenses/by/4.0/" }
+  }
+}
