@@ -7,6 +7,7 @@ import {
   BLOOM, BOARD, CONSTELLATION, EMPTY_SLOT, MATERIAL, NEXT_SLOT, PLACE, PREVIEW, TILE_IDENTITIES, bevelColour, hoverFace, motifScale, sideColour, tileHeight, trimGlow,
 } from '../art/palette';
 import type { BoardHighlight } from './board-highlight';
+import { FlowArchOverlay } from './flow-arch';
 import { placeGlsl, placeScale } from './transition';
 import { bumpRev, createEmbedding, medianEdgePitch, writeFrame, type Embedding } from './fx-graph';
 
@@ -142,7 +143,8 @@ export class Board {
   private tileType: GameState['tiles'] = [];
   private previewLine: THREE.Line;
   private constellationPulse: THREE.LineSegments;
-  private constellationFaint: THREE.Mesh;
+  private constellationFaint: THREE.LineSegments;
+  private readonly flowArch = new FlowArchOverlay();
   private constellationStars: THREE.InstancedMesh;
   private ghostLine: THREE.LineSegments;
 
@@ -230,20 +232,6 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     this.previewLine.frustumCulled = false;
     this.previewLine.renderOrder = 6;
     this.group.add(this.previewLine);
-    const mkRibbon = (color: number, renderOrder: number) => {
-      const m = new THREE.Mesh(
-        new THREE.BufferGeometry(),
-        new THREE.MeshBasicMaterial({
-          color: col(color), transparent: true, opacity: 1,
-          depthTest: false, depthWrite: false, side: THREE.DoubleSide,
-        }),
-      );
-      m.visible = false;
-      m.frustumCulled = false;
-      m.renderOrder = renderOrder;
-      this.group.add(m);
-      return m;
-    };
     this.constellationPulse = new THREE.LineSegments(
       new THREE.BufferGeometry(),
       new THREE.LineDashedMaterial({
@@ -255,7 +243,18 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     this.constellationPulse.frustumCulled = false;
     this.constellationPulse.renderOrder = 8;
     this.group.add(this.constellationPulse);
-    this.constellationFaint = mkRibbon(CONSTELLATION.inkComplete, 7);
+    this.constellationFaint = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineDashedMaterial({
+        color: CONSTELLATION.inkComplete, transparent: true, opacity: CONSTELLATION.opacityComplete,
+        dashSize: 0.14, gapSize: 0.08, depthTest: true, depthWrite: false,
+      }),
+    );
+    this.constellationFaint.visible = false;
+    this.constellationFaint.frustumCulled = false;
+    this.constellationFaint.renderOrder = 6.5;
+    this.group.add(this.constellationFaint);
+    this.group.add(this.flowArch.group);
     const starCap = GRAPHS[geometry].ring.length;
     this.constellationStars = new THREE.InstancedMesh(
       new THREE.SphereGeometry(0.13, 10, 8),
@@ -283,40 +282,6 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     this.group.add(this.ghostLine);
   }
 
-  private updateConstellationRibbons(
-    edges: readonly [number, number][] | undefined,
-    mesh: THREE.Mesh,
-    halfWidth: number,
-    opacity: number,
-    lift: number,
-  ) {
-    const mat = mesh.material as THREE.MeshBasicMaterial;
-    mat.opacity = opacity;
-    if (!edges?.length) {
-      mesh.visible = false;
-      return;
-    }
-    const pos: number[] = [];
-    for (const [a, b] of edges) {
-      const ta = this.tops[a], tb = this.tops[b];
-      if (!ta || !tb) continue;
-      const y = Math.max(ta.y, tb.y) + lift;
-      const ax = ta.x, az = ta.z, bx = tb.x, bz = tb.z;
-      const dx = bx - ax, dz = bz - az;
-      const len = Math.hypot(dx, dz) || 1;
-      const px = (-dz / len) * halfWidth, pz = (dx / len) * halfWidth;
-      const q = (x: number, z: number) => { pos.push(x, y, z); };
-      q(ax + px, az + pz);
-      q(ax - px, az - pz);
-      q(bx + px, bz + pz);
-      q(ax + px, az + pz);
-      q(bx + px, bz + pz);
-      q(bx - px, bz - pz);
-    }
-    mesh.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
-    mesh.visible = pos.length > 0;
-  }
-
   private updateEdgeLines(
     edges: readonly [number, number][] | undefined,
     mesh: THREE.LineSegments,
@@ -333,8 +298,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     for (const [a, b] of edges) {
       const ta = this.tops[a], tb = this.tops[b];
       if (!ta || !tb) continue;
-      const y = Math.max(ta.y, tb.y) + lift;
-      pts.push(ta.x, y, ta.z, tb.x, y, tb.z);
+      pts.push(ta.x, ta.y + lift, ta.z, tb.x, tb.y + lift, tb.z);
     }
     mesh.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
     if (mesh.material instanceof THREE.LineDashedMaterial) (mesh as THREE.Line).computeLineDistances();
@@ -369,12 +333,9 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     const faint = hl?.constellationPermanent;
     const ghost = hl?.constellationGhost;
     const pulseOp = bright?.length ? (0.55 + 0.45 * pulse) * CONSTELLATION.opacityPulse : 0;
-    this.updateEdgeLines(bright, this.constellationPulse, 0.54, pulseOp);
-    this.updateConstellationRibbons(
-      faint, this.constellationFaint, CONSTELLATION.ribbonWidthComplete * 0.5,
-      CONSTELLATION.opacityComplete, 0.46,
-    );
-    this.updateEdgeLines(ghost, this.ghostLine, 0.4, CONSTELLATION.opacityGhost);
+    this.updateEdgeLines(bright, this.constellationPulse, 0.07, pulseOp);
+    this.updateEdgeLines(faint, this.constellationFaint, 0.06, CONSTELLATION.opacityComplete * 0.85);
+    this.updateEdgeLines(ghost, this.ghostLine, 0.06, CONSTELLATION.opacityGhost);
     if (pulse <= 0 && bright?.length) {
       this.constellationStars.count = 0;
     } else {
@@ -574,6 +535,11 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     for (const t of TILE_TYPES) this.motifs[t].instanceMatrix.needsUpdate = true;
     this.updatePreviewArc(hl?.arc);
     this.overlayConstellations(hl);
+  }
+
+  /** Inspect ink-flow arches (runs every frame). */
+  overlayFlow(hl: BoardHighlight | undefined, reducedMotion: boolean) {
+    this.flowArch.update(hl?.flowLinks ?? [], this.tops, hl?.flowPhase ?? 0, reducedMotion);
   }
 
   /** Starts a squash-settle on tile i at fx time `now` (writes only that tile's vertex span). */

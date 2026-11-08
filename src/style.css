@@ -8,6 +8,22 @@
   --danger-soft: #ffb3b3; --gain-label: #ffe7a8; --gain-label-bg: #04060e;
   --dev-bg: rgba(30, 8, 12, 0.8); --dev-border: rgba(255, 107, 107, 0.5);
   --flash: #ffffff;
+  /* Spacing scale (4pt base) — shell, chrome, and component rhythm */
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 10px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --shell-pad: max(var(--space-2), env(safe-area-inset-top)) max(var(--space-2), env(safe-area-inset-right))
+    max(var(--space-2), env(safe-area-inset-bottom)) max(var(--space-2), env(safe-area-inset-left));
+  --shell-gap: var(--space-2);
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: var(--space-5);
+  --radius-xl: 14px;
+  --chrome-pad-x: var(--space-5);
+  --chrome-pad-y: var(--space-2);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -27,12 +43,8 @@ html, body {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   grid-template-areas: "top" "mid" "dock" "pal";
-  gap: 8px;
-  padding:
-    max(8px, env(safe-area-inset-top))
-    max(8px, env(safe-area-inset-right))
-    max(8px, env(safe-area-inset-bottom))
-    max(8px, env(safe-area-inset-left));
+  gap: var(--shell-gap);
+  padding: var(--shell-pad);
 }
 #ui > * { pointer-events: auto; }
 #ui > .tooltip, #ui > .toast, #ui > .flash { pointer-events: none; }
@@ -41,7 +53,7 @@ html, body {
   font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
 }
 .value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 [hidden] { display: none !important; }
 .muted { color: var(--muted); }
 .pos { color: var(--green); }
@@ -77,9 +89,9 @@ input[type=checkbox] {
 :root {
   --control-h: 44px;
   --control-r: 10px;
-  --control-gap: 6px;
-  --hud-pad-y: 8px;
-  --hud-pad-x: 12px;
+  --control-gap: var(--space-2);
+  --hud-pad-y: var(--chrome-pad-y);
+  --hud-pad-x: var(--chrome-pad-x);
 }
 
 /* Topbar: HUD + top actions */
@@ -91,8 +103,8 @@ input[type=checkbox] {
 /* HUD */
 .hud {
   flex: 1 1 0; min-width: 0;
-  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--control-gap) 14px;
-  padding: var(--hud-pad-y) var(--hud-pad-x); border: 1px solid var(--line); border-radius: 14px; background: var(--glass);
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--control-gap) var(--space-4);
+  padding: var(--hud-pad-y) var(--hud-pad-x); border: 1px solid var(--line); border-radius: var(--radius-xl); background: var(--glass);
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }
 .stat {
@@ -101,7 +113,7 @@ input[type=checkbox] {
 }
 .stat .label { font-size: 10px; line-height: 1.1; }
 .stat .value { font-size: 15px; line-height: 1.15; font-variant-numeric: tabular-nums; }
-.goals { flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.goals { flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .goal { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 13px; min-width: 0; }
 .goal .label { flex: 0 0 auto; }
 .goal-text { flex: 1 1 auto; min-width: 0; }
@@ -145,8 +157,9 @@ button.panel-toggle.attention-pulse { animation: menu-pulse-once 1.4s ease-out 1
 /* Palette (bottom grid row) */
 .palette {
   grid-area: pal; justify-self: center; align-self: end; width: 100%; max-width: 720px; min-width: 0;
-  display: flex; gap: 8px; padding: 6px 12px 6px 8px; overflow-x: auto; overflow-y: hidden;
-  scrollbar-width: thin; border: 1px solid var(--line); border-radius: 14px;
+  display: flex; gap: var(--space-3); padding: var(--chrome-pad-y) var(--chrome-pad-x);
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: thin; border: 1px solid var(--line); border-radius: var(--radius-xl);
   background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   position: relative;
   mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 22px), transparent 100%);
@@ -263,14 +276,14 @@ ul.reset li::before {
 /* Dock (above palette): tutorial + info card */
 .dock {
   grid-area: dock; justify-self: center; width: 100%; max-width: 720px; min-width: 0;
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: var(--space-2);
   align-self: end; max-height: 42vh; overflow-y: auto; overscroll-behavior: contain;
   touch-action: pan-y;
 }
 .tutorial {
   display: flex; flex-direction: column;
   max-height: 34vh; overflow: hidden;
-  padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--glass);
+  padding: var(--space-4) var(--chrome-pad-x); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--glass);
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }
 .tutorial.hidden { display: none; }
@@ -283,9 +296,9 @@ ul.reset li::before {
 .tutorial .tut-actions { flex: 0 0 auto; margin-top: 4px; }
 .tutorial .tut-actions button { min-height: 44px; min-width: 44px; }
 .infocard {
-  min-width: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px;
+  min-width: 0; padding: var(--chrome-pad-y) var(--chrome-pad-x); border: 1px solid var(--line); border-radius: var(--radius-lg);
   background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-  display: flex; flex-direction: column; gap: 6px; touch-action: pan-y;
+  display: flex; flex-direction: column; gap: var(--space-2); touch-action: pan-y;
 }
 .info-scroll {
   position: relative; display: flex; flex-direction: column;
@@ -311,7 +324,19 @@ ul.reset li::before {
   -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 16px), transparent 100%);
 }
 .info-actions:empty { display: none; }
-.info-actions { flex: 0 0 auto; flex-wrap: wrap; gap: 6px; }
+.flow-legend {
+  display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3);
+  margin: var(--space-2) 0 0; font-size: 11px; color: var(--muted); line-height: 1.3;
+}
+.flow-legend span { display: inline-flex; align-items: center; gap: var(--space-1); }
+.flow-legend span::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px;
+}
+.flow-legend .feed::before { background: #6cc4ff; }
+.flow-legend .boost::before { background: #ff7a92; }
+.flow-legend .relay::before { background: var(--gold); }
+.flow-legend .bridge::before { background: #b07cff; }
+.info-actions { flex: 0 0 auto; flex-wrap: wrap; gap: var(--space-2); }
 .info-actions button { min-height: 44px; min-width: 44px; padding-inline: 12px; }
 /* While the guide is open, its text replaces the duplicate tool help to save board space. */
 .dock:has(.tutorial:not(.hidden)) .info-text { display: none; }

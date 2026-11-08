@@ -168,6 +168,15 @@ export const BOARD = {
 /**
  * Constellation edge ink on the board (ribbons, no bloom). Saturated gold for phone readability; glow stays on Klein seams only.
  */
+/** Inspect-time ink flow arches (emissive tubes, below bloom). */
+export const FLOW_LINK = {
+  feed: 0x6cc4ff,
+  boost: 0xff7a92,
+  bridge: 0xb07cff,
+  relay: 0xe8c872,
+  foot: 0xffffff,
+} as const;
+
 export const CONSTELLATION = {
   /** In-progress burst (saturated gold, dashed line). */
   inkPulse: 0xffb800,

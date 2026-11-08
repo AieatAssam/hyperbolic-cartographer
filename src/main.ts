@@ -13,6 +13,7 @@ import {
 import { playChime } from './ui/chime';
 import { AUDIO_KEY, initAudio } from './audio';
 import { placementImpactState, tileInfluenceState } from './core/placement-impact';
+import { flowLinksForState } from './render/flow-links';
 import type { TileGraph } from './core/geometry/graph';
 import { canDrift, canProject, drift, project } from './core/prestige';
 import { applyOffline, simulate } from './core/tick';
@@ -109,6 +110,9 @@ const MARGIN = config.camera.margin;
 const boardFill = () => config.camera.phoneFill;
 let free: Rect = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
 let fitD = 0; // distance that fits the current footprint into `free` (0 = not yet framed)
+let layoutFree: ReturnType<typeof freeRect> | null = null;
+const freeJitter = (a: ReturnType<typeof freeRect>, b: ReturnType<typeof freeRect>) =>
+  Math.max(Math.abs(a.left - b.left), Math.abs(a.right - b.right), Math.abs(a.top - b.top), Math.abs(a.bottom - b.bottom));
 let layoutDirty = true;
 /** Matches board.ts: placed tiles, active empties, and next-ring (locked) slots. */
 function isRenderedCell(st: GameState, i: number): boolean {
@@ -190,14 +194,22 @@ function layoutView() {
       : (el.classList.contains('dock') || el.classList.contains('manifold-bar')) ? 'dock' : 'panel') as Role,
     rect: el.getBoundingClientRect(),
   }));
-  free = freeRect(overlays, W, H);
+  const nextFree = freeRect(overlays, W, H);
+  const structural = layoutFree === null || freeJitter(layoutFree, nextFree) > 3;
+  layoutFree = nextFree;
+  free = nextFree;
   const ink = document.querySelector<HTMLElement>('[data-fx-target="ink"]')?.getBoundingClientRect();
   if (ink && ink.width > 0) inkTarget = [((ink.left + ink.width / 2) / W) * 2 - 1, 1 - ((ink.top + ink.height / 2) / H) * 2];
   camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2, W, H);
   camera.updateProjectionMatrix();
   const manifold3d = manifoldPreview !== 'off' && board && isSurfaceBoard(board) && !board.isChartFlat();
   const d = solveFit();
-  if (fitD > 0 && !manifold3d) setDistance(camera.position.distanceTo(controls.target) * (d / fitD));
+  const stable = fitD > 0 && Math.abs(d - fitD) / fitD < 0.007;
+  if (structural && fitD > 0 && !manifold3d && !stable) {
+    setDistance(camera.position.distanceTo(controls.target) * (d / fitD));
+  } else if (fitD <= 0 && !manifold3d) {
+    setDistance(d);
+  }
   fitD = d;
   controls.maxDistance = Math.max(40, d * 1.5);
 }
@@ -219,7 +231,22 @@ const clearPreviewOnLayoutChange = (always: boolean) => {
 addEventListener('resize', () => ((layoutDirty = true), clearPreviewOnLayoutChange(false)));
 addEventListener('orientationchange', () => ((layoutDirty = true), clearPreviewOnLayoutChange(true)));
 // panel toggles (display:none) and dock growth show up as size changes; no per-frame DOM reads
-const ro = new ResizeObserver(() => (layoutDirty = true));
+const roSizes = new WeakMap<Element, { w: number; h: number }>();
+const ro = new ResizeObserver((entries) => {
+  for (const e of entries) {
+    const { width: w, height: h } = e.contentRect;
+    const prev = roSizes.get(e.target);
+    if (prev && Math.abs(prev.w - w) < 2 && Math.abs(prev.h - h) < 2) continue;
+    roSizes.set(e.target, { w, h });
+    layoutDirty = true;
+  }
+});
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    layoutDirty = true;
+    clearPreviewOnLayoutChange(false);
+  });
+}
 const observeUI = () => document.querySelectorAll('#ui .hud, #ui .panel, #ui .dock, #ui .manifold-bar').forEach((el) => ro.observe(el));
 new MutationObserver(() => ((layoutDirty = true), observeUI())).observe(document.getElementById('ui')!, { childList: true });
 
@@ -712,7 +739,19 @@ function cellHtml(i: number): string {
   }
   const out = prod(s).perTile[i];
   const title = `${TILE_INFO[t].name}${s.pinned.includes(i) ? ' · pinned' : ''}`;
+  const g0 = graphOf(s);
+  const reach0 = mods(s).reach;
+  const springN = t === 'mill'
+    ? adjacency(g0, s.tiles, i, reach0).filter((n) => s.tiles[n] === 'spring').length
+    : 0;
+  const flowLegend = inspectCell === i
+    ? `<div class="flow-legend"><span class="feed">Spring feed</span> · <span class="boost">Beacon</span> · <span class="relay">Bridge relay</span> · <span class="bridge">Bridge link</span></div>`
+    : '';
   let html = `${lead(title)}${effect(out ? `${fmt(out, s.notation)} Ink/s` : TILE_INFO[t].desc)}`;
+  if (t === 'mill' && inspectCell === i) {
+    html += meta(`${springN} Spring(s) in link range (reach ${reach0})`);
+  }
+  if (flowLegend) html += flowLegend;
   if (tl === 'sell') {
     html += `${meta(`Sell for ${fmt(sellValue(s, t), s.notation)} Ink`)}${effect(delta(previewDelta(s, i, null)))}`;
   } else if (tl === 'pin') {
@@ -821,6 +860,10 @@ function frame(now: number) {
   if (inspectCell >= 0 && inspectBlend > 0) {
     hl.lit = tileInfluenceState(s, inspectCell);
     hl.dim = inspectBlend;
+    if (inspectBlend > 0.45) {
+      hl.flowLinks = flowLinksForState(s, inspectCell);
+      hl.flowPhase = reduceMotion ? 0 : (now / 1000) % 1;
+    }
   } else if (focus >= 0 && !tiles[focus] && isPlaceTool(tool.current)) {
     const imp = placementImpactState(s, focus, tool.current);
     hoverAdj = imp.direct;
@@ -847,7 +890,10 @@ function frame(now: number) {
     ? tiles.map((t) => (t === 'mill' ? config.manifold.demoMillOut : t === 'spring' ? 1 : 0))
     : p.perTile;
   board.update(rs, perTile, focus, hoverAdj, hl);
-  if (!isSurfaceBoard(board)) board.overlayConstellations(hl);
+  if (!isSurfaceBoard(board)) {
+    board.overlayConstellations(hl);
+    board.overlayFlow(hl, reduceMotion);
+  }
   // prepare binds the new board's embedding before any spawn; update then advances time once
   const ctx = fxContext(perTile, routes);
   fx.prepare(ctx);
@@ -880,7 +926,8 @@ type QaSeed =
   | 'ux-demo'
   | 'constellation-demo'
   | 'network-demo'
-  | 'bridge-gain';
+  | 'bridge-gain'
+  | 'links-demo';
 /** Tiles on every `every`-th active cell, alternating Mill and Spring. */
 function sprinkle(g: GameState, every: number) {
   g.tiles = g.tiles.map((_, i): TileType | null => (!isActive(g, i) || i % every ? null : (i / every) % 2 ? 'mill' : 'spring'));
@@ -930,6 +977,22 @@ function fixture(name: QaSeed): GameState {
     g.tiles[1] = 'spring';
     const third = graph.neighbours[0].find((n) => graph.neighbours[1].includes(n) && n !== 0 && n !== 1);
     if (third !== undefined) g.tiles[third] = null;
+  } else if (name === 'links-demo') {
+    g.ring = 1;
+    Object.assign(g, { ink: d(2e5), runInk: d(800), totalTime: 200, runTime: 200 });
+    const graph = graphOf(g);
+    const sq = graph as import('./core/geometry/square').SquareBoard;
+    const by = (x: number, y: number) => sq.xy.findIndex(([a, b]) => a === x && b === y);
+    const c = by(0, 0);
+    const springs = [by(-1, 0), by(0, 1)].filter((i) => i >= 0);
+    const mills = [by(1, 1), by(1, 0), by(0, -1)].filter((i) => i >= 0);
+    const beacon = by(1, -1);
+    const bridges = [by(-1, -1), by(0, -1)].filter((i) => i >= 0);
+    if (c >= 0) g.tiles[c] = 'beacon';
+    for (const i of springs) g.tiles[i] = 'spring';
+    for (const i of mills) g.tiles[i] = 'mill';
+    if (beacon >= 0 && beacon !== c) g.tiles[beacon] = 'beacon';
+    for (const i of bridges) g.tiles[i] = 'bridge';
   } else if (name === 'ux-demo') {
     g.ring = 3;
     Object.assign(g, {
@@ -1040,6 +1103,25 @@ if (dev) {
       /** Read-only: view matrix, camera zoom (orbit distance), previewed cell, occupied count, visible cells. */
       phoneSnapshot,
       /** Palette tool dots must use TILE_IDENTITIES.base (see tileChipColour). */
+      cameraStabilitySample: async (frames = 100) => {
+        const samples: { ty: number; cy: number; d: number }[] = [];
+        for (let i = 0; i < frames; i++) {
+          renderFrame(0);
+          samples.push({
+            ty: controls.target.y,
+            cy: camera.position.y,
+            d: camera.position.distanceTo(controls.target),
+          });
+          await new Promise<void>((r) => requestAnimationFrame(() => r()));
+        }
+        const ty = samples.map((s) => s.ty);
+        const cy = samples.map((s) => s.cy);
+        const maxTargetY = Math.max(...ty.map(Math.abs));
+        const camYRange = Math.max(...cy) - Math.min(...cy);
+        const dRange = Math.max(...samples.map((s) => s.d)) - Math.min(...samples.map((s) => s.d));
+        const ok = maxTargetY < 0.003 && camYRange < 0.025 && dRange / (samples[0]?.d || 1) < 0.012;
+        return { ok, frames: samples.length, maxTargetY, camYRange, distRangeRatio: dRange / (samples[0]?.d || 1) };
+      },
       paletteChipCheck: () => {
         const dots = [...document.querySelectorAll<HTMLElement>('.palette button.tool .palette-dot')];
         const failures: string[] = [];
@@ -1316,6 +1398,22 @@ if (dev) {
         ui.update();
         renderFrame(0);
         return ok;
+      },
+      linksDemoTiles: () => {
+        const g = graphOf(s);
+        let mill = -1, spring = -1, bridge = -1, millScore = -Infinity;
+        s.tiles.forEach((t, i) => {
+          if (!isActive(s, i) || !t) return;
+          const [x, y] = 'xy' in g ? (g as import('./core/geometry/square').SquareBoard).xy[i] : [0, 0];
+          const score = x + y;
+          if (t === 'mill' && score > millScore) {
+            millScore = score;
+            mill = i;
+          }
+          if (t === 'spring' && spring < 0) spring = i;
+          if (t === 'bridge' && bridge < 0) bridge = i;
+        });
+        return { mill, spring, bridge };
       },
       demoCells: () => {
         const g = graphOf(s);

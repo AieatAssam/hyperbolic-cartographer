@@ -23,7 +23,10 @@ const literals = paletteHexLiterals(paletteSrc);
 
 describe('style guide documents palette hex values', () => {
   it('lists every distinct 0x literal from palette.ts (case-insensitive #hex in the guide)', () => {
-    const missing = literals.filter((h) => !guide.toLowerCase().includes(`#${h.toString(16).padStart(6, '0')}`));
+    const missing = literals.filter((h) => {
+      const hex = `#${h.toString(16).padStart(6, '0')}`;
+      return !guide.toLowerCase().includes(hex) && !guide.includes(hex.toUpperCase());
+    });
     expect(missing, `missing in style-guide: ${missing.map((h) => '#' + h.toString(16))}`).toEqual([]);
   });
 });

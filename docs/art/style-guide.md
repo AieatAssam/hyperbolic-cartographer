@@ -97,7 +97,18 @@ Shadow maps are off.
 | `CONSTELLATION.inkGhost` | `#ffd033` | Ghost hint while previewing. |
 | `CONSTELLATION.star` | `#ffcc33` | Star markers on completed shapes. |
 
+**Inspect ink-flow arches (`FLOW_LINK`, Wired).** Emissive tube colours for tile inspect (below bloom); foot rings at each tile anchor.
+
+| Token | Hex | Meaning |
+|---|---|---|
+| `FLOW_LINK.feed` | `#6cc4ff` | Spring → Mill production. |
+| `FLOW_LINK.boost` | `#ff7a92` | Beacon multiplier. |
+| `FLOW_LINK.bridge` | `#b07cff` | Bridge neighbour link. |
+| `FLOW_LINK.relay` | `#e8c872` | Multi-hop bridge relay. |
+
 **Placement / inspect preview (`PREVIEW`, Wired).** `bridgeOutline` `#e8c872`, plus dim/saturation scalars for inspect and bridge mixes.
+
+**DOM spacing (`style.css`, Wired).** `--space-1` (4px) through `--space-6` (16px), `--shell-gap`, `--chrome-pad-x/y` rhythm the HUD, dock, palette, panel and modal padding.
 
 **FX particle colours (Wired in `fx.ts`).** Selected hex tokens:
 
