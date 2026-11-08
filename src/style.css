@@ -394,6 +394,13 @@ ul.reset li::before {
 }
 
 /* Phone portrait (360x640, 390x844, 430x932) */
+/* Narrow portrait: all build tools visible without clipping (Bridge included). */
+@media (max-width: 399px) {
+  .palette { gap: 4px; padding: 6px 26px 6px 4px; }
+  button.tool { min-width: 58px; padding: 4px 5px; font-size: 11.5px; }
+  .tool .name { font-size: 11.5px; }
+}
+
 @media (max-width: 699px) {
   .panel { justify-self: stretch; width: auto; }
   .hud { padding: 6px 8px; gap: 4px 10px; }

@@ -165,6 +165,24 @@ export const BOARD = {
   glowAccentIntensity: 2.4,
 } as const;
 
+/**
+ * Constellation edge ink on the board (ribbons, no bloom). Saturated gold for phone readability; glow stays on Klein seams only.
+ */
+export const CONSTELLATION = {
+  /** In-progress burst (saturated gold, dashed line). */
+  inkPulse: 0xffb800,
+  /** Completed permanent ribbons. */
+  inkComplete: 0xc88700,
+  /** Ghost hint while previewing. */
+  inkGhost: 0xffd033,
+  ribbonWidth: 0.28,
+  ribbonWidthComplete: 0.26,
+  opacityPulse: 0.92,
+  opacityComplete: 1,
+  opacityGhost: 0.72,
+  star: 0xffcc33,
+} as const;
+
 // ---- Pure colour math on sRGB hex. Used by tests; mirrors what board.ts does with THREE.Color. ----
 
 export type RGB = [number, number, number];

@@ -55,6 +55,9 @@ export interface FitParams {
 /** Phone portrait viewport (not landscape phones). */
 export const phonePortrait = (W: number, H: number): boolean => W < 520 && H > W;
 
+/** Phone landscape (short height). */
+export const phoneLandscape = (W: number, H: number): boolean => W > H && H < 520;
+
 /** Smallest camera distance at which every footprint point lands inside the free rect (minus margin), assuming
  *  the projection is view-offset so the target sits at the free rect's centre. Camera at d·(0, cosφ, sinφ):
  *  a ground point (x, z) has depth d − z·sinφ, screen x = x / depth, screen y = −z·cosφ / depth (tan units). */
@@ -72,7 +75,7 @@ export function fitDistance(p: FitParams): number {
   }
   const d = Math.max(dW, dH);
   const portrait = phonePortrait(p.W, p.H);
-  if (portrait && p.portraitWidthFirst) return Math.max(d, dW);
+  if (portrait && p.portraitWidthFirst) return Math.max(d, dW, dH);
   if (portrait && dW > dH * 1.01) return d;
   if (portrait && dH > dW * 1.08) return Math.max(dW, dH * 0.94);
   return d;
