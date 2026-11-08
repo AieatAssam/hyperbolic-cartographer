@@ -929,6 +929,37 @@ const CASES = [
   },
   ...TABS.map(tabCase),
   {
+    name: 'audio-settings',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'tab', 'save');
+      await p.locator('[data-qa="audio-settings"]').first().scrollIntoViewIfNeeded();
+    },
+    expect: async (p) => [
+      await need(p, 'audio-settings'),
+      await need(p, 'audio-mute'),
+      await need(p, 'audio-music'),
+      await need(p, 'audio-sfx'),
+      await need(p, 'audio-quick-mute'),
+    ].filter(Boolean),
+  },
+  {
+    name: 'audio-credits',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'tab', 'save');
+      await p.locator('[data-qa="audio-credits-toggle"]').first().click();
+      await p.locator('[data-qa="audio-credits"] li a').first().waitFor();
+      await p.locator('[data-qa="audio-credits"]').first().scrollIntoViewIfNeeded();
+    },
+    expect: async (p) => {
+      const out = [await need(p, 'audio-credits')].filter(Boolean);
+      const open = await p.locator('[data-qa="audio-credits"] details[open]').count();
+      if (!open) out.push('audio credits list did not open');
+      return out;
+    },
+  },
+  {
     name: 'drift-confirm',
     setup: async (p) => {
       await qa(p, 'seed', 'drift-ready');
