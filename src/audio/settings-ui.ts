@@ -34,7 +34,7 @@ function live(api: AudioApi, node: HTMLElement, f: () => void) {
 const SPEAKER_ON = '<path d="M4 9v6h4l5 4V5L8 9Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>';
 const SPEAKER_OFF = '<path d="M4 9v6h4l5 4V5L8 9Z"/><path d="m17 9 5 6M22 9l-5 6"/>';
 
-/** Small speaker button for the panel header: one tap mutes or restores all sound. */
+/** Speaker button for the top bar: one tap mutes or restores all sound. */
 export function soundToggle(api: AudioApi): HTMLButtonElement {
   const b = el('button', 'sound-toggle');
   b.type = 'button';
@@ -76,14 +76,12 @@ function slider(api: AudioApi, key: 'music' | 'sfx', label: string, onCommit?: (
     input.setAttribute('aria-valuetext', `${pct}%`);
     input.disabled = api.settings().muted;
   });
-  const head = el('div', 'audio-slider-head');
-  head.append(lab, val);
-  wrap.append(head, input);
+  wrap.append(lab, input, val);
   return wrap;
 }
 
 /** Settings > Sound: mute, music and effects volume, what is playing. */
-function soundCard(api: AudioApi): HTMLElement {
+export function soundCard(api: AudioApi): HTMLElement {
   const card = el('div', 'card audio-card');
   card.dataset.qa = 'audio-settings';
   card.dataset.audioSilent = '';
@@ -109,9 +107,10 @@ function soundCard(api: AudioApi): HTMLElement {
           ? `Now playing (${STAGE_LABEL[t.stage]}): “${t.title}” by ${t.author}.`
           : 'Music starts after your first tap or key press.';
   });
+  const head = el('div', 'audio-head');
+  head.append(el('h3', '', 'Sound'), mute);
   card.append(
-    el('h3', '', 'Sound'),
-    mute,
+    head,
     slider(api, 'music', 'Music'),
     slider(api, 'sfx', 'Sound effects', () => api.cue('preview-sfx')),
     status,
@@ -150,7 +149,7 @@ function creditsList(): HTMLElement[] {
 }
 
 /** Settings > Credits: every track and sound pack, in plain words. */
-function creditsCard(): HTMLElement {
+export function creditsCard(): HTMLElement {
   const card = el('div', 'card audio-credits');
   card.dataset.qa = 'audio-credits';
   const details = el('details');
@@ -168,4 +167,3 @@ function creditsCard(): HTMLElement {
   return card;
 }
 
-export const soundCards = (api: AudioApi): HTMLElement[] => [soundCard(api), creditsCard()];

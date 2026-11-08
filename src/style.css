@@ -199,21 +199,23 @@ button.tool:disabled { opacity: 0.55; }
 .guide-list li { margin-bottom: 4px; }
 .guide-list b { color: var(--ink); }
 
-/* Panel (mid grid row; scrolls inside its row) */
+/* Panel (mid grid row): opaque so the board never shows through text; head and tabs stay put, the body scrolls */
 .panel {
   grid-area: mid; justify-self: end; align-self: start; width: 340px; max-width: 100%;
   max-height: 100%; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 12px;
-  border: 1px solid var(--line); border-radius: 12px; background: var(--glass);
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  display: flex; flex-direction: column;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--panel-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 .panel.hidden { display: none; }
-.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.panel-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .panel-head h2 { margin: 0; font-size: 16px; color: var(--gold); }
 button.panel-close { min-height: 44px; min-width: 44px; }
 button.panel-toggle { position: relative; }
 .help { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
 .tabs {
-  display: flex; flex-wrap: nowrap; gap: 4px; margin-bottom: 10px;
+  flex: none; display: flex; flex-wrap: nowrap; gap: 4px; margin-bottom: 8px;
   border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden;
   scrollbar-width: thin;
 }
@@ -601,7 +603,19 @@ ul.reset li::before {
   .next .label { font-size: 9px; }
   .next .bar { height: 3px; }
   .top-actions { flex-direction: row; }
-  .panel { justify-self: end; width: min(380px, 55vw); }
+  /* Menu open: tabs and Close share one row and the HUD drops its two hint lines, so the body gets the height */
+  .panel {
+    justify-self: end; width: min(380px, 55vw); padding: 8px;
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr); column-gap: 8px;
+  }
+  .panel > .tabs { grid-area: 1 / 1; }
+  .panel-head { grid-area: 1 / 2; margin-bottom: 8px; }
+  .panel-head h2 {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  .panel-body { grid-area: 2 / 1 / 3 / 3; }
+  .panel-body > p.help:first-child { display: none; }
+  #ui.panel-open .hud .explain, #ui.panel-open .hud .next { display: none; }
   /* Map keeps >= 120px clear: 100vh - (16 padding + ~100 HUD + 16 gaps) - dock >= 120 */
   .tutorial { max-height: 136px; padding: 6px 10px; }
   .dock { max-height: min(38vh, calc(100vh - 252px)); }
@@ -664,24 +678,28 @@ button.mf-btn.active { background: var(--gold-dim); color: var(--gold); }
   }
 }
 
-/* Sound settings, header mute and audio credits (src/audio/settings-ui.ts) */
+/* Sound settings, top-bar mute and audio credits (src/audio/settings-ui.ts) */
 button.sound-toggle {
-  margin-left: auto; min-width: 44px; min-height: 44px; padding: 0;
+  min-width: 44px; min-height: 44px; padding: 0; background: var(--glass); border-radius: var(--control-r);
   display: inline-flex; align-items: center; justify-content: center; color: var(--cyan);
 }
 button.sound-toggle[aria-pressed="true"] { color: var(--muted); }
-.audio-card button.audio-mute { width: 100%; margin: 4px 0 8px; }
+.card.audio-card { display: flex; flex-direction: column; gap: 8px; }
+.card.audio-card p { margin: 0; }
+.audio-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.audio-head h3 { margin: 0; }
 .audio-card button.audio-mute[aria-pressed="true"] { border-color: var(--gold); color: var(--gold); }
-.audio-slider { margin-bottom: 4px; }
-.audio-slider-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
-.audio-value { color: var(--muted); font-variant-numeric: tabular-nums; }
+.audio-slider {
+  display: grid; grid-template-columns: 6.5em minmax(0, 1fr) 3em; align-items: center; gap: 8px; font-size: 13px;
+}
+.audio-value { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
 .audio-slider input[type=range] {
   display: block; width: 100%; height: 44px; min-height: 44px; margin: 0; box-sizing: border-box;
   accent-color: var(--gold); background: transparent; cursor: pointer;
 }
 .audio-slider input[type=range]:disabled { opacity: 0.4; cursor: not-allowed; }
 .audio-slider input[type=range]:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
-.card p.audio-status { margin: 4px 0 6px; color: var(--ink); overflow-wrap: anywhere; }
+.card p.audio-status { color: var(--ink); overflow-wrap: anywhere; }
 .audio-credits summary {
   display: flex; align-items: center; min-height: 44px; cursor: pointer; font-size: 13px; color: var(--cyan);
 }

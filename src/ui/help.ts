@@ -52,7 +52,7 @@ export const TAB_HELP: Record<Tab, string> = {
 export const BUTTON_HELP: Record<
   'menu' | 'guide' | 'survey' | 'recenter' | 'drift' | 'project' | 'buyChart' | 'buyCurv' | 'autoDrift' |
   'copy' | 'download' | 'import' | 'notation' | 'reset' | 'place' | 'cancel' |
-  'tutNext' | 'tutBack' | 'tutHide' | 'tutRestart' | 'check' | 'overwrite' | 'confirmReset' | 'close',
+  'tutNext' | 'tutBack' | 'tutHide' | 'tutRestart' | 'check' | 'overwrite' | 'confirmReset' | 'close' | 'sound',
   string
 > = {
   menu: 'Open or close the side panel with the Drift, Charts, Projection and Settings tabs.',
@@ -79,6 +79,7 @@ export const BUTTON_HELP: Record<
   overwrite: 'Replace your current save with the checked one. Your previous save is kept as a backup.',
   confirmReset: 'Confirm the hard reset. It only works after you type RESET.',
   close: 'Close this window and go back to the game.',
+  sound: 'Mute or restore all music and sound effects. Volume sliders are in Menu > Settings.',
 };
 
 export const SURVEY_EXPLAIN =
