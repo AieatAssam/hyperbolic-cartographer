@@ -144,7 +144,7 @@ def write_credits():
         out += [f"### {p['title']}", '', f"By {p['author']}. Source: {p['page']}. Licence: {L(p['licence'])}.", '',
                 '| File in game | Original sample | Used for |', '|---|---|---|']
         for s in (s for s in ASSETS['sfx'] if s['pack'] == pid):
-            out.append(f"| `sfx/{s['id']}` | {s['title']} (`{s['path']}`) | {s['use']} |")
+            out.append(f"| `sfx/{s['id']}` | {s['title']} (`{s['path']}`) | {s['use'][0].upper() + s['use'][1:]} |")
         out.append('')
     out += [
         '## Licence texts',

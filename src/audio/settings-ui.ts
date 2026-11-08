@@ -120,7 +120,7 @@ export function soundCard(api: AudioApi): HTMLElement {
 }
 
 const uses = (pack: PackId) =>
-  [...new Set(SFX_ASSETS.filter((a) => a.pack === pack).flatMap((a) => a.use.split(', ')))].join(', ').toLowerCase();
+  [...new Set(SFX_ASSETS.filter((a) => a.pack === pack).flatMap((a) => a.use.split(', ')))].join(', ');
 
 function creditsList(): HTMLElement[] {
   const out: HTMLElement[] = [];
@@ -129,7 +129,7 @@ function creditsList(): HTMLElement[] {
     const ul = el('ul');
     for (const t of TRACKS.filter((x) => x.stage === stage)) {
       const li = el('li');
-      li.append(link(t.page, `“${t.title}”`), ` by ${t.author}. ${licenceName(t.licence)}.`);
+      li.append(link(t.page, `“${t.title}”`), el('span', 'credit-meta', `by ${t.author}. ${licenceName(t.licence)}.`));
       ul.append(li);
     }
     out.push(ul);
@@ -138,12 +138,12 @@ function creditsList(): HTMLElement[] {
   const ul = el('ul');
   for (const [id, p] of Object.entries(PACKS) as [PackId, (typeof PACKS)[PackId]][]) {
     const li = el('li');
-    li.append(link(p.page, `“${p.title}”`), ` by ${p.author}. ${licenceName(p.licence)}. Used for: ${uses(id)}.`);
+    li.append(link(p.page, `“${p.title}”`), el('span', 'credit-meta', `by ${p.author}. ${licenceName(p.licence)}. Used for: ${uses(id)}.`));
     ul.append(li);
   }
   out.push(ul);
-  const lic = el('p', 'audio-licences', 'Licence texts: ');
-  (Object.keys(LICENCES) as Licence[]).forEach((l, i) => lic.append(i ? ', ' : '', link(LICENCES[l].url, licenceName(l))));
+  const lic = el('div', 'audio-licences');
+  lic.append(el('span', '', 'Licence texts:'), ...(Object.keys(LICENCES) as Licence[]).map((l) => link(LICENCES[l].url, licenceName(l))));
   out.push(lic, el('p', 'help', 'Long tracks were shortened with a fade-out, and every file was re-encoded and evened out in volume.'));
   return out;
 }

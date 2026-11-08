@@ -75,8 +75,8 @@ By Versilian Studios (Sam Gossner, Simon Dalzell). Source: https://github.com/sg
 
 | File in game | Original sample | Used for |
 |---|---|---|
-| `sfx/harp-c` | Harp C5 (`Strings/Harp/KSHarp_C5_mf.wav`) | Spring, Survey, completion |
-| `sfx/harp-g` | Harp G5 (`Strings/Harp/KSHarp_G5_mf.wav`) | Spring, Survey, completion |
+| `sfx/harp-c` | Harp C5 (`Strings/Harp/KSHarp_C5_mf.wav`) | Spring, Survey, completion (constellation) |
+| `sfx/harp-g` | Harp G5 (`Strings/Harp/KSHarp_G5_mf.wav`) | Spring, Survey, completion (constellation) |
 | `sfx/marimba-c` | Marimba C4 (`Percussion/Marimba/Marimba_hit_Outrigger_C4_loud_01.wav`) | Mill, upgrades |
 | `sfx/marimba-g` | Marimba G4 (`Percussion/Marimba/Marimba_hit_Outrigger_G4_loud_01.wav`) | Mill, upgrades |
 | `sfx/marimba-low` | Marimba G2 (`Percussion/Marimba/Marimba_hit_Outrigger_G2_loud_01.wav`) | Sell |

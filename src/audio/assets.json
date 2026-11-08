@@ -31,8 +31,8 @@
     { "id": "horizon-singularity", "stage": "horizon", "title": "Singularity (calm version)", "author": "vitalezzz", "licence": "CC0", "page": "https://opengameart.org/content/singularity-0", "url": "https://opengameart.org/sites/default/files/singularity_calm_0.mp3", "root": 6, "maxSec": 200 }
   ],
   "sfx": [
-    { "id": "harp-c", "use": "Spring, Survey, completion", "title": "Harp C5", "pack": "vsco", "path": "Strings/Harp/KSHarp_C5_mf.wav", "midi": 72, "len": 1.6 },
-    { "id": "harp-g", "use": "Spring, Survey, completion", "title": "Harp G5", "pack": "vsco", "path": "Strings/Harp/KSHarp_G5_mf.wav", "midi": 79, "len": 1.6 },
+    { "id": "harp-c", "use": "Spring, Survey, completion (constellation)", "title": "Harp C5", "pack": "vsco", "path": "Strings/Harp/KSHarp_C5_mf.wav", "midi": 72, "len": 1.6 },
+    { "id": "harp-g", "use": "Spring, Survey, completion (constellation)", "title": "Harp G5", "pack": "vsco", "path": "Strings/Harp/KSHarp_G5_mf.wav", "midi": 79, "len": 1.6 },
     { "id": "marimba-c", "use": "Mill, upgrades", "title": "Marimba C4", "pack": "vsco", "path": "Percussion/Marimba/Marimba_hit_Outrigger_C4_loud_01.wav", "midi": 60, "len": 1.1 },
     { "id": "marimba-g", "use": "Mill, upgrades", "title": "Marimba G4", "pack": "vsco", "path": "Percussion/Marimba/Marimba_hit_Outrigger_G4_loud_01.wav", "midi": 67, "len": 1.1 },
     { "id": "marimba-low", "use": "Sell", "title": "Marimba G2", "pack": "vsco", "path": "Percussion/Marimba/Marimba_hit_Outrigger_G2_loud_01.wav", "midi": 43, "len": 1.2 },
@@ -42,15 +42,15 @@
     { "id": "pizz-g", "use": "Bridge", "title": "Violin section pizzicato G4", "pack": "vsco", "path": "Strings/Violin Section/Pizz/VlnEns_Pizz_G4_v1_rr1.wav", "midi": 67, "len": 0.7 },
     { "id": "piano-low", "use": "Vault", "title": "Upright piano C#3, soft", "pack": "vsco", "path": "Keys/Upright Piano/Player_dyn1_rr1_014.wav", "midi": 49, "len": 2.0 },
     { "id": "xylo", "use": "Pin", "title": "Xylophone C6", "pack": "vsco", "path": "Percussion/Xylo/Xylo_Medium_C6_ff_01_far.wav", "midi": 84, "len": 0.6 },
-    { "id": "bass-pizz", "use": "Invalid action", "title": "Contrabass pizzicato A1", "pack": "vsco", "path": "Strings/Solo Contrabass/Pizz/BKCtbss_Pizz_A1_v1_rr1.wav", "midi": 33, "len": 0.7 },
+    { "id": "bass-pizz", "use": "invalid action", "title": "Contrabass pizzicato A1", "pack": "vsco", "path": "Strings/Solo Contrabass/Pizz/BKCtbss_Pizz_A1_v1_rr1.wav", "midi": 33, "len": 0.7 },
     { "id": "triangle", "use": "Survey", "title": "Triangle, soft hit", "pack": "vsco", "path": "VSCO 1 Percussion/varMetal/triangle/2/triangle2_hit_p.wav", "midi": null, "len": 1.6 },
-    { "id": "glock-gliss", "use": "Completion (constellation), Projection", "title": "Glockenspiel pentatonic glissando", "pack": "vsco", "path": "Miscellania Raw/Misc 2/glock_glisses/glock_fx_up_pentatonic_med_01.wav", "midi": 78, "len": 2.4 },
+    { "id": "glock-gliss", "use": "completion (constellation), Projection", "title": "Glockenspiel pentatonic glissando", "pack": "vsco", "path": "Miscellania Raw/Misc 2/glock_glisses/glock_fx_up_pentatonic_med_01.wav", "midi": 78, "len": 2.4 },
     { "id": "timpani-roll", "use": "Drift transition", "title": "Timpani roll", "pack": "vsco", "path": "Percussion/Timpani/Rolls/Timpani3_Roll_v3_rr1_Sum.wav", "midi": 49, "len": 3.2, "fadeIn": 0.6 },
     { "id": "gong", "use": "Projection transition", "title": "Gong, soft hit", "pack": "vsco", "path": "VSCO 1 Percussion/varMetal/Gong/gong_hit_p.wav", "midi": null, "len": 4.0 },
     { "id": "bells-a", "use": "Manifold (torus, Klein) transition", "title": "Nepalese bells", "pack": "vsco", "path": "Miscellania Raw/Misc 2/NepaleseBells/fx1_short_r01_main.wav", "midi": null, "len": 2.2 },
     { "id": "bells-b", "use": "Manifold (torus, Klein) transition", "title": "Nepalese bells", "pack": "vsco", "path": "Miscellania Raw/Misc 2/NepaleseBells/fx2_short_r01_main.wav", "midi": null, "len": 3.0 },
     { "id": "ink-drop", "use": "Ink arriving (production)", "title": "Water drop", "pack": "kenney-interface", "path": "Audio/drop_003.ogg", "midi": 78, "len": 0.3 },
-    { "id": "toggle", "use": "Settings toggles", "title": "Toggle", "pack": "kenney-interface", "path": "Audio/toggle_001.ogg", "midi": null, "len": 0.3 },
+    { "id": "toggle", "use": "settings toggles", "title": "Toggle", "pack": "kenney-interface", "path": "Audio/toggle_001.ogg", "midi": null, "len": 0.3 },
     { "id": "click", "use": "UI buttons and tabs", "title": "Click", "pack": "kenney-ui", "path": "click5.wav", "midi": null, "len": 0.2 }
   ],
   "packs": {
