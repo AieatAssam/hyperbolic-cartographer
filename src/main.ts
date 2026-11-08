@@ -13,7 +13,6 @@ import {
 import { playChime } from './ui/chime';
 import { placementImpactState, tileInfluenceState } from './core/placement-impact';
 import type { TileGraph } from './core/geometry/graph';
-import type { SquareBoard } from './core/geometry/square';
 import { canDrift, canProject, drift, project } from './core/prestige';
 import { applyOffline, simulate } from './core/tick';
 import { exportString, importSave, makeSave, toJson } from './core/save';
@@ -22,7 +21,7 @@ import { createScene, type QualityLevel } from './render/scene';
 import { Board } from './render/board';
 import { SurfaceBoard } from './render/surface-board';
 import {
-  cellCorners, fitDistance, freeRect, phonePortrait, shouldReframe, type Rect, type Role,
+  fitDistance, freeRect, phonePortrait, shouldReframe, type Rect, type Role,
 } from './render/framing';
 import {
   fitManifoldProjected, checkManifoldProjectFit, kleinImmersionTargetY, manifoldFitPolar,
@@ -107,29 +106,49 @@ const boardFill = () => config.camera.phoneFill;
 let free: Rect = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
 let fitD = 0; // distance that fits the current footprint into `free` (0 = not yet framed)
 let layoutDirty = true;
-/** Playable cells plus ~one cell margin; decorative table / rim may extend past the screen. */
-/** Half-tile (0.45) + half-cell margin on the square grid. */
-const PLAYABLE_FRAME_MARGIN = 1.02;
+/** Matches board.ts: placed tiles, active empties, and next-ring (locked) slots. */
+function isRenderedCell(st: GameState, i: number): boolean {
+  const g = graphOf(st);
+  if (st.tiles[i]) return true;
+  return g.ring[i] <= st.ring + 1;
+}
 
+/** ~0.3–0.5 cell margin outside the outermost rendered tile corners (square uses board cellWorld). */
+const FRAME_MARGIN_CELLS = 0.55;
 function footprint(): [number, number][] {
   if (manifoldPreview !== 'off' && board && isSurfaceBoard(board)) return board.bounds();
   const g = graphOf(s);
   if (s.geometry === 'square') {
-    const sq = g as SquareBoard;
-    const h = PLAYABLE_FRAME_MARGIN + Math.max(0, s.ring - 1) * 0.1;
-    return cellCorners(sq.xy.filter((_, i) => isActive(s, i)), h);
+    const pad = FRAME_MARGIN_CELLS * (0.72 + Math.max(0, s.ring - 1) * 0.06);
+    const pts: [number, number][] = [];
+    for (let i = 0; i < g.ring.length; i++) {
+      if (!isRenderedCell(s, i)) continue;
+      const { c, corner } = board.cellWorld(i);
+      const [cx, cz] = c;
+      const dx = corner[0] - cx, dz = corner[1] - cz;
+      const len = Math.hypot(dx, dz) || 1;
+      const ux = dx / len, uz = dz / len;
+      const px = -uz, pz = ux;
+      const r = len + pad;
+      pts.push(
+        [cx + ux * r, cz + uz * r],
+        [cx - ux * r, cz - uz * r],
+        [cx + px * r, cz + pz * r],
+        [cx - px * r, cz - pz * r],
+      );
+    }
+    return pts;
   }
   const pts: [number, number][] = [];
   for (let i = 0; i < g.ring.length; i++) {
-    if (!isActive(s, i)) continue;
+    if (!isRenderedCell(s, i)) continue;
     const { c, corner } = board.cellWorld(i);
     const [cx, cz] = c;
     const dx = corner[0] - cx, dz = corner[1] - cz;
     const len = Math.hypot(dx, dz) || 1;
     const ux = dx / len, uz = dz / len;
     const px = -uz, pz = ux;
-    const pad = 0.45 * PLAYABLE_FRAME_MARGIN;
-    const r = len + pad;
+    const r = len + FRAME_MARGIN_CELLS * 0.5;
     pts.push(
       [cx + ux * r, cz + uz * r],
       [cx - ux * r, cz - uz * r],
@@ -146,11 +165,15 @@ const solveFit = () => {
   }
   const W = innerWidth, H = innerHeight;
   const portrait = manifoldPreview === 'off' && phonePortrait(W, H);
-  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : (portrait ? MARGIN + 3 : MARGIN);
+  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : (portrait ? MARGIN + 8 : MARGIN);
   const portraitWidthFirst = portrait;
-  return fitDistance({
+  let d = fitDistance({
     pts: footprint(), W, H, free, fov: camera.fov, polar: POLAR, margin, portraitWidthFirst,
   });
+  if (portrait && manifoldPreview === 'off' && s.geometry === 'square') {
+    d *= 1.06 + Math.max(0, s.ring - 1) * 0.01;
+  }
+  return d;
 };
 /** Reads overlay rects (only when dirty) and shifts the projection via setViewOffset so the target sits at the
  *  free rect's centre. Raycasts stay exact: setFromCamera uses the offset projection and NDC spans the canvas.
@@ -207,7 +230,8 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
   const tY = chart ? 0 : isSurfaceBoard(board) && board.surface === 'torus' ? 0.1 : klein3d ? kleinImmersionTargetY() : 0;
   controls.target.set(0, tY, 0);
   if (layoutDirty) layoutView();
-  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : MARGIN;
+  const W0 = innerWidth, H0 = innerHeight;
+  const portraitBoard = manifoldPreview === 'off' && phonePortrait(W0, H0);
   const surf = isSurfaceBoard(board) ? board : null;
   const useProjected = manifoldPreview !== 'off' && surf && !surf.isChartFlat();
   let fitPolar = polar;
@@ -215,11 +239,8 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
     fitD = fitManifoldProjected(surf, camera, controls.target, free, innerWidth, innerHeight, polar, azimuth);
     fitPolar = manifoldFitPolar(surf.surface, surf.isChartFlat(), polar, innerWidth, innerHeight);
   } else {
-    const W = innerWidth, H = innerHeight;
-    const portraitWidthFirst = manifoldPreview === 'off' && phonePortrait(W, H);
-    fitD = fitDistance({
-      pts: footprint(), W, H, free, fov: camera.fov, polar, margin, portraitWidthFirst,
-    }) / Math.max(1, Math.min(1.08, fill));
+    const effFill = portraitBoard ? Math.min(fill, 0.8) : fill;
+    fitD = solveFit() / Math.max(1, Math.min(1.08, effFill));
   }
   controls.maxDistance = Math.max(40, fitD * 1.5);
   if (klein3d) {
@@ -993,6 +1014,8 @@ if (dev) {
             ? freshTutorial()
             : { ...dismissTutorial(freshTutorial()), done: true },
         );
+        layoutDirty = true;
+        frameBoardCamera();
         ui.update();
       },
       tutorial: (step: number) => setTutorial({ step, dismissed: false, done: false }),
@@ -1099,7 +1122,7 @@ if (dev) {
       playableFramingCheck: (marginPx = 8) => {
         if (isSurfaceBoard(board)) return { ok: false, reason: 'manifold-preview' };
         layoutDirty = true;
-        layoutView();
+        frameBoardCamera();
         renderFrame(0);
         const W = innerWidth, H = innerHeight;
         const dock = document.querySelector<HTMLElement>('.dock')?.getBoundingClientRect();
@@ -1114,10 +1137,17 @@ if (dev) {
         };
         const cornersFor = (i: number) => {
           if (s.geometry === 'square') {
-            const sq = g as SquareBoard;
-            const [x, y] = sq.xy[i];
-            const h = 0.48;
-            return [[x - h, y - h], [x + h, y - h], [x + h, y + h], [x - h, y + h]] as [number, number][];
+            const { c, corner } = board.cellWorld(i);
+            const [cx, cz] = c;
+            const dx = corner[0] - cx, dz = corner[1] - cz;
+            const len = Math.hypot(dx, dz) || 1;
+            const ux = dx / len, uz = dz / len;
+            const px = -uz, pz = ux;
+            const r = len;
+            return [
+              [cx + ux * r, cz + uz * r], [cx - ux * r, cz - uz * r],
+              [cx + px * r, cz + pz * r], [cx - px * r, cz - pz * r],
+            ] as [number, number][];
           }
           const { c, corner } = board.cellWorld(i);
           const [cx, cz] = c;
@@ -1132,7 +1162,7 @@ if (dev) {
           ];
         };
         for (let i = 0; i < g.ring.length; i++) {
-          if (!isActive(s, i)) continue;
+          if (!isRenderedCell(s, i)) continue;
           for (const [x, z] of cornersFor(i)) {
             const [px, py] = project(x, z);
             if (px < marginPx) failures.push(`cell ${i} clipped left (${px.toFixed(1)}px)`);

@@ -1,4 +1,4 @@
-/** Phone polish captures + layout assertions. POLISH_TAG=before|after npm run build && node scripts/capture-phone-polish.mjs */
+/** Phone polish captures + layout assertions. POLISH_TAG=after npm run build && node scripts/capture-phone-polish.mjs */
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -37,6 +37,8 @@ async function assertBoard(page, label) {
   if (!r?.ok) {
     console.error(`${label} board framing failed:`, r?.failures ?? r);
     process.exitCode = 1;
+  } else {
+    console.log(`${label} board ok widthFill=${r.widthFill?.toFixed(3)}`);
   }
 }
 
@@ -50,64 +52,12 @@ async function assertTorus(page, label) {
 }
 
 const shots = [
-  {
-    file: `polish-${TAG}-constellation-both-390x844.png`,
-    vp: { width: 390, height: 844 },
-    async setup(page) {
-      await qa(page, 'quality', 1);
-      await qa(page, 'seed', 'midgame');
-      await qa(page, 'dismissTutorial');
-      await qa(page, 'constellationCapture');
-    },
-  },
-  {
-    file: `polish-${TAG}-board-midgame-360x640.png`,
-    vp: { width: 360, height: 640 },
-    board: 'midgame',
-  },
-  {
-    file: `polish-${TAG}-board-midgame-390x844.png`,
-    vp: { width: 390, height: 844 },
-    board: 'midgame',
-  },
-  {
-    file: `polish-${TAG}-board-midgame-430x932.png`,
-    vp: { width: 430, height: 932 },
-    board: 'midgame',
-  },
-  {
-    file: `polish-${TAG}-board-early-360x640.png`,
-    vp: { width: 360, height: 640 },
-    board: 'fresh',
-  },
-  {
-    file: `polish-${TAG}-board-early-390x844.png`,
-    vp: { width: 390, height: 844 },
-    board: 'fresh',
-  },
-  {
-    file: `polish-${TAG}-board-early-430x932.png`,
-    vp: { width: 430, height: 932 },
-    board: 'fresh',
-  },
-  {
-    file: `polish-${TAG}-palette-360x640.png`,
-    vp: { width: 360, height: 640 },
-    board: 'fresh',
-    clip: 'palette',
-  },
-  {
-    file: `polish-${TAG}-torus-844x390.png`,
-    vp: { width: 844, height: 390 },
-    isMobile: true,
-    torus: true,
-  },
-  {
-    file: `polish-${TAG}-torus-932x430.png`,
-    vp: { width: 932, height: 430 },
-    isMobile: true,
-    torus: true,
-  },
+  { file: `polish-${TAG}-board-early-360x640.png`, vp: { width: 360, height: 640 }, board: 'fresh' },
+  { file: `polish-${TAG}-board-early-390x844.png`, vp: { width: 390, height: 844 }, board: 'fresh' },
+  { file: `polish-${TAG}-board-early-430x932.png`, vp: { width: 430, height: 932 }, board: 'fresh' },
+  { file: `polish-${TAG}-board-midgame-360x640.png`, vp: { width: 360, height: 640 }, board: 'midgame' },
+  { file: `polish-${TAG}-board-midgame-390x844.png`, vp: { width: 390, height: 844 }, board: 'midgame' },
+  { file: `polish-${TAG}-torus-844x390.png`, vp: { width: 844, height: 390 }, isMobile: true, torus: true },
 ];
 
 async function setupBoard(page, seed) {
@@ -143,20 +93,13 @@ async function main() {
       await page.waitForFunction(() => window.game?.qa?.manifoldStats?.()?.surface === 'torus');
       await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
       await assertTorus(page, s.file);
-    } else if (s.setup) {
-      await s.setup(page);
-    } else if (s.board) {
+    } else {
       await setupBoard(page, s.board);
       await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
       await assertBoard(page, s.file);
     }
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-    const opts = { path: join(ART, s.file) };
-    if (s.clip === 'palette') {
-      const box = await page.locator('.palette').boundingBox();
-      if (box) opts.clip = box;
-    }
-    await page.screenshot(opts);
+    await page.screenshot({ path: join(ART, s.file) });
     console.log('wrote', join(ART, s.file));
     await ctx.close();
   }

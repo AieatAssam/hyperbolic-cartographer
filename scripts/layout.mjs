@@ -1054,6 +1054,20 @@ const CASES = [
   boardCase('board-free-55', 'midgame', false),
   boardCase('board-free-55-preview', 'midgame', true),
   boardCase('board-free-55-hyper-preview', 'hyper', true, true),
+  ...['fresh', 'midgame'].map((seed) => ({
+    name: `board-rendered-${seed}`,
+    setup: async (p) => {
+      await qa(p, 'seed', seed);
+      await qa(p, 'dismissTutorial');
+      await rafTwice(p);
+    },
+    expect: async (p) => {
+      if (!(await phonePortrait(p))) return [];
+      const r = await qa(p, 'playableFramingCheck', 8);
+      if (r?.ok) return [];
+      return (r?.failures ?? [`playableFramingCheck failed: ${JSON.stringify(r)}`]).slice(0, 4);
+    },
+  })),
   {
     name: 'manifold-torus-lit',
     setup: async (p) => {
