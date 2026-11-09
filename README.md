@@ -170,6 +170,7 @@ Changes from the original brief (all in `src/core/config.ts`; formulas unchanged
 - 2026-11 balance pass: `startInk` 22, `costGrowth` 1.12, Mill cost 85, Spring out 1.15, Drift at 2.65e5 Ink, first Mill/Bridge Ink rewards (`npm run sim-economy` for casual/greedy milestones).
 - Bot results with these numbers: casual first Drift ~11 min (greedy ~8); Projection pacing unchanged from prior bot notes.
 - Manifold preview grids (visual only, not economy): torus **16×8**, Klein **8×8**; framing/spin/demo pulse rates in `config.manifold`.
+- Portrait playable framing: `camera.portraitPolar` 0.55 rad and `portraitTopPad` 18 px so a square board fills more of the HUD-to-dock band without clipping (width still limits size; leftover height sits above the info card).
 
 ## Credits and related works
 

@@ -24,7 +24,7 @@ import { createScene, type QualityLevel } from './render/scene';
 import { Board } from './render/board';
 import { SurfaceBoard } from './render/surface-board';
 import {
-  fitDistance, freeRect, phonePortrait, shouldReframe, type Rect, type Role,
+  fitBoard, fitDistance, freeRect, phonePortrait, shouldReframe, sphericalOffset, type Rect, type Role,
 } from './render/framing';
 import {
   fitManifoldProjected, checkManifoldProjectFit, kleinImmersionTargetY, manifoldFitPolar,
@@ -111,6 +111,8 @@ const MARGIN = config.camera.margin;
 const boardFill = () => config.camera.phoneFill;
 let free: Rect = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
 let fitD = 0; // distance that fits the current footprint into `free` (0 = not yet framed)
+let viewOffX = 0;
+let viewOffY = 0;
 let layoutFree: ReturnType<typeof freeRect> | null = null;
 const freeJitter = (a: ReturnType<typeof freeRect>, b: ReturnType<typeof freeRect>) =>
   Math.max(Math.abs(a.left - b.left), Math.abs(a.right - b.right), Math.abs(a.top - b.top), Math.abs(a.bottom - b.bottom));
@@ -122,13 +124,15 @@ function isRenderedCell(st: GameState, i: number): boolean {
   return g.ring[i] <= st.ring + 1;
 }
 
+const playablePortrait = () => manifoldPreview === 'off' && phonePortrait(innerWidth, innerHeight);
+
 /** ~0.3–0.5 cell margin outside the outermost rendered tile corners (square uses board cellWorld). */
 const FRAME_MARGIN_CELLS = 0.55;
 function footprint(): [number, number][] {
   if (manifoldPreview !== 'off' && board && isSurfaceBoard(board)) return board.bounds();
   const g = graphOf(s);
   if (s.geometry === 'square') {
-    const pad = FRAME_MARGIN_CELLS * (0.72 + Math.max(0, s.ring - 1) * 0.06);
+    const pad = FRAME_MARGIN_CELLS * (playablePortrait() ? 0.12 : (0.72 + Math.max(0, s.ring - 1) * 0.06));
     const pts: [number, number][] = [];
     for (let i = 0; i < g.ring.length; i++) {
       if (!isRenderedCell(s, i)) continue;
@@ -157,7 +161,7 @@ function footprint(): [number, number][] {
     const len = Math.hypot(dx, dz) || 1;
     const ux = dx / len, uz = dz / len;
     const px = -uz, pz = ux;
-    const r = len + FRAME_MARGIN_CELLS * 0.5;
+    const r = len + FRAME_MARGIN_CELLS * (playablePortrait() ? 0.12 : 0.5);
     pts.push(
       [cx + ux * r, cz + uz * r],
       [cx - ux * r, cz - uz * r],
@@ -167,25 +171,52 @@ function footprint(): [number, number][] {
   }
   return pts;
 }
+
+const applyViewOffset = () => {
+  camera.setViewOffset(innerWidth, innerHeight, viewOffX, viewOffY, innerWidth, innerHeight);
+  camera.updateProjectionMatrix();
+};
+
+const placePlayableCamera = (d: number, azimuth = 0) => {
+  if (playablePortrait()) {
+    const [ox, oy, oz] = sphericalOffset(config.camera.portraitPolar, azimuth, d);
+    camera.position.set(controls.target.x + ox, controls.target.y + oy, controls.target.z + oz);
+    camera.lookAt(controls.target);
+    return;
+  }
+  const off = camera.position.clone().sub(controls.target);
+  camera.position.copy(controls.target).add(off.setLength(d));
+};
+
 const solveFit = () => {
   if (manifoldPreview !== 'off' && board && isSurfaceBoard(board) && !board.isChartFlat()) {
     const polar = board.surface === 'torus' ? config.manifold.torusImmersionPolar : 0;
+    viewOffX = innerWidth / 2 - (free.left + free.right) / 2;
+    viewOffY = innerHeight / 2 - (free.top + free.bottom) / 2;
     return fitManifoldProjected(board, camera, controls.target, free, innerWidth, innerHeight, polar, manifoldAz);
   }
   const W = innerWidth, H = innerHeight;
-  const portrait = manifoldPreview === 'off' && phonePortrait(W, H);
-  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : (portrait ? MARGIN + 6 : MARGIN + 18);
-  const portraitWidthFirst = portrait;
-  let d = fitDistance({
-    pts: footprint(), W, H, free, fov: camera.fov, polar: POLAR, margin, portraitWidthFirst,
-  });
-  if (portrait && manifoldPreview === 'off' && s.geometry === 'square') {
-    d *= 1.06 + Math.max(0, s.ring - 1) * 0.016;
+  const portrait = playablePortrait();
+  if (portrait) {
+    const fit = fitBoard({
+      pts: footprint(), W, H, free, fov: camera.fov, polar: config.camera.portraitPolar,
+      margin: 8, align: 'top', topPad: config.camera.portraitTopPad,
+    });
+    viewOffX = fit.viewOffX;
+    viewOffY = fit.viewOffY;
+    return fit.d;
   }
+  const margin = manifoldPreview !== 'off' ? config.manifold.frameMargin : MARGIN + 18;
+  const d = fitDistance({
+    pts: footprint(), W, H, free, fov: camera.fov, polar: POLAR, margin,
+  });
+  viewOffX = W / 2 - (free.left + free.right) / 2;
+  viewOffY = H / 2 - (free.top + free.bottom) / 2;
   return d;
 };
 /** Reads overlay rects (only when dirty) and shifts the projection via setViewOffset so the target sits at the
- *  free rect's centre. Raycasts stay exact: setFromCamera uses the offset projection and NDC spans the canvas.
+ *  free rect's centre (landscape / desktop) or just under the HUD (portrait playable board). Raycasts stay exact:
+ *  setFromCamera uses the offset projection and NDC spans the canvas.
  *  If already framed, rescales the current orbit distance by the new/old fit ratio (keeps the user's angle). */
 function layoutView() {
   layoutDirty = false;
@@ -201,17 +232,22 @@ function layoutView() {
   free = nextFree;
   const ink = document.querySelector<HTMLElement>('[data-fx-target="ink"]')?.getBoundingClientRect();
   if (ink && ink.width > 0) inkTarget = [((ink.left + ink.width / 2) / W) * 2 - 1, 1 - ((ink.top + ink.height / 2) / H) * 2];
-  const portrait = phonePortrait(W, H);
-  const lift = portrait ? (free.bottom - free.top) * 0.04 : 0;
-  camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2 - lift, W, H);
-  camera.updateProjectionMatrix();
   const manifold3d = manifoldPreview !== 'off' && board && isSurfaceBoard(board) && !board.isChartFlat();
   const d = solveFit();
+  applyViewOffset();
   const stable = fitD > 0 && Math.abs(d - fitD) / fitD < 0.007;
-  if (structural && fitD > 0 && !manifold3d && !stable) {
-    setDistance(camera.position.distanceTo(controls.target) * (d / fitD));
-  } else if (fitD <= 0 && !manifold3d) {
-    setDistance(d);
+  if (!manifold3d) {
+    if (playablePortrait()) {
+      if (!stable || fitD <= 0) {
+        const off = camera.position.clone().sub(controls.target);
+        const az = Math.hypot(off.x, off.z) > 1e-6 ? Math.atan2(off.x, off.z) : 0;
+        placePlayableCamera(d, az);
+      }
+    } else if (structural && fitD > 0 && !stable) {
+      setDistance(camera.position.distanceTo(controls.target) * (d / fitD));
+    } else if (fitD <= 0) {
+      setDistance(d);
+    }
   }
   fitD = d;
   controls.maxDistance = Math.max(40, d * 1.5);
@@ -264,8 +300,6 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
   const tY = chart ? 0 : isSurfaceBoard(board) && board.surface === 'torus' ? 0.1 : klein3d ? kleinImmersionTargetY() : 0;
   controls.target.set(0, tY, 0);
   if (layoutDirty) layoutView();
-  const W0 = innerWidth, H0 = innerHeight;
-  const portraitBoard = manifoldPreview === 'off' && phonePortrait(W0, H0);
   const surf = isSurfaceBoard(board) ? board : null;
   const useProjected = manifoldPreview !== 'off' && surf && !surf.isChartFlat();
   let fitPolar = polar;
@@ -273,12 +307,14 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
     fitD = fitManifoldProjected(surf, camera, controls.target, free, innerWidth, innerHeight, polar, azimuth);
     fitPolar = manifoldFitPolar(surf.surface, surf.isChartFlat(), polar, innerWidth, innerHeight);
   } else {
-    const effFill = portraitBoard ? Math.min(fill, 1) : Math.min(fill, 1);
-    fitD = solveFit() / Math.max(1, effFill);
+    fitD = solveFit() / Math.max(1, Math.min(fill, 1));
   }
   controls.maxDistance = Math.max(40, fitD * 1.5);
   if (klein3d) {
     const [ox, oy, oz] = kleinCameraOffset(fitD);
+    camera.position.set(controls.target.x + ox, controls.target.y + oy, controls.target.z + oz);
+  } else if (playablePortrait()) {
+    const [ox, oy, oz] = sphericalOffset(config.camera.portraitPolar, azimuth, fitD);
     camera.position.set(controls.target.x + ox, controls.target.y + oy, controls.target.z + oz);
   } else {
     const cp = Math.cos(useProjected ? fitPolar : polar);
@@ -289,11 +325,7 @@ const frameBoardCamera = (polar = POLAR, azimuth = 0, fill = 1) => {
     );
   }
   camera.lookAt(controls.target);
-  const W = innerWidth, H = innerHeight;
-  const portrait = phonePortrait(W, H);
-  const lift = portrait ? (free.bottom - free.top) * 0.04 : 0;
-  camera.setViewOffset(W, H, W / 2 - (free.left + free.right) / 2, H / 2 - (free.top + free.bottom) / 2 - lift, W, H);
-  camera.updateProjectionMatrix();
+  applyViewOffset();
 };
 const applyManifoldCamera = () => {
   if (!isSurfaceBoard(board)) return frameCamera();
@@ -966,7 +998,8 @@ type QaSeed =
   | 'constellation-demo'
   | 'network-demo'
   | 'bridge-gain'
-  | 'links-demo';
+  | 'links-demo'
+  | 'late';
 /** Tiles on every `every`-th active cell, alternating Mill and Spring. */
 function sprinkle(g: GameState, every: number) {
   g.tiles = g.tiles.map((_, i): TileType | null => (!isActive(g, i) || i % every ? null : (i / every) % 2 ? 'mill' : 'spring'));
@@ -1016,6 +1049,10 @@ function fixture(name: QaSeed): GameState {
     g.tiles[1] = 'spring';
     const third = graph.neighbours[0].find((n) => graph.neighbours[1].includes(n) && n !== 0 && n !== 1);
     if (third !== undefined) g.tiles[third] = null;
+  } else if (name === 'late') {
+    g.ring = config.square.maxRing;
+    Object.assign(g, { ink: d(8e5), runInk: d(8e5), lifetimeInk: d(2e6), runTime: 1800, totalTime: 7200 });
+    sprinkle(g, 2);
   } else if (name === 'links-demo') {
     g.ring = 1;
     Object.assign(g, { ink: d(2e5), runInk: d(800), totalTime: 200, runTime: 200 });
@@ -1284,11 +1321,13 @@ if (dev) {
         renderFrame(0);
         const W = innerWidth, H = innerHeight;
         const dock = document.querySelector<HTMLElement>('.dock')?.getBoundingClientRect();
+        const hud = document.querySelector<HTMLElement>('.hud')?.getBoundingClientRect();
         const panelTop = dock && dock.height > 0 ? dock.top : H;
+        const hudBottom = hud && hud.height > 0 ? hud.bottom : 0;
         const g = graphOf(s);
         const v = new THREE.Vector3();
         const failures: string[] = [];
-        let minX = Infinity, maxX = -Infinity;
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
         const project = (x: number, z: number) => {
           v.set(x, 0, z).project(camera);
           return [((v.x + 1) / 2) * W, ((1 - v.y) / 2) * H] as const;
@@ -1316,7 +1355,7 @@ if (dev) {
           const h = len;
           return [
             [cx + ux * h, cz + uz * h], [cx - ux * h, cz - uz * h],
-            [cx + px * h, cz + pz * h], [cx - px * h, cz - pz * h],
+            [cx + px * h, cz + pz * h], [cx - px * h, cz + pz * h],
           ];
         };
         for (let i = 0; i < g.ring.length; i++) {
@@ -1326,13 +1365,22 @@ if (dev) {
             if (px < marginPx) failures.push(`cell ${i} clipped left (${px.toFixed(1)}px)`);
             if (px > W - marginPx) failures.push(`cell ${i} clipped right (${px.toFixed(1)}px)`);
             if (py < marginPx) failures.push(`cell ${i} clipped top (${py.toFixed(1)}px)`);
+            if (hudBottom > 0 && py < hudBottom + 4) failures.push(`cell ${i} under HUD (${py.toFixed(1)}px)`);
             if (py > panelTop - marginPx) failures.push(`cell ${i} below dock band (${py.toFixed(1)}px)`);
             minX = Math.min(minX, px);
             maxX = Math.max(maxX, px);
+            minY = Math.min(minY, py);
+            maxY = Math.max(maxY, py);
           }
         }
         const widthFill = Number.isFinite(minX) ? (maxX - minX) / W : 0;
-        return { ok: failures.length === 0, failures: failures.slice(0, 6), widthFill };
+        const band = Math.max(1, panelTop - hudBottom);
+        const heightFill = Number.isFinite(minY) ? (maxY - minY) / band : 0;
+        const skyGap = Number.isFinite(minY) ? minY - hudBottom : 0;
+        return {
+          ok: failures.length === 0, failures: failures.slice(0, 6),
+          widthFill, heightFill, skyGap, minX, maxX, minY, maxY, hudBottom, panelTop,
+        };
       },
       manifoldStats: () => {
         if (!isSurfaceBoard(board)) return null;
