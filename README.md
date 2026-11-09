@@ -126,7 +126,7 @@ One-time setup: in the repo's **Settings → Pages**, set **Source** to **GitHub
 - Run `npm run build` first (the script serves `dist/` with `vite preview`), or set `LAYOUT_URL` to a running build including the base path.
 - Set `LAYOUT_SHOTS=1` to screenshot every case. Failures always write `layout-artifacts/<viewport>-<case>.png` and `layout-artifacts/report.json`. Set `LAYOUT_OUT=<dir>` to write them somewhere else (for example, to keep parallel runs apart).
 - Needs Playwright's Chromium: `npx playwright install chromium`. The script uses [Playwright](https://playwright.dev) (Apache-2.0).
-- CI runs it after the build and uploads `layout-artifacts/` when it fails.
+- CI runs it after the build (15-minute step timeout per viewport; 1280×800 on GitHub-hosted SwiftShader needs more than 8 minutes if every case reloads the app) and uploads `layout-artifacts/` when it fails. Each case line prints duration in ms; `layout-artifacts/report.json` includes `ms` and `totalMs`.
 
 ## Design documents
 

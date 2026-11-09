@@ -84,9 +84,12 @@ jobs:
         timeout-minutes: 6
         run: npx playwright install-deps chromium
 
+      # 1280x800 on GHA SwiftShader was ~13s/case × 49 ≈ 10.6 min with a fresh page per case
+      # (run 42547795942 timed out at 8 min after hud-control-rhythm, 37/49). The harness now
+      # reuses one page per viewport; 15 min is ~3× the measured cold-suite estimate.
       - name: Layout QA (${{ matrix.viewport }})
         run: npm run layout
-        timeout-minutes: 8
+        timeout-minutes: 15
         env:
           LAYOUT_VIEWPORT: ${{ matrix.viewport }}
 
