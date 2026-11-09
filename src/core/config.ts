@@ -24,7 +24,13 @@ export const config = {
     millwheel: { name: 'Millwheel', bonusInk: 80, blurb: 'A Mill ringed by Springs on three sides.' },
     twinmills: { name: 'Twin Mills', bonusInk: 150, blurb: 'A Bridge linking two Mills.' },
   },
-  camera: { polarY: 13, polarZ: 9, margin: 12, phoneFill: 1.0, desktopFill: 1.0 },
+  camera: {
+    polarY: 13, polarZ: 9, margin: 12, phoneFill: 1.0, desktopFill: 1.0,
+    /** Portrait playable board: polar from +Y (smaller = more overhead). ~32°. */
+    portraitPolar: 0.55,
+    /** Pixels between HUD and the top of the fitted footprint on portrait. */
+    portraitTopPad: 18,
+  },
   ui: { inspectFadeMs: 300 },
   autoSpringInterval: 1, // seconds between auto-placed Springs
   /** Manifold preview (Layer 3): grid sizes, framing, skin. */

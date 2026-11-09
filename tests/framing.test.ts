@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { cellCorners, circlePts, classifyOverlay, fitDistance, freeRect, shouldReframe } from '../src/render/framing';
+import {
+  cellCorners, circlePts, classifyOverlay, fitBoard, fitDistance, freeRect, projectGround,
+  shouldReframe, sphericalOffset,
+} from '../src/render/framing';
 
 describe('classifyOverlay', () => {
   it('a half-width landscape dock is bottom, not left', () => {
@@ -74,6 +77,73 @@ describe('fitDistance', () => {
 
   it('cellCorners gives 4 corners per cell', () => {
     expect(cellCorners([[0, 0]])).toHaveLength(4);
+  });
+});
+
+describe('portrait projected fit', () => {
+  const W = 390, H = 844, fov = 45, margin = 8, topPad = 18;
+  const free = { left: 0, top: 72, right: 390, bottom: 620 };
+  const pts = cellCorners([[-2, -2], [2, -2], [2, 2], [-2, 2], [0, 0]]);
+  const polar = 0.55;
+
+  it('sphericalOffset is along +Z at azimuth 0', () => {
+    const [x, y, z] = sphericalOffset(polar, 0, 10);
+    expect(x).toBeCloseTo(0, 6);
+    expect(y).toBeCloseTo(10 * Math.cos(polar), 6);
+    expect(z).toBeCloseTo(10 * Math.sin(polar), 6);
+  });
+
+  it('top-aligns the footprint under the HUD and stays inside the free rect', () => {
+    const fit = fitBoard({ pts, W, H, free, fov, polar, margin, align: 'top', topPad });
+    expect(fit.d).toBeGreaterThan(4);
+    expect(fit.d).toBeLessThan(40);
+    let minPy = Infinity, maxPy = -Infinity, minPx = Infinity, maxPx = -Infinity;
+    for (const [x, z] of pts) {
+      const pr = projectGround(x, 0, z, fit.d, polar, fov, W, H, fit.viewOffX, fit.viewOffY);
+      expect(pr).not.toBeNull();
+      const [px, py] = pr!;
+      expect(px).toBeGreaterThanOrEqual(margin - 0.5);
+      expect(px).toBeLessThanOrEqual(W - margin + 0.5);
+      expect(py).toBeGreaterThanOrEqual(free.top + margin - 0.5);
+      expect(py).toBeLessThanOrEqual(free.bottom - margin + 0.5);
+      minPy = Math.min(minPy, py);
+      maxPy = Math.max(maxPy, py);
+      minPx = Math.min(minPx, px);
+      maxPx = Math.max(maxPx, px);
+    }
+    expect(minPy).toBeGreaterThanOrEqual(free.top + topPad - 1.5);
+    expect(minPy).toBeLessThan(free.top + topPad + 8);
+    const height = maxPy - minPy;
+    const band = free.bottom - free.top;
+    expect(height / band).toBeGreaterThan(0.45);
+    expect((maxPx - minPx) / W).toBeGreaterThan(0.7);
+  });
+
+  it('a more overhead polar fills more of the tall free band', () => {
+    const low = fitBoard({ pts, W, H, free, fov, polar: 0.85, margin, align: 'top', topPad });
+    const high = fitBoard({ pts, W, H, free, fov, polar: 0.50, margin, align: 'top', topPad });
+    const span = (fit: typeof low, polar: number) => {
+      let minPy = Infinity, maxPy = -Infinity;
+      for (const [x, z] of pts) {
+        const pr = projectGround(x, 0, z, fit.d, polar, fov, W, H, fit.viewOffX, fit.viewOffY)!;
+        minPy = Math.min(minPy, pr[1]);
+        maxPy = Math.max(maxPy, pr[1]);
+      }
+      return maxPy - minPy;
+    };
+    expect(span(high, 0.50)).toBeGreaterThan(span(low, 0.85) * 1.04);
+  });
+
+  it('is tight: a 4% zoom-in leaves the free rect', () => {
+    const fit = fitBoard({ pts, W, H, free, fov, polar, margin, align: 'top', topPad });
+    const dIn = fit.d * 0.96;
+    const off = { x: fit.viewOffX, y: fit.viewOffY };
+    const clipped = pts.some(([x, z]) => {
+      const pr = projectGround(x, 0, z, dIn, polar, fov, W, H, off.x, off.y);
+      if (!pr) return true;
+      return pr[0] < margin || pr[0] > W - margin || pr[1] < free.top + margin || pr[1] > free.bottom - margin;
+    });
+    expect(clipped).toBe(true);
   });
 });
 
