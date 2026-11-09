@@ -23,7 +23,7 @@ const SETUP_LOCATOR_TIMEOUT = IS_CI ? 20000 : 10000;
 const READY_TIMEOUT_MS = IS_CI ? 20000 : 12000;
 const PAGE_DEFAULT_TIMEOUT = IS_CI ? 20000 : 8000;
 
-const VIEWPORTS = [
+export const VIEWPORTS = [
   [360, 640], [390, 844], [430, 932], [844, 390], [932, 430], [1280, 800],
 ].map(([width, height]) => ({
   name: `${width}x${height}`,
@@ -901,7 +901,7 @@ const paletteChipCase = {
   },
 };
 
-const CASES = [
+export const CASES = [
   {
     name: 'firstload',
     setup: async (p) => {
@@ -1357,33 +1357,55 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, t]).finally(() => clearTimeout(timer));
 }
 
-async function runCase(context, vp, c, appUrl, localHosts, shotsDir) {
+async function openApp(page, appUrl) {
+  const navMs = IS_CI ? 20000 : 10000;
+  await page.goto(appUrl, { waitUntil: 'load', timeout: navMs });
+  await page.waitForFunction(() => !!window.game?.qa?.ready, undefined, { timeout: navMs })
+    .catch(() => { throw new Error('window.game.qa.ready never became true (missing QA hook ready)'); });
+}
+
+/** Drop leftover modal / manifold / menu so the next case's seed sees a clean chrome. */
+async function resetHarness(page) {
+  await qa(page, 'closeModal');
+  await qa(page, 'manifold', 'off');
+  await qa(page, 'menu', false);
+  await qa(page, 'hud', false);
+  await qa(page, 'clearBoardFocus');
+}
+
+async function openSession(context, appUrl, localHosts) {
   const page = await context.newPage();
   page.setDefaultTimeout(PAGE_DEFAULT_TIMEOUT);
-  const failures = [];
-  const state = { blocked: 0 };
-
+  const sink = { blocked: 0, extra: [] };
   await page.route('**/*', (route) => {
     const u = new URL(route.request().url());
     if (u.protocol === 'data:' || u.protocol === 'blob:' || localHosts.has(u.hostname)) {
       return route.continue();
     }
-    state.blocked++;
+    sink.blocked++;
     return route.abort();
   });
-  page.on('pageerror', (e) => failures.push(`pageerror: ${e.message}`));
+  page.on('pageerror', (e) => sink.extra.push(`pageerror: ${e.message}`));
   page.on('console', (m) => {
     if (m.type() !== 'error') return;
     const url = m.location()?.url ?? '';
-    if (url && !localHosts.has(new URL(url).hostname)) return; // blocked third-party request
-    if (!url && state.blocked > 0 && /ERR_FAILED|ERR_BLOCKED/.test(m.text())) return;
-    failures.push(`console.error: ${m.text()}`);
+    if (url && !localHosts.has(new URL(url).hostname)) return;
+    if (!url && sink.blocked > 0 && /ERR_FAILED|ERR_BLOCKED/.test(m.text())) return;
+    sink.extra.push(`console.error: ${m.text()}`);
   });
+  await openApp(page, appUrl);
+  return { page, sink };
+}
+
+async function runCaseOnPage(session, vp, c, shotsDir) {
+  const { page, sink } = session;
+  sink.extra = [];
+  const failures = [];
+  let poisoned = false;
+  const t0 = Date.now();
 
   const body = async () => {
-    await page.goto(appUrl, { waitUntil: 'load', timeout: 10000 });
-    await page.waitForFunction(() => !!window.game?.qa?.ready, undefined, { timeout: 10000 })
-      .catch(() => { throw new Error('window.game.qa.ready never became true (missing QA hook ready)'); });
+    await resetHarness(page);
     try {
       await runCaseSetup(page, c.setup);
     } catch (e) {
@@ -1399,14 +1421,16 @@ async function runCase(context, vp, c, appUrl, localHosts, shotsDir) {
     await withTimeout(body(), CASE_TIMEOUT_MS, `${vp.name} ${c.name}`);
   } catch (e) {
     failures.push(`case error: ${e.message}`);
+    poisoned = true;
   }
+  failures.push(...sink.extra);
+  const ms = Date.now() - t0;
 
   const ok = failures.length === 0;
   if (!ok || process.env.LAYOUT_SHOTS === '1') {
     await page.screenshot({ path: join(shotsDir, `${vp.name}-${c.name}.png`) }).catch(() => {});
   }
-  await page.close().catch(() => {});
-  return failures;
+  return { failures, ms, poisoned };
 }
 
 async function main() {
@@ -1457,13 +1481,19 @@ async function main() {
         hasTouch: vp.isMobile,
       });
       try {
+        let session = await openSession(context, appUrl, localHosts);
         for (const c of CASES) {
-          const failures = await runCase(context, vp, c, appUrl, localHosts, shotsDir);
+          const { failures, ms, poisoned } = await runCaseOnPage(session, vp, c, shotsDir);
           const status = failures.length ? 'FAIL' : 'PASS';
-          console.log(`${status} ${vp.name} ${c.name}`);
+          console.log(`${status} ${vp.name} ${c.name} ${ms}ms`);
           for (const f of failures) console.log(`    - ${f}`);
-          results.push({ viewport: vp.name, case: c.name, status, failures });
+          results.push({ viewport: vp.name, case: c.name, status, failures, ms });
+          if (poisoned) {
+            await session.page.close().catch(() => {});
+            session = await openSession(context, appUrl, localHosts);
+          }
         }
+        await session.page.close().catch(() => {});
       } finally {
         await context.close().catch(() => {});
       }
@@ -1476,11 +1506,18 @@ async function main() {
   const total = results.length;
   const passed = results.filter((r) => r.status === 'PASS').length;
   const failed = total - passed;
+  const totalMs = results.reduce((s, r) => s + (r.ms || 0), 0);
+  const slowest = [...results].sort((a, b) => (b.ms || 0) - (a.ms || 0)).slice(0, 5)
+    .map((r) => `${r.viewport}/${r.case}:${r.ms}ms`);
   writeFileSync(
     join(OUT, 'report.json'),
-    JSON.stringify({ expected, total, passed, failed, viewports: selected.map((v) => v.name), fullScope, results }, null, 2),
+    JSON.stringify({
+      expected, total, passed, failed, totalMs, slowest,
+      viewports: selected.map((v) => v.name), fullScope, results,
+    }, null, 2),
   );
-  console.log(`${total} cases, ${passed} passed, ${failed} failed (${fullScope ? 'full' : 'filtered'}: ${selected.map((v) => v.name).join(', ')})`);
+  console.log(`${total} cases, ${passed} passed, ${failed} failed, ${totalMs}ms (${fullScope ? 'full' : 'filtered'}: ${selected.map((v) => v.name).join(', ')})`);
+  if (slowest.length) console.log(`slowest: ${slowest.join(', ')}`);
   if (total !== expected) {
     console.log(`case count mismatch: ran ${total}, expected ${expected}`);
     return 1;
@@ -1488,10 +1525,13 @@ async function main() {
   return failed > 0 ? 1 : 0;
 }
 
-main()
-  .then((code) => process.exit(code))
-  .catch(async (err) => {
-    console.error(err.message ?? err);
-    await stopAll();
-    process.exit(1);
-  });
+const invokedDirectly = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+if (invokedDirectly) {
+  main()
+    .then((code) => process.exit(code))
+    .catch(async (err) => {
+      console.error(err.message ?? err);
+      await stopAll();
+      process.exit(1);
+    });
+}
