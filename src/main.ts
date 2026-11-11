@@ -17,7 +17,8 @@ import { flowLinksForState } from './render/flow-links';
 import { archControl, fanForLink } from './render/flow-arch';
 import type { TileGraph } from './core/geometry/graph';
 import { canDrift, canProject, drift, project } from './core/prestige';
-import { applyOffline, simulate } from './core/tick';
+import { applyOffline, fastForward, simulate } from './core/tick';
+import { newWindTimer, takeWind, tickWindTimer } from './core/wind';
 import { exportString, importSave, makeSave, toJson } from './core/save';
 import { TILE_INFO, TILE_TYPES, type TileType } from './core/tiles';
 import { buildManifoldStage, type ManifoldStage } from './render/surface-stage';
@@ -437,7 +438,10 @@ function syncBoard(full = true) {
 syncBoard();
 
 // ---- actions ----
-let speed = 1;
+// Fast clock (dev only): `?speed=N` multiplies the simulated rate, clamped to 1..1000.
+const speedParam = Number(new URLSearchParams(location.search).get('speed'));
+let speed = dev && speedParam > 0 ? Math.min(1000, Math.max(1, speedParam)) : 1;
+let paused = false; // dev fast-clock hook: freezes the live economy and wind
 const tool: { current: Tool } = { current: 'spring' };
 let inspectCell = -1;
 let inspectBlend = 0;
@@ -504,27 +508,15 @@ function linkApexScreen(links: readonly { from: number; to: number }[], i: numbe
   return { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H };
 }
 
-// Trade Winds: a live-play timer only. The reward (catchWind) is deterministic core logic; the spawn gap is cosmetic.
-let windLeft = 0; // seconds the current wind stays catchable; 0 when none
-let windAt = windGap();
-function windGap() {
-  return config.wind.minGap + Math.random() * (config.wind.maxGap - config.wind.minGap);
-}
-function tickWind(dt: number) {
-  if (windLeft > 0) {
-    windLeft = Math.max(0, windLeft - dt);
-    if (windLeft === 0) windAt = windGap();
-  } else if ((windAt -= dt) <= 0) {
-    windLeft = config.wind.life;
-  }
-}
-function catchWindNow() {
-  if (windLeft <= 0) return;
-  windLeft = 0;
-  windAt = windGap();
+// Trade Winds: the timer runs on simulated seconds (core/wind.ts), so a fast clock sees winds at the same game times.
+// The reward (catchWind) is deterministic core logic; the spawn gap is cosmetic.
+const windT = newWindTimer();
+function catchWindNow(): boolean {
+  if (!takeWind(windT)) return false;
   const gain = catchWind(s);
   audio.cue('upgrade');
   ui.toast(`Wind caught! +${fmt(gain, s.notation)} Ink and x${config.wind.surgeMult} Ink/s for ${config.wind.surgeSec}s`);
+  return true;
 }
 
 let hover = -1; // mouse hover only; touch uses tap.selected
@@ -534,7 +526,7 @@ const ui = createUI(document.getElementById('ui')!, {
   tool,
   dev,
   audio,
-  wind: () => ({ left: windLeft, surge: s.surge, mult: config.wind.surgeMult }),
+  wind: () => ({ left: windT.left, surge: s.surge, mult: config.wind.surgeMult }),
   catchWind: catchWindNow,
   selected: () => tap.selected,
   boardFocus: () => {
@@ -976,11 +968,10 @@ function frame(now: number) {
   const dt = Math.min(0.25, (now - last) / 1000);
   last = now;
   const locked = stepTransition(dt);
-  acc = locked ? 0 : acc + dt * speed; // economy pauses for the ~1.5 s transition
+  acc = locked || paused ? 0 : acc + dt * speed; // economy pauses for the ~1.5 s transition
   let steps = 0;
-  while (acc >= STEP && steps++ < 1000) simulate(s, STEP), (acc -= STEP);
+  while (acc >= STEP && steps++ < 1000) simulate(s, STEP), (acc -= STEP), manifoldPreview === 'off' && tickWindTimer(windT, STEP);
   if (steps >= 1000) acc = 0;
-  if (!locked && manifoldPreview === 'off') tickWind(dt);
 
   if (s.drifts !== lastDriftCount) {
     lastDriftCount = s.drifts;
@@ -1215,6 +1206,26 @@ function phoneSnapshot() {
 if (dev) {
   const game = {
     get s() { return s; }, Decimal, TILE_TYPES, renderQuality: getQuality,
+    // Fast-clock API (dev only). Game time advances through the live loop, or through step() on the core clock.
+    setSpeed: (x: number) => (speed = Math.min(1000, Math.max(0.01, x))),
+    pause: () => (paused = true),
+    resume: () => (paused = false),
+    /** Advances `seconds` of simulated time at once (same steps and rules as live play; wind ticks too). */
+    step: (seconds: number) =>
+      fastForward(s, seconds, () => manifoldPreview === 'off' && tickWindTimer(windT, STEP)),
+    snapshot: () => ({
+      geometry: s.geometry, ring: s.ring, drifts: s.drifts, projections: s.projections,
+      ink: s.ink.toString(), runTime: s.runTime, tiles: s.tiles.slice(), speed, paused,
+      wind: { ...windT }, surge: s.surge, windsCaught: s.windsCaught,
+    }),
+    cells: () => graphOf(s).ring.map((r, i) => ({ i, ring: r, active: isActive(s, i), tile: s.tiles[i] })),
+    place: (i: number, t: TileType) => place(s, i, t),
+    sell: (i: number) => sell(s, i),
+    survey: () => survey(s),
+    catchWind: catchWindNow,
+    /** Drift and Projection play their normal transitions, like the buttons. */
+    drift: () => (trans || !canDrift(s) ? false : (startTransition('drift'), true)),
+    project: () => (trans || !canProject(s) ? false : (startTransition('projection'), true)),
     // QA hooks for deterministic effect screenshots (dev flag only; FX only, never economy)
     fxStats: () => fx.stats(),
     /** Seeds the FX PRNG: the same seed and dt sequence give the same frames. */

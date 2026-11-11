@@ -4,6 +4,7 @@
 - `npm run dev` — Vite dev server (dev panel enabled; toggle with backtick). Prod: add `?dev` to the URL.
 - `npm test` — Vitest (core logic only, runs in Node)
 - `npm run pacing` — headless greedy bot; asserts Drift < 15 min, Projection < 90 min (slow, opt-in)
+- `npm run playtest` — headless greedy bot on the fast clock; 120 min game time, prints a timeline, exits 1 if Drift/Projection are late (`MIN=60` for less)
 - `npm run typecheck`, `npm run build`
 
 ## Design documents

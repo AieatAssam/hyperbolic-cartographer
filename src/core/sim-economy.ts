@@ -7,6 +7,7 @@ import { chartUpgrades, config, curvUpgrades } from './config';
 import { applyConstellationRewards, eventsAfterPlace } from './constellations';
 import { buyChartUpg, buyCurvUpg, isActive, maxRing, owned, place, previewDelta, prod, sell, survey, surveyCost, tileCost } from './economy';
 import { pickImmediateGoal } from './goal-policy';
+import { bestGreedyBuy } from './greedy-bot';
 import { graphOf, initialState, type GameState } from './state';
 import { canProject, canDrift, chartsOnDrift, drift, project } from './prestige';
 import { applyOffline, simulate } from './tick';
@@ -73,22 +74,6 @@ function noteMilestones(s: GameState, sec: number, m: MilestoneTimes, t: TileTyp
   if (m.ring4 === undefined && s.ring >= 4) m.ring4 = min;
   if (m.ring5 === undefined && s.ring >= 5) m.ring5 = min;
   if (m.hyperGeometry === undefined && s.geometry === 'hyper') m.hyperGeometry = min;
-}
-
-function bestGreedyBuy(s: GameState): { i: number; t: TileType; cost: number } | null {
-  let best: { i: number; t: TileType; cost: number; score: number } | null = null;
-  const budget = s.ink.toNumber() + prod(s).total * 60;
-  const cells = graphOf(s).ring.map((_, i) => i).filter((i) => isActive(s, i));
-  for (const t of TILE_TYPES) {
-    const cost = tileCost(s, t).toNumber();
-    if (cost > budget) continue;
-    for (const i of cells) {
-      if (s.tiles[i] === t) continue;
-      const score = previewDelta(s, i, t) / (cost * (s.tiles[i] ? 1.5 : 1));
-      if (score > 0 && (!best || score > best.score)) best = { i, t, cost, score };
-    }
-  }
-  return best;
 }
 
 function casualAction(s: GameState): { kind: 'place'; i: number; t: TileType } | { kind: 'survey' } | { kind: 'drift' } | { kind: 'project' } | null {

@@ -113,6 +113,15 @@ npm run layout      # layout QA; after npm run build and npx playwright install 
 - Layout QA setup: `npm run build`, then `npx playwright install chromium`, then `npm run layout`. See [Layout QA](#layout-qa).
 - The dev panel toggles with the backtick key. It is on in dev builds, and in production builds when the URL has `?dev`. It can grant currency, jump to Drift or Projection, and change time speed.
 
+## Testing with the fast clock
+
+Two ways to see a whole run quickly, both on the same simulation rules as live play:
+
+- **Live, in the browser (dev only):** `npm run dev`, then open the app with `?dev&speed=N` (N from 1 to 1000; `speed` is clamped and ignored in production builds). Economy and Trade Winds run N times faster. From the console, `window.game` exposes `setSpeed(x)`, `pause()`, `resume()`, `step(seconds)` (advance simulated time at once), `snapshot()`, `cells()`, `place(i, t)`, `sell(i)`, `survey()`, `catchWind()`, `drift()` and `project()`. Add `qa` (`?dev&qa`) to keep the run out of localStorage.
+- **Headless:** `npm run playtest` runs the greedy bot for 120 minutes of game time (`MIN=60 npm run playtest` for less), prints a timeline with milestones, wall time and peak heap, and exits 1 if Drift is not before 15 minutes or Projection is not before 90 minutes.
+
+Trade Winds come up on the simulated clock, so a fast run sees the same wind schedule per game minute. The core pieces are `fastForward` in `src/core/tick.ts` and the timer in `src/core/wind.ts`; `tests/fast-clock.test.ts` covers them.
+
 ## Deploy
 
 `.github/workflows/deploy.yml` runs on every push to `main` (and on manual dispatch). The `build` job runs typecheck, test and build and uploads the Pages artifact. In parallel, a `layout` matrix runs six jobs, one per viewport, each doing its own `npm ci`, build and Playwright Chromium install, then `npm run layout` with `LAYOUT_VIEWPORT` set to that viewport. The matrix is not fail-fast, so every viewport reports. A failing viewport uploads its `layout-artifacts/` as `layout-artifacts-<viewport>`. Deploy waits for `build` and all six layout jobs and runs only if every one passes; it then deploys `dist` to GitHub Pages. Locally, `npm run layout` still runs all six viewports; set `LAYOUT_VIEWPORT=<WxH>` (for example `LAYOUT_VIEWPORT=360x640`) to run just one while debugging.

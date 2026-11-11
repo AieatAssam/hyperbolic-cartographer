@@ -28,49 +28,67 @@ export function mods(s: GameState): Mods {
  * is adjacent to everything else touching that chain. `reach` adds extra bridge-only BFS hops
  * beyond that (Long Bridges upgrade).
  */
-const relayCache = new WeakMap<TileGraph, Map<string, Map<number, Set<number>>>>();
+const RELAY_CACHE_MAX = 64;
+/** Relay links for one board, computed per node on first use (production only reads spring/mill nodes). */
+type Relay = (i: number) => Set<number>;
+const relayCache = new WeakMap<TileGraph, Map<string, Relay>>();
 
-function relayOneWay(g: TileGraph, tiles: (TileType | null)[], reach: number): Map<number, Set<number>> {
+function relayFor(g: TileGraph, tiles: (TileType | null)[], reach: number): Relay {
   const hops = Math.max(0, Math.floor(reach) - 1);
-  const out = new Map<number, Set<number>>();
-  for (let i = 0; i < tiles.length; i++) {
-    const seen = new Set(g.neighbours[i]);
-    for (const comp of bridgeComponents(g, tiles)) {
-      const touch = hops > 0 ? bridgeTouchSetExtended(g, tiles, comp, hops) : bridgeTouchSet(g, tiles, comp);
-      if (touch.has(i) || g.neighbours[i].some((x) => touch.has(x))) {
-        for (const t of touch) if (t !== i) seen.add(t);
-      }
+  const footprints = bridgeComponents(g, tiles).map((comp) => {
+    const touch = hops > 0 ? bridgeTouchSetExtended(g, tiles, comp, hops) : bridgeTouchSet(g, tiles, comp);
+    // Node i is linked to the footprint when i is in it or touches it: i in touch ∪ N(touch) (graph is symmetric).
+    const linked = new Set(touch);
+    for (const t of touch) for (const n of g.neighbours[t]) linked.add(n);
+    return { touch: [...touch], linked };
+  });
+  // Which footprints each node is linked to, so a node only visits its own footprints.
+  const linkedBy: { touch: number[] }[][] = g.neighbours.map(() => []);
+  for (const f of footprints) for (const i of f.linked) linkedBy[i].push(f);
+  const oneWay = new Map<number, Set<number>>();
+  const one = (i: number): Set<number> => {
+    let seen = oneWay.get(i);
+    if (!seen) {
+      seen = new Set(g.neighbours[i]);
+      for (const f of linkedBy[i]) for (const t of f.touch) if (t !== i) seen.add(t);
+      seen.delete(i);
+      oneWay.set(i, seen);
     }
-    seen.delete(i);
-    out.set(i, seen);
-  }
-  return out;
+    return seen;
+  };
+  const mates = new Map<number, Set<number>>();
+  return (i) => {
+    let m = mates.get(i);
+    if (!m) {
+      m = new Set<number>();
+      for (const j of one(i)) if (one(j).has(i)) m.add(j);
+      mates.set(i, m);
+    }
+    return m;
+  };
 }
 
 /** Cached symmetric relay adjacency. */
-function relayAdjacency(g: TileGraph, tiles: (TileType | null)[], reach: number): Map<number, Set<number>> {
-  const key = `${reach}|${tiles.join(',')}`;
+function relayAdjacency(g: TileGraph, tiles: (TileType | null)[], reach: number): Relay {
+  // The relay only depends on bridge positions and which cells are occupied, not on tile types.
+  const key = `${reach}|${tiles.map((t) => (t === 'bridge' ? 'b' : t ? 'o' : '.')).join('')}`;
   let byKey = relayCache.get(g);
   if (byKey?.has(key)) return byKey.get(key)!;
-  const one = relayOneWay(g, tiles, reach);
-  const sym = new Map<number, Set<number>>();
-  for (let i = 0; i < tiles.length; i++) {
-    const mates = new Set<number>();
-    for (const j of one.get(i) ?? []) {
-      if ((one.get(j) ?? new Set()).has(i)) mates.add(j);
-    }
-    sym.set(i, mates);
-  }
+  const relay = relayFor(g, tiles, reach);
   if (!byKey) {
     byKey = new Map();
     relayCache.set(g, byKey);
   }
-  byKey.set(key, sym);
-  return sym;
+  byKey.set(key, relay);
+  // Every previewDelta candidate is a new board key; keep only the most recent entries.
+  if (byKey.size > RELAY_CACHE_MAX) byKey.delete(byKey.keys().next().value!);
+  return relay;
 }
 
 export function adjacency(g: TileGraph, tiles: (TileType | null)[], i: number, reach: number): number[] {
-  return [...(relayAdjacency(g, tiles, reach).get(i) ?? [])];
+  // Without bridges the relay adds nothing, so skip building it (hot in previewDelta).
+  if (!tiles.includes('bridge')) return [...g.neighbours[i]];
+  return [...relayAdjacency(g, tiles, reach)(i)];
 }
 
 export interface Production {
@@ -99,11 +117,18 @@ export function production(g: TileGraph, tiles: (TileType | null)[], m: Mods): P
   const vaults = tiles.filter((t) => t === 'vault').length;
   const global = m.global * (1 + T.vault.global * vaults);
   const perTile = tiles.map(() => 0);
+  // Relay map looked up once per board (its cache key is a join of the whole board).
+  const relay = tiles.includes('bridge') ? relayAdjacency(g, tiles, m.reach) : null;
   let total = 0;
   tiles.forEach((t, i) => {
     if (t !== 'spring' && t !== 'mill') return;
-    const adj = adjacency(g, tiles, i, m.reach);
-    let out = t === 'spring' ? T.spring.out : T.mill.out * (1 + T.mill.perSpring * adj.filter((n) => tiles[n] === 'spring').length);
+    const adj: Iterable<number> = relay ? relay(i) : g.neighbours[i];
+    let out = T.spring.out;
+    if (t === 'mill') {
+      let springs = 0;
+      for (const n of adj) if (tiles[n] === 'spring') springs++;
+      out = T.mill.out * (1 + T.mill.perSpring * springs);
+    }
     for (const n of adj) if (tiles[n] === 'beacon') out *= m.beacon + m.beaconPerDegree * g.neighbours[n].length;
     for (const n of ring2(g, i)) if (tiles[n] === 'lighthouse') out *= T.lighthouse.mult;
     perTile[i] = out * global;
