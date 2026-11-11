@@ -3,12 +3,14 @@ import { GRAPHS, type GameState, type Geometry } from '../core/state';
 import type { SquareBoard } from '../core/geometry/square';
 import { apply, boost, boostToOrigin, dist, geodesic, identity, inverse, mul, normalize, orthonormalize, toDisk, type HyperBoard, type Mat3, type Vec3 } from '../core/geometry/hyperbolic';
 import { TILE_TYPES, type TileType } from '../core/tiles';
+import { config } from '../core/config';
 import {
   BLOOM, BOARD, CONSTELLATION, EMPTY_SLOT, MATERIAL, NEXT_SLOT, PLACE, PREVIEW, TILE_IDENTITIES, bevelColour, hoverFace, motifScale, sideColour, tileHeight, trimGlow,
 } from '../art/palette';
 import type { BoardHighlight } from './board-highlight';
 import { FlowArchOverlay } from './flow-arch';
 import { placeGlsl, placeScale } from './transition';
+import type { TileModels } from './tile-models';
 import { bumpRev, createEmbedding, medianEdgePitch, writeFrame, type Embedding } from './fx-graph';
 
 export const DISK_R = 9;
@@ -45,6 +47,7 @@ function motif(t: TileType): THREE.BufferGeometry {
     case 'beacon': return new THREE.ConeGeometry(0.15, 0.4, 6).translate(0, 0.2, 0); // spire
     case 'bridge': return new THREE.TorusGeometry(0.17, 0.045, 6, 12, Math.PI); // arch
     case 'vault': return new THREE.OctahedronGeometry(0.19); // gem
+    case 'lighthouse': return new THREE.CylinderGeometry(0.07, 0.11, 0.42, 8).translate(0, 0.21, 0); // lantern
   }
 }
 
@@ -138,6 +141,11 @@ export class Board {
   private revealed: Float32Array;
   private uClock = { value: 0 };
   private motifSlot: Int32Array;
+  /** mill_wheel layer (from the GLB): one instance per mill, spun in tick() while that mill produces. */
+  private wheel: THREE.InstancedMesh | null = null;
+  private wheelBase: THREE.Matrix4[] = [];
+  private wheelOn: boolean[] = [];
+  private spin = new THREE.Matrix4();
   private settling = new Map<number, number>();
   private mats: THREE.Material[] = [];
   private tileType: GameState['tiles'] = [];
@@ -407,6 +415,28 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     return { pts, c: [cu * DISK_R, cw * DISK_R], scale: Math.max(0, 1 - cu * cu - cw * cw) };
   }
 
+  /** Swaps the primitive motifs for GLB geometry (see tile-models.ts). Safe to call after the first frame. */
+  useModels(models: TileModels) {
+    for (const t of TILE_TYPES) {
+      const geo = models[t];
+      if (geo) this.motifs[t].geometry.dispose(), (this.motifs[t].geometry = geo);
+    }
+    const wheelGeo = models.mill_wheel;
+    if (wheelGeo && !this.wheel) {
+      const n = this.glowQ.length, tk = TILE_IDENTITIES.mill;
+      this.wheel = new THREE.InstancedMesh(wheelGeo, new THREE.MeshStandardMaterial({
+        color: tk.emissive, emissive: tk.emissive, emissiveIntensity: tk.emissiveIntensity, roughness: 0.25, metalness: 0,
+      }), n);
+      this.wheel.count = 0;
+      this.wheel.frustumCulled = false;
+      this.wheel.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      this.wheelBase = Array.from({ length: n }, () => new THREE.Matrix4());
+      this.wheelOn = new Array(n).fill(false);
+      this.group.add(this.wheel);
+    }
+    this.key = ''; // force a rebuild so the instances are written to the new geometry
+  }
+
   /** Rebuilds geometry only when tiles, ring, pins, focus, view or (quantised) output change. Normals recomputed then. */
   update(s: GameState, perTile: number[], hover: number, hoverAdj: number[], hl?: BoardHighlight) {
     const n = this.glowQ.length;
@@ -429,6 +459,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     const glowA = this.geom.attributes.glow.array as Float32Array;
     const g = GRAPHS[this.geometry], K = this.K, { c, side, border, glow, trim } = this;
     for (const t of TILE_TYPES) this.motifs[t].count = 0;
+    if (this.wheel) this.wheel.count = 0;
     const embed = this.embed;
     for (let i = 0; i < n; i++) {
       const o = this.outline(i), t = s.tiles[i], r = g.ring[i];
@@ -508,6 +539,12 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         this.m4.compose(this.tops[i], this.q, this.sc.setScalar(sc));
         this.motifSlot[i] = im.count;
         im.setMatrixAt(im.count++, this.m4);
+        if (t === 'mill' && this.wheel) {
+          const k = this.wheel.count++;
+          this.wheelBase[k].copy(this.m4);
+          this.wheelOn[k] = perTile[i] > 0;
+          this.wheel.setMatrixAt(k, this.m4);
+        }
       } else this.motifSlot[i] = -1;
       const hidden = o.scale <= 0, hb = h * 0.82;
       let v = i * K * PER_K;
@@ -533,6 +570,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     bumpRev(embed);
     for (const name of ['position', 'normal', 'color', 'glow']) this.geom.attributes[name].needsUpdate = true;
     for (const t of TILE_TYPES) this.motifs[t].instanceMatrix.needsUpdate = true;
+    if (this.wheel) this.wheel.instanceMatrix.needsUpdate = true;
     this.updatePreviewArc(hl?.arc);
     this.overlayConstellations(hl);
   }
@@ -572,6 +610,16 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
   /** Per frame: advance the squash clock; motifs of settling tiles (few) follow the same curve. */
   tick(now: number, reduced: boolean) {
     this.uClock.value = reduced ? 1e9 : now;
+    if (this.wheel && !reduced) {
+      // producing mills turn their wheel about the tile normal (local Z of the authored mesh)
+      this.spin.makeRotationZ(now * config.ui.wheelSpin);
+      for (let k = 0; k < this.wheel.count; k++) {
+        if (!this.wheelOn[k]) continue;
+        this.m4.multiplyMatrices(this.wheelBase[k], this.spin);
+        this.wheel.setMatrixAt(k, this.m4);
+      }
+      this.wheel.instanceMatrix.needsUpdate = true;
+    }
     for (const [i, t0] of this.settling) {
       if (now - t0 >= PLACE.life || reduced) this.settling.delete(i);
       const slot = this.motifSlot[i], t = this.tileType[i];

@@ -71,6 +71,7 @@ Shadow maps are off.
 | `beacon` | coral rose | `#d8344f` | `#ff7a92` | 2.3 | 0.60 / 0 | `#6fe3d0` | Multiplies adjacent tiles. |
 | `bridge` | ink-violet | `#6a2fd0` | `#b07cff` | 2.3 | 0.65 / 0 | `#e8c872` | Links its neighbours. |
 | `vault` | verdigris green | `#0f9a6e` | `#4fe8b0` | 2.0 | 0.70 / 0 | `#ff9ab0` | Offline and global bonuses. |
+| `lighthouse` | magenta beacon-light | `#d0289a` | `#ff7ad0` | 2.2 | 0.64 / 0 | `#fff0a0` | Producers exactly 2 steps away x1.25. |
 
 **Motifs (Wired).** Each tile kind has a distinct silhouette, drawn as an instanced accent mesh on top of the tile in its `accent` colour. The shape reads without colour, which matters on phones and for colour-blind players:
 
@@ -81,6 +82,7 @@ Shadow maps are off.
 | `beacon` | spire (cone) |
 | `bridge` | arch (half torus) |
 | `vault` | gem (octahedron) |
+| `lighthouse` | lantern (GLB `lighthouse` node, primitive fallback) |
 
 **Empty slot.** `EMPTY_SLOT`: `base` `#1c1430` (dark recessed well), `accent` `#54467a` (subdued violet border), `emissive` `#3a2e60` at `emissiveIntensity` 0.12, `roughness` 0.9, `metalness` 0.
 

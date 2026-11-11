@@ -82,7 +82,9 @@ export const TILE_IDENTITIES = {
   bridge: { base: 0x6a2fd0, emissive: 0xb07cff, emissiveIntensity: 2.3, roughness: 0.65, metalness: 0, accent: 0xe8c872 },
   /** vault: verdigris green. Offline and global bonuses. */
   vault: { base: 0x0f9a6e, emissive: 0x4fe8b0, emissiveIntensity: 2.0, roughness: 0.7, metalness: 0, accent: 0xff9ab0 },
-} as const satisfies Record<'spring' | 'mill' | 'beacon' | 'bridge' | 'vault', MaterialToken>;
+  /** lighthouse: magenta beacon-light. Boosts producers two steps away. */
+  lighthouse: { base: 0xd0289a, emissive: 0xff7ad0, emissiveIntensity: 2.2, roughness: 0.64, metalness: 0, accent: 0xfff0a0 },
+} as const satisfies Record<'spring' | 'mill' | 'beacon' | 'bridge' | 'vault' | 'lighthouse', MaterialToken>;
 
 /**
  * Empty board slot: a dark recessed well with a subdued violet border (accent), never near-white.

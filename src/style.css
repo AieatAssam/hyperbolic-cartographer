@@ -134,6 +134,11 @@ input[type=checkbox] {
 }
 
 .top-actions { flex: 0 0 auto; display: flex; flex-direction: row; align-items: center; gap: var(--control-gap); }
+/* Trade Wind chip: a pulsing call-to-action while catchable, a quiet readout during a surge. */
+button.wind-chip { font-variant-numeric: tabular-nums; white-space: nowrap; padding: 6px 10px; font-size: 13px; }
+button.wind-chip.wind-live { animation: wind-pulse 1.2s ease-in-out infinite; }
+@keyframes wind-pulse { 50% { box-shadow: 0 0 0 4px rgba(255, 240, 160, 0.45); } }
+@media (prefers-reduced-motion: reduce) { button.wind-chip.wind-live { animation: none; } }
 /* HUD expand/collapse control: shown only in the phone portrait block below */
 button.hud-toggle { display: none; }
 button.guide-btn, button.panel-toggle {

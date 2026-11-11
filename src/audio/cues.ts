@@ -31,6 +31,7 @@ const NODE: Record<TileType, { fam: Family; figure: [number, number][] }> = {
   beacon: { fam: GLOCK, figure: [[7, 0], [19, 0.05]] }, // a bright bell with a high shimmer
   bridge: { fam: PIZZ, figure: [[0, 0], [7, 0.05], [12, 0.1]] }, // a span: root, fifth, octave
   vault: { fam: PIANO, figure: [[0, 0], [7, 0.02]] }, // a low, warm open fifth
+  lighthouse: { fam: GLOCK, figure: [[12, 0], [19, 0.06], [24, 0.12]] }, // a rising bell, like a light sweeping outward
 };
 
 export type CueName =

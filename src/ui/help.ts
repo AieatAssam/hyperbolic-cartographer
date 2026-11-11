@@ -23,6 +23,7 @@ export const TOOL_HELP: Record<Tool, string> = {
   beacon: `Multiplies the output of adjacent tiles by x${T.beacon.mult}. Beacons stack with each other.`,
   bridge: 'A chain of Bridges connects every tile touching the chain as if they were neighbours. Long Bridges extends relay one hop further.',
   vault: `Adds ${pct(T.vault.offline)} offline efficiency and ${pct(T.vault.global)} global Ink output for each Vault.`,
+  lighthouse: `Multiplies the output of producers exactly 2 steps away by x${T.lighthouse.mult}. Stacks with other Lighthouses; Bridges do not extend its reach.`,
   sell: `Tap or click a tile to remove it for a ${pct(config.sellRefund)} refund.`,
   pin: 'Tap or click a tile to pin it. Pinned tiles survive Drift. Slots are limited; Brass Pins adds more.',
 };
@@ -34,6 +35,7 @@ export const TOOL_EFFECT: Record<Tool, string> = {
   beacon: `Adjacent tiles output ×${T.beacon.mult} (stacks).`,
   bridge: 'Touching a bridge chain links all tiles on that chain.',
   vault: `+${pct(T.vault.offline)} offline efficiency; +${pct(T.vault.global)} global Ink each.`,
+  lighthouse: `Producers 2 steps away x${T.lighthouse.mult}.`,
   sell: `${pct(config.sellRefund)} refund on removed tiles.`,
   pin: 'Pinned tiles survive Drift; slots are limited.',
 };

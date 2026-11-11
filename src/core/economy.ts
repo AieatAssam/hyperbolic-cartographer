@@ -78,6 +78,21 @@ export interface Production {
   total: number;
 }
 
+/** Nodes at graph distance exactly 2 (Lighthouse range). Bridges do not extend it. */
+const ring2Cache = new WeakMap<TileGraph, number[][]>();
+export function ring2(g: TileGraph, i: number): number[] {
+  let all = ring2Cache.get(g);
+  if (!all) {
+    all = g.neighbours.map((ns, a) => {
+      const out = new Set<number>();
+      for (const n of ns) for (const m of g.neighbours[n]) if (m !== a && !ns.includes(m)) out.add(m);
+      return [...out];
+    });
+    ring2Cache.set(g, all);
+  }
+  return all[i];
+}
+
 /** Pure production calc. Geometry-agnostic: only sees the graph. */
 export function production(g: TileGraph, tiles: (TileType | null)[], m: Mods): Production {
   const T = config.tiles;
@@ -90,6 +105,7 @@ export function production(g: TileGraph, tiles: (TileType | null)[], m: Mods): P
     const adj = adjacency(g, tiles, i, m.reach);
     let out = t === 'spring' ? T.spring.out : T.mill.out * (1 + T.mill.perSpring * adj.filter((n) => tiles[n] === 'spring').length);
     for (const n of adj) if (tiles[n] === 'beacon') out *= m.beacon + m.beaconPerDegree * g.neighbours[n].length;
+    for (const n of ring2(g, i)) if (tiles[n] === 'lighthouse') out *= T.lighthouse.mult;
     perTile[i] = out * global;
     total += perTile[i];
   });
@@ -111,6 +127,21 @@ export function previewDelta(s: GameState, i: number, type: TileType | null): nu
 }
 
 export const owned = (s: GameState, t: TileType) => s.tiles.filter((x) => x === t).length;
+
+export const surgeMult = (s: GameState) => (s.surge > 0 ? config.wind.surgeMult : 1);
+/** Live Ink/s including the Trade Wind surge. */
+export const inkPerSec = (s: GameState) => prod(s).total * surgeMult(s);
+
+/** Catch a Trade Wind: an instant burst of Ink plus a timed production surge. Returns the Ink gained. */
+export function catchWind(s: GameState): Decimal {
+  const gain = Decimal.max(prod(s).total * config.wind.burstSec, config.wind.minInk);
+  s.ink = s.ink.add(gain);
+  s.runInk = s.runInk.add(gain);
+  s.lifetimeInk = s.lifetimeInk.add(gain);
+  s.surge = config.wind.surgeSec;
+  s.windsCaught++;
+  return gain;
+}
 
 /** True when some Mill touches a Spring (bridges included via adjacency). */
 export function hasBoostedMill(s: GameState): boolean {

@@ -3,7 +3,7 @@ import LZString from 'lz-string';
 import { GRAPHS, initialState, type GameState } from './state';
 import { TILE_TYPES } from './tiles';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 const DECIMAL_KEYS = ['ink', 'runInk', 'lifetimeInk', 'charts', 'cycleCharts', 'curvature'] as const;
 
 export interface SaveFile {
@@ -20,6 +20,7 @@ export const migrations: Record<number, (s: Record<string, unknown>) => Record<s
     constellationKeys: Array.isArray(s.constellationKeys) ? s.constellationKeys : [],
     constellationLog: Array.isArray(s.constellationLog) ? s.constellationLog : [],
   }),
+  2: (s) => ({ ...s, surge: 0, windsCaught: 0 }),
 };
 
 export function fnv1a(str: string): string {
