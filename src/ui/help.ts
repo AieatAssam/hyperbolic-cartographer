@@ -1,6 +1,6 @@
 import { config } from '../core/config';
 import { GRAPHS, graphOf, type GameState } from '../core/state';
-import { isActive, maxPins, maxRing, surveyCost, tileCost } from '../core/economy';
+import { isActive, maxPins, maxRing, springShare, surveyCost, tileCost } from '../core/economy';
 import { canDrift, canProject } from '../core/prestige';
 import type { TileType } from '../core/tiles';
 import { fmt } from './format';
@@ -18,12 +18,14 @@ const pct = (x: number) => `${Math.round(x * 100)}%`;
 const T = config.tiles;
 
 export const TOOL_HELP: Record<Tool, string> = {
-  spring: `Produces ${fmt(T.spring.out)} Ink/s. Tap or click an empty cell to place it.`,
-  mill: `Produces ${fmt(T.mill.out)} Ink/s, plus ${pct(T.mill.perSpring)} for each adjacent Spring. Put Mills next to Springs.`,
-  beacon: `Multiplies the output of adjacent tiles by x${T.beacon.mult}. Beacons stack with each other.`,
-  bridge: 'A chain of Bridges connects every tile touching the chain as if they were neighbours. Long Bridges extends relay one hop further.',
+  spring: `Produces ${fmt(T.spring.out)} Ink/s, split among the Mills it feeds: each extra Mill cuts every share (${[1, 2, 3, 4].map((k) => pct(springShare(k))).join(', ')}...). A Bridge touching it gives full flow. Tap or click an empty cell to place it.`,
+  mill: `Produces ${fmt(T.mill.out)} Ink/s, plus ${pct(T.mill.perSpring)} for each adjacent Spring's share. A Spring feeding several Mills splits its output, so put Mills next to Springs that feed few others, or link the Spring with a Bridge.`,
+  beacon: `Multiplies the output of adjacent tiles by x${T.beacon.mult}. A Beacon reached only through a Bridge adds its bonus instead of multiplying (Springs and Mills only).`,
+  bridge: 'A chain of Bridges connects every tile touching the chain as if they were neighbours. A Spring touching a Bridge gives full flow to every Mill. Long Bridges extends relay one hop further.',
   vault: `Adds ${pct(T.vault.offline)} offline efficiency and ${pct(T.vault.global)} global Ink output for each Vault.`,
   lighthouse: `Multiplies the output of producers exactly 2 steps away by x${T.lighthouse.mult}. Stacks with other Lighthouses; Bridges do not extend its reach.`,
+  cistern: `Each Spring next to a Cistern makes x${T.cistern.mult} Ink. Cisterns stack with each other.`,
+  scriptorium: `Makes ${fmt(T.scriptorium.out)} Ink/s for each different kind of tile next to it (up to 5). Beacons and Lighthouses boost it.`,
   sell: `Tap or click a tile to remove it for a ${pct(config.sellRefund)} refund.`,
   pin: 'Tap or click a tile to pin it. Pinned tiles survive Drift. Slots are limited; Brass Pins adds more.',
 };
@@ -31,11 +33,13 @@ export const TOOL_HELP: Record<Tool, string> = {
 /** One-line effect copy for the phone info card (cost/meta sit on their own lines). */
 export const TOOL_EFFECT: Record<Tool, string> = {
   spring: `Produces ${fmt(T.spring.out)} Ink/s.`,
-  mill: `Produces ${fmt(T.mill.out)} Ink/s; +${pct(T.mill.perSpring)} per adjacent Spring.`,
-  beacon: `Adjacent tiles output ×${T.beacon.mult} (stacks).`,
+  mill: `Produces ${fmt(T.mill.out)} Ink/s; +${pct(T.mill.perSpring)} per adjacent Spring's share (strain-reduced when a Spring feeds several Mills).`,
+  beacon: `Adjacent tiles output ×${T.beacon.mult} (stacks). Beacons reached only through a Bridge add instead.`,
   bridge: 'Touching a bridge chain links all tiles on that chain.',
   vault: `+${pct(T.vault.offline)} offline efficiency; +${pct(T.vault.global)} global Ink each.`,
   lighthouse: `Producers 2 steps away x${T.lighthouse.mult}.`,
+  cistern: `Springs next to it x${T.cistern.mult} Ink.`,
+  scriptorium: `${fmt(T.scriptorium.out)} Ink/s per kind of tile next to it.`,
   sell: `${pct(config.sellRefund)} refund on removed tiles.`,
   pin: 'Pinned tiles survive Drift; slots are limited.',
 };

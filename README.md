@@ -109,7 +109,7 @@ npm run layout      # layout QA; after npm run build and npx playwright install 
 ```
 
 - `python3 scripts/audio/build-audio.py` re-encodes `public/audio/` and regenerates `AUDIO-CREDITS.md` (needs ffmpeg with libopus; not part of CI).
-- `npm run pacing` asserts the first Drift comes before 15 minutes and Projection before 90 minutes of game time.
+- `npm run pacing` asserts Drift is available before 15 minutes, the bot takes its first Drift before 30 minutes (it waits for its Charts/s peak), and Projection comes before 90 minutes of game time.
 - Layout QA setup: `npm run build`, then `npx playwright install chromium`, then `npm run layout`. See [Layout QA](#layout-qa).
 - The dev panel toggles with the backtick key. It is on in dev builds, and in production builds when the URL has `?dev`. It can grant currency, jump to Drift or Projection, and change time speed.
 
@@ -118,7 +118,7 @@ npm run layout      # layout QA; after npm run build and npx playwright install 
 Two ways to see a whole run quickly, both on the same simulation rules as live play:
 
 - **Live, in the browser (dev only):** `npm run dev`, then open the app with `?dev&speed=N` (N from 1 to 1000; `speed` is clamped and ignored in production builds). Economy and Trade Winds run N times faster. From the console, `window.game` exposes `setSpeed(x)`, `pause()`, `resume()`, `step(seconds)` (advance simulated time at once), `snapshot()`, `cells()`, `place(i, t)`, `sell(i)`, `survey()`, `catchWind()`, `drift()` and `project()`. Add `qa` (`?dev&qa`) to keep the run out of localStorage.
-- **Headless:** `npm run playtest` runs the greedy bot for 120 minutes of game time (`MIN=60 npm run playtest` for less), prints a timeline with milestones, wall time and peak heap, and exits 1 if Drift is not before 15 minutes or Projection is not before 90 minutes.
+- **Headless:** `npm run playtest` runs the greedy bot for 120 minutes of game time (`MIN=60 npm run playtest` for less), prints a timeline with milestones, wall time and peak heap, and exits 1 on the same limits as `npm run pacing`.
 
 Trade Winds come up on the simulated clock, so a fast run sees the same wind schedule per game minute. The core pieces are `fastForward` in `src/core/tick.ts` and the timer in `src/core/wind.ts`; `tests/fast-clock.test.ts` covers them.
 
@@ -173,7 +173,12 @@ tests/           Vitest suites, plus the opt-in pacing bot
 
 Changes from the original brief (all in `src/core/config.ts`; formulas unchanged):
 
-- Mill output 5 → 9 Ink/s (pacing: first Drift was ~25 min).
+- Mill output 5 → 9 Ink/s (pacing: first Drift was ~25 min); now 9 → 18 Ink/s (`tiles.mill.out`) under the spring strain rule below.
+- Spring strain (new, `tiles.spring.strain` **0.33**): a Spring's output is split among the Mills it feeds. With k Mills, each gets share 1/(1 + 0.33·(k−1)): 100%, 75%, 60%, 50%. A Spring touching a Bridge is channelled and gives every Mill full share (the Bridge exception).
+- Deep Wells (replaces the old Spring Charts discount; same id `cheapSprings`, no migration): each level multiplies strain by `tiles.spring.deepWells` **0.8** (Springs thin 20% less per extra Mill). Springs no longer have a cost discount.
+- Beacon-through-Bridge rule (new): Beacons that are true graph neighbours multiply the output of a tile. A Beacon reached only through a Bridge relay adds `mult - 1` to a multiplier instead (so two relayed Beacons give 1 + 2·bonus, not (1+bonus)²). Scriptorium only sees true neighbours. This stops one Bridge hub from stacking Beacons exponentially.
+- Cistern (new): cost **2,500**, `cistern.mult` **3**. Each adjacent Spring multiplies its own output by 3 per adjacent Cistern.
+- Scriptorium (new): cost **8,000** (was 12,000 in the first draft), `scriptorium.out` **15** Ink/s × the number of distinct other tile kinds adjacent (other Scriptoria do not count, and relayed Beacons are ignored).
 - Lighthouse: cost 50,000 Ink, x1.25 to producers two steps away (`config.tiles.lighthouse`).
 - Trade Winds: appear every 40–80 s of live play for 14 s; catching pays max(30 s of Ink/s, 25 Ink) and grants a 20 s x3 surge (`config.wind`).
 - Survey growth 8^ring → 6^ring on the square board (base 50).
@@ -181,7 +186,7 @@ Changes from the original brief (all in `src/core/config.ts`; formulas unchanged
 - Hyperbolic survey: base 2e5, growth 12^ring; board starts at radius 2, base max radius 3, +1 via the "Deeper Horizon" Curvature upgrade (radius 4 = 232 tiles).
 - Offline base efficiency 50% (unspecified in brief).
 - 2026-11 balance pass: `startInk` 22, `costGrowth` 1.12, Mill cost 85, Spring out 1.15, Drift at 2.65e5 Ink, first Mill/Bridge Ink rewards (`npm run sim-economy` for casual/greedy milestones).
-- Bot results with these numbers: casual first Drift ~11 min (greedy ~8); Projection pacing unchanged from prior bot notes.
+- Greedy bot with these numbers: Drift available at 3.4 min, first Drift taken at 20.9 min (the bot waits for its Charts/s peak), Projection at 34.2 min.
 - Manifold preview grids (visual only, not economy): torus **16×8**, Klein **8×8**; framing/spin/demo pulse rates in `config.manifold`.
 - Manifold 3D flow (visual only): the tiling slides over the surface so far-side and interior cells come to you. Drag the torus to spin it (x) or roll it through the hole (y); drag the Klein bottle vertically to glide tiles through the neck, horizontally to turn it; right-drag orbits the camera. `dragFlow` **0.0025** turns/px, `idleFlow` **0.012** turns/s (off with reduced motion), tile patch subdivision `patchSubdiv` **6**.
 - Portrait playable framing: `camera.portraitPolar` 0.55 rad and `portraitTopPad` 18 px so a square board fills more of the HUD-to-dock band without clipping (width still limits size; leftover height sits above the info card).

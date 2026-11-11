@@ -842,7 +842,7 @@ export class CartographyFX {
   }
 
   /** Constellation complete: rings and sparks on each cell. */
-  celebrateConstellation(cells: readonly number[]): void {
+  celebrateConstellation(cells: readonly number[], reduced = false): void {
     cells.forEach((i, k) => {
       this.ringAt(i, 0.1, 0.36, 0.055, 0xe8c872, FX.sparkLife * 1.1, k * 0.05, 1.15);
       const a = this.rnd() * Math.PI * 2;
@@ -850,6 +850,18 @@ export class CartographyFX {
         mode: Mode.Spark, a: i, A: [0.1, 0, 0], B: [Math.cos(a), Math.sin(a), 0.45], col: 0xe8c872,
         size: FX.sparkR * 1.15, life: FX.sparkLife, delay: k * 0.05, add: FX.addSpark,
       });
+    });
+    if (reduced) return;
+    // Sparkle burst: sparks rise along the normal (lift eases out over life) and fade over about 1.5 s.
+    const per = this.quality === 2 ? 3 : this.quality === 1 ? 2 : 1;
+    cells.forEach((i, k) => {
+      for (let s = 0; s < per; s++) {
+        const a = this.rnd() * Math.PI * 2;
+        this.put({
+          mode: Mode.Spark, a: i, A: [0.45 + 0.35 * this.rnd(), 0, 0.02], B: [Math.cos(a), Math.sin(a), 0.22 + 0.12 * this.rnd()],
+          col: s % 2 ? 0xfff0b0 : 0xe8c872, size: FX.sparkR * 0.8, life: 1.5, delay: k * 0.08 + s * 0.04, add: FX.addSpark,
+        });
+      }
     });
   }
 

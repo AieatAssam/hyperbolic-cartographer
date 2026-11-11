@@ -486,7 +486,7 @@ function applyTool(i: number): boolean {
       constellationBurstEdges = e.edges;
       constellationPermanent = mergeEdges(constellationPermanent, e.edges);
       constellationPulseUntil = performance.now() / 1000 + 1.5;
-      fx.celebrateConstellation(e.cells);
+      fx.celebrateConstellation(e.cells, reduced.matches);
       playChime('constellation');
     }
   }
@@ -764,7 +764,7 @@ const worldAt = (x: number, y: number) => {
   return ray.ray.intersectPlane(plane, new THREE.Vector3());
 };
 let panFrom: THREE.Vector3 | null = null; // hyperbolic one-pointer pan anchor
-const PLACE_TOOLS = new Set<TileType>(['spring', 'mill', 'beacon', 'bridge', 'vault', 'lighthouse']);
+const PLACE_TOOLS = new Set<TileType>(['spring', 'mill', 'beacon', 'bridge', 'vault', 'lighthouse', 'cistern', 'scriptorium']);
 const isPlaceTool = (t: Tool): t is TileType => PLACE_TOOLS.has(t as TileType);
 let bridgePulse = 0;
 let constellationPulseUntil = 0;
@@ -840,15 +840,26 @@ function cellHtml(i: number): string {
   const title = `${TILE_INFO[t].name}${s.pinned.includes(i) ? ' · pinned' : ''}`;
   const g0 = graphOf(s);
   const reach0 = mods(s).reach;
-  const springN = t === 'mill'
-    ? adjacency(g0, s.tiles, i, reach0).filter((n) => s.tiles[n] === 'spring').length
-    : 0;
+  const p0 = prod(s);
+  const adj0 = t === 'mill' ? adjacency(g0, s.tiles, i, reach0) : [];
+  const springN = adj0.filter((n) => s.tiles[n] === 'spring').length;
+  // A Mill's effective Spring bonus: each adjacent Spring contributes its strained share.
+  const millBonus = Math.round(config.tiles.mill.perSpring * adj0.reduce((a, n) => a + (s.tiles[n] === 'spring' ? p0.share[n] : 0), 0) * 100);
   const flowLegend = inspectCell === i
     ? `<div class="flow-legend"><span class="feed">Feed</span><span class="boost">Beacon</span><span class="bridge">Bridge</span></div>`
     : '';
   let html = `${lead(title)}${flowLegend}${effect(out ? `${fmt(out, s.notation)} Ink/s` : TILE_INFO[t].desc)}`;
   if (t === 'mill' && inspectCell === i) {
-    html += meta(`${springN} Spring(s) in link range`);
+    html += meta(`${springN} Spring(s) in link range, +${millBonus}% from Springs`);
+  }
+  if (t === 'spring' && inspectCell === i) {
+    const k = p0.feeds[i];
+    const channelled = g0.neighbours[i].some((n) => s.tiles[n] === 'bridge');
+    const line = channelled
+      ? `Channelled by a Bridge: full flow to ${k} ${k === 1 ? 'Mill' : 'Mills'}`
+      : k === 0 ? 'Feeds no Mills'
+      : `Feeds ${k} ${k === 1 ? 'Mill' : 'Mills'} at ${Math.round(p0.share[i] * 100)}% each`;
+    html += meta(line);
   }
   if (inspectCell !== i) {
     if (tl === 'sell') {

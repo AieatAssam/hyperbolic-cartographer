@@ -72,6 +72,8 @@ Shadow maps are off.
 | `bridge` | ink-violet | `#6a2fd0` | `#b07cff` | 2.3 | 0.65 / 0 | `#e8c872` | Links its neighbours. |
 | `vault` | verdigris green | `#0f9a6e` | `#4fe8b0` | 2.0 | 0.70 / 0 | `#ff9ab0` | Offline and global bonuses. |
 | `lighthouse` | magenta beacon-light | `#d0289a` | `#ff7ad0` | 2.2 | 0.64 / 0 | `#fff0a0` | Producers exactly 2 steps away x1.25. |
+| `cistern` | teal basin water | `#22b0b0` | `#7ff0f0` | 2.2 | 0.60 / 0 | `#f6e7a0` | Springs next to it x3. |
+| `scriptorium` | moss-green ink | `#8ebf1d` | `#c6f060` | 2.1 | 0.66 / 0 | `#f4e4c1` | Output per kind of tile next to it. |
 
 **Motifs (Wired).** Each tile kind has a distinct silhouette, drawn as an instanced accent mesh on top of the tile in its `accent` colour. The shape reads without colour, which matters on phones and for colour-blind players:
 
@@ -83,6 +85,8 @@ Shadow maps are off.
 | `bridge` | arch (half torus) |
 | `vault` | gem (octahedron) |
 | `lighthouse` | lantern (GLB `lighthouse` node, primitive fallback) |
+| `cistern` | basin (primitive) |
+| `scriptorium` | book block (primitive) |
 
 **Empty slot.** `EMPTY_SLOT`: `base` `#1c1430` (dark recessed well), `accent` `#54467a` (subdued violet border), `emissive` `#3a2e60` at `emissiveIntensity` 0.12, `roughness` 0.9, `metalness` 0.
 
@@ -302,6 +306,13 @@ The particle mechanics are specified in `particle-language.md`. This section lis
 - **Phone HUD.** The compact phone HUD leaves at least 55% of a 360x640 screen as free band. Controls keep 44 px touch targets.
 - **Reduced motion.** With `prefers-reduced-motion`, the placement squash and HUD pulse are disabled, and transitions shorten to plain fades.
 - **Dev QA hooks.** Only with the dev flag: `game.fxStats()` and `game.triggerFx(kind, index?)`.
+
+### Tile models and strain (Wired in `tile-models.ts`, `board.ts`, `surface-board.ts`)
+
+- **Models.** Each type's model is fitted so its footprint is 0.56 of its cell (`MOTIF.fill`). Body vertices take the type's base colour (`TILE_IDENTITIES.base`) and an accent band takes its accent. The mill wheel is accent-coloured. Cistern and Scriptorium are procedural (no GLB node).
+- **Material.** Vertex-coloured, with only a low emissive tint (`MOTIF.emissive`), so forms survive bloom.
+- **Strain.** A Spring with share below 1 dims toward `MOTIF.strainTint` (`#6b7388`) and shrinks by `MOTIF.strainShrink` times its shortfall. Its ring is a faint grey, so the state is not carried by colour alone. A Bridge-channelled Spring (fed, share at least 1) gets a bright accent ring at `MOTIF.channelBoost`.
+- **Constellation completion** (`CONSTELLATION_BURST`). Edges trace in order over `drawSeconds`, then member stars flare in turn (`stagger`). A sparkle burst rises for about 1.5 s. Reduced motion skips the trace, the flare and the burst. Burst density follows the quality level.
 
 ## 8. Known gaps
 

@@ -3,7 +3,7 @@ import type { GameState } from '../core/state';
 import type { SurfaceGraph } from '../core/geometry/quotient';
 import { type SurfacePreview } from '../core/state';
 import {
-  BOARD, EMPTY_SLOT, MATERIAL, NEXT_SLOT, PLACE, TILE_IDENTITIES, bevelColour, hoverFace, lerpHex, motifScale, sideColour,
+  BOARD, EMPTY_SLOT, MATERIAL, MOTIF, NEXT_SLOT, PLACE, TILE_IDENTITIES, bevelColour, hoverFace, lerpHex, motifScale, sideColour,
   tileHeight, trimGlow, SURFACE,
 } from '../art/palette';
 import { placeGlsl } from './transition';
@@ -11,8 +11,8 @@ import { bumpRev, createEmbedding, frameAt, writeFrame, type Embedding } from '.
 import { embedKlein, embedKleinImmersion, embedTorus } from './embed-providers';
 import type { TileType } from '../core/tiles';
 import { TILE_TYPES } from '../core/tiles';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { TileModels } from './tile-models';
+import { merged, motifMaterial, prepareMotifs, type TileModels } from './tile-models';
+import { prod } from '../core/economy';
 import { config } from '../core/config';
 import {
   chartCell, kleinBoundingRadius, surfaceFrame, TILE_GAP, type Flow, type Surface3d,
@@ -148,15 +148,9 @@ export class SurfaceBoard {
     this.decoGroup.renderOrder = 4;
     this.group.add(this.skinGroup, mesh, this.decoGroup);
     this.motifs = {} as Record<TileType, THREE.InstancedMesh>;
+    const set = prepareMotifs({});
     for (const t of TILE_TYPES) {
-      const tk = TILE_IDENTITIES[t];
-      const im = new THREE.InstancedMesh(
-        motifGeo(t),
-        new THREE.MeshStandardMaterial({
-          color: tk.emissive, emissive: tk.emissive, emissiveIntensity: tk.emissiveIntensity, roughness: 0.25, metalness: 0,
-        }),
-        n,
-      );
+      const im = new THREE.InstancedMesh(set.geos[t], motifMaterial(t), n);
       im.count = 0;
       im.frustumCulled = false;
       im.renderOrder = 3;
@@ -441,9 +435,10 @@ export class SurfaceBoard {
       writeFrame(embed, i, { p: [topC.x, topC.y, topC.z], s: o.scale, n: [norm.x, norm.y, norm.z], t: [o.t.x, o.t.y, o.t.z], chi: 1 });
       if (t && o.scale > 0.02) {
         const im = this.motifs[t];
+        const st = this.strain(i, t);
         const bit = new THREE.Vector3().crossVectors(norm, o.t).normalize();
         this.m4.makeBasis(o.t, bit, norm);
-        const sc = 0.85 * motifScale(L) * (manifold3d ? 1.18 : 1);
+        const sc = MOTIF.fill * 0.85 * motifScale(L) * (manifold3d ? 1.18 : 1) * (1 - MOTIF.strainShrink * st.k);
         this.m4.setPosition(
           o.c.x + norm.x * h * 0.55,
           o.c.y + norm.y * h * 0.55,
@@ -451,6 +446,7 @@ export class SurfaceBoard {
         );
         this.sc.set(sc, sc, sc);
         this.m4.scale(this.sc);
+        im.setColorAt(im.count, st.tint);
         im.setMatrixAt(im.count++, this.m4);
       }
       const hiddenTile = o.scale <= 0;
@@ -536,7 +532,10 @@ export class SurfaceBoard {
     if (!manifold3d) this.geom.computeVertexNormals();
     bumpRev(embed);
     for (const name of ['position', 'normal', 'color', 'glow']) geo.attributes[name].needsUpdate = true;
-    for (const t of TILE_TYPES) this.motifs[t].instanceMatrix.needsUpdate = true;
+    for (const t of TILE_TYPES) {
+      this.motifs[t].instanceMatrix.needsUpdate = true;
+      if (this.motifs[t].instanceColor) this.motifs[t].instanceColor.needsUpdate = true;
+    }
     const skinKey = `${this.surface}|${this.chartMode}|${this.immersion3d}|${this.seamView}`;
     if (skinKey !== this.skinKey) {
       this.skinKey = skinKey;
@@ -545,7 +544,20 @@ export class SurfaceBoard {
     }
   }
 
+  /** Spring strain (economy prod, read only): k = how far below full share; tint dims the model. See board.ts strain. */
+  private strain(i: number, t: TileType): { k: number; tint: THREE.Color } {
+    const tint = new THREE.Color(0xffffff);
+    if (t !== 'spring' || !this.pr || !(this.pr.feeds[i] > 0)) return { k: 0, tint };
+    const share = this.pr.share[i], feeds = this.pr.feeds[i];
+    if (feeds > 1 && share >= 1) return { k: 0, tint: new THREE.Color(TILE_IDENTITIES.bridge.accent).multiplyScalar(MOTIF.channelBoost) };
+    const k = Math.min(1, Math.max(0, (1 - share) * 2));
+    tint.lerp(new THREE.Color(MOTIF.strainTint), 0.6 * k).multiplyScalar(1 - MOTIF.strainDim * k);
+    return { k, tint };
+  }
+  private pr: ReturnType<typeof prod> | null = null;
+
   update(s: GameState, _perTile: number[], hover: number, hoverAdj?: number[]) {
+    this.pr = prod(s);
     const key = `${s.tiles.join()}|${s.ring}|${hover}|${hoverAdj?.join() ?? ''}|${this.chartMode}|${this.seamView}|${this.immersion3d}|${this.flow.join()}`;
     if (key === this.meshKey) return;
     this.meshKey = key;
@@ -626,10 +638,12 @@ export class SurfaceBoard {
   }
   /** Swaps the primitive motifs for GLB geometry (see tile-models.ts). Mill housing and wheel are merged, static here. */
   useModels(models: TileModels) {
+    const set = prepareMotifs(models);
     for (const t of TILE_TYPES) {
-      let geo = models[t];
-      if (t === 'mill' && models.mill && models.mill_wheel) {
-        try { geo = mergeGeometries([models.mill, models.mill_wheel]) ?? geo; } catch { /* keep housing only */ }
+      let geo = set.geos[t];
+      if (t === 'mill' && models.mill_wheel) { // static on the manifold: the wheel is merged into the housing
+        const w = set.wheel.clone().translate(set.wheelAt.x, set.wheelAt.y, set.wheelAt.z);
+        geo = merged([geo.clone(), w]);
       }
       if (geo) this.motifs[t].geometry.dispose(), (this.motifs[t].geometry = geo);
     }
@@ -641,13 +655,3 @@ export class SurfaceBoard {
   centreOn() {}
 }
 
-function motifGeo(t: TileType): THREE.BufferGeometry {
-  switch (t) {
-    case 'spring': return new THREE.SphereGeometry(0.16, 12, 8);
-    case 'mill': return new THREE.TorusGeometry(0.15, 0.05, 6, 12).rotateX(Math.PI / 2);
-    case 'beacon': return new THREE.ConeGeometry(0.15, 0.4, 6).translate(0, 0.2, 0);
-    case 'bridge': return new THREE.TorusGeometry(0.17, 0.045, 6, 12, Math.PI);
-    case 'vault': return new THREE.OctahedronGeometry(0.19);
-    case 'lighthouse': return new THREE.CylinderGeometry(0.07, 0.11, 0.42, 8).translate(0, 0.21, 0);
-  }
-}

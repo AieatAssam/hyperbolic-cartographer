@@ -2,12 +2,17 @@
 export const config = {
   tickRate: 10,
   tiles: {
-    spring: { cost: 10, out: 1.15 },
-    mill: { cost: 85, out: 9, perSpring: 1 },
+    /** strain: each extra Mill on one Spring cuts that Spring's share by 1/(1+strain*(k-1)); a Bridge-touching Spring is channelled (full share). deepWells: each Deep Wells level multiplies strain by this. */
+    spring: { cost: 10, out: 1.15, strain: 0.33, deepWells: 0.8 },
+    mill: { cost: 85, out: 18, perSpring: 1 },
     beacon: { cost: 1000, mult: 1.5 },
     bridge: { cost: 5200 },
     vault: { cost: 25000, offline: 0.1, global: 0.02 },
     lighthouse: { cost: 50000, mult: 1.25 },
+    /** Each Spring adjacent to a Cistern multiplies its own output by mult (per Cistern). */
+    cistern: { cost: 2500, mult: 3 },
+    /** Output = out x number of distinct other tile types adjacent to it. */
+    scriptorium: { cost: 8000, out: 15 },
   },
   costGrowth: 1.12,
   sellRefund: 0.5,
@@ -104,7 +109,7 @@ export interface UpgradeDef<Id> {
 /** Chart upgrades, bought with Charts. Order matters for "keep N upgrades". */
 export const chartUpgrades: UpgradeDef<ChartUpgradeId>[] = [
   { id: 'global', name: 'Better Instruments', desc: 'x2 all Ink output', max: 6, cost: (l) => 1 * 3 ** l },
-  { id: 'cheapSprings', name: 'Spring Charts', desc: 'Springs cost x0.6', max: 4, cost: (l) => 1 * 2 ** l },
+  { id: 'cheapSprings', name: 'Deep Wells', desc: 'Springs thin 20% less per extra Mill', max: 4, cost: (l) => 1 * 2 ** l },
   { id: 'beacon', name: 'Lens Grinding', desc: 'Beacons +0.25x', max: 4, cost: (l) => 2 * 3 ** l },
   { id: 'startRings', name: 'Prior Surveys', desc: 'Start each run +1 ring', max: 3, cost: (l) => 3 * 4 ** l },
   { id: 'pins', name: 'Brass Pins', desc: '+1 pin', max: 4, cost: (l) => 2 * 3 ** l },
