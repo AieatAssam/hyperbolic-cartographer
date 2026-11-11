@@ -4,7 +4,8 @@ export const config = {
   tiles: {
     /** strain: each extra Mill on one Spring cuts that Spring's share by 1/(1+strain*(k-1)); a Bridge-touching Spring is channelled (full share). deepWells: each Deep Wells level multiplies strain by this. */
     spring: { cost: 10, out: 1.15, strain: 0.33, deepWells: 0.8 },
-    mill: { cost: 85, out: 18, perSpring: 1 },
+    /** maxSprings: a Mill counts only its strongest N Spring shares (matters only through Bridges). */
+    mill: { cost: 85, out: 18, perSpring: 1, maxSprings: 8 },
     beacon: { cost: 1000, mult: 1.5 },
     bridge: { cost: 5200 },
     vault: { cost: 25000, offline: 0.1, global: 0.02 },

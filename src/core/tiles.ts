@@ -3,7 +3,7 @@ export type TileType = (typeof TILE_TYPES)[number];
 
 export const TILE_INFO: Record<TileType, { name: string; desc: string }> = {
   spring: { name: 'Spring', desc: 'Produces Ink, split among the Mills it feeds: each extra Mill gives every one a smaller share. A Bridge touching it gives full flow.' },
-  mill: { name: 'Mill', desc: 'Produces Ink, +100% per adjacent Spring. Springs shared with other Mills give less to each.' },
+  mill: { name: 'Mill', desc: 'Produces Ink, +100% per adjacent Spring. Springs shared with other Mills give less to each; a Mill draws on at most 8 Springs.' },
   beacon: { name: 'Beacon', desc: 'Adjacent tiles x1.5 (stacks multiplicatively). A Beacon reached only through a Bridge adds instead.' },
   bridge: { name: 'Bridge', desc: 'Touching a chain links every tile on that chain. A Spring touching a Bridge gives full flow to every Mill.' },
   vault: { name: 'Vault', desc: '+10% offline efficiency, +2% global output.' },

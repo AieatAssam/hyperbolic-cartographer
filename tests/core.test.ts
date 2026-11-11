@@ -82,6 +82,17 @@ describe('spring strain, Cistern, Scriptorium', () => {
     expect(build(cells)).toBeCloseTo(build([...cells].reverse()), 9);
   });
 
+  it('a Mill on a Bridge chain counts only its strongest maxSprings Springs', () => {
+    // A straight chain of Bridges; one touching cell is the Mill, every other touching cell a Spring.
+    const chain = [0];
+    while (chain.length < 6) chain.push(g.neighbours[chain[chain.length - 1]].find((n) => !chain.includes(n) && !chain.slice(0, -1).some((x) => g.neighbours[x].includes(n)))!);
+    const touch = [...new Set(chain.flatMap((x) => g.neighbours[x]))].filter((n) => !chain.includes(n));
+    const [mill, ...springs] = touch;
+    expect(springs.length).toBeGreaterThan(config.tiles.mill.maxSprings);
+    const tiles = board(...chain.map((x): [number, TileType] => [x, 'bridge']), [mill, 'mill'], ...springs.map((x): [number, TileType] => [x, 'spring']));
+    expect(production(g, tiles, m).perTile[mill]).toBeCloseTo(M * (1 + config.tiles.mill.perSpring * config.tiles.mill.maxSprings));
+  });
+
   it('a Mill with 2 Springs and 2 Beacons out-produces a Mill with 4 Springs', () => {
     const two = production(g, board([0, 'mill'], [a, 'spring'], [b, 'spring'], [c, 'beacon'], [d, 'beacon']), m).perTile[0];
     const four = production(g, board([0, 'mill'], [a, 'spring'], [b, 'spring'], [c, 'spring'], [d, 'spring']), m).perTile[0];
