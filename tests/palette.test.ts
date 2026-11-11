@@ -39,6 +39,7 @@ const CHIP_HEX: Record<TypeName, number> = {
   beacon: 0xe0607a,
   bridge: 0x8a5cd6,
   vault: 0x2fb59c,
+  lighthouse: 0xd0289a,
 };
 
 /** Circular difference between two hues in degrees (0..180). */

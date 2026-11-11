@@ -1,7 +1,7 @@
 import Decimal from 'break_eternity.js';
 import { config } from './config';
 import { graphOf, type GameState } from './state';
-import { isActive, offlineCapSec, offlineEff, place, prod, survey } from './economy';
+import { isActive, offlineCapSec, offlineEff, place, prod, surgeMult, survey } from './economy';
 import { chartsOnDrift, drift } from './prestige';
 import { has } from './milestones';
 
@@ -10,7 +10,9 @@ export const autoSpringsOn = (s: GameState) => s.chartUpg.autoSprings > 0 || has
 
 /** Advance the simulation by dt seconds. Mutates and returns state. */
 export function simulate(s: GameState, dt: number, eff = 1, offline = false): GameState {
-  const gain = new Decimal(prod(s).total * dt * eff);
+  if (offline) s.surge = 0; // surges are a live-play reward
+  const gain = new Decimal(prod(s).total * dt * eff * surgeMult(s));
+  s.surge = Math.max(0, s.surge - dt);
   s.ink = s.ink.add(gain);
   s.runInk = s.runInk.add(gain);
   s.lifetimeInk = s.lifetimeInk.add(gain);

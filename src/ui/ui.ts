@@ -64,6 +64,9 @@ export interface UICtx {
   dev: boolean;
   /** Sound settings, credits and the header mute button appear only when provided. */
   audio?: AudioApi;
+  /** Trade Wind: `left` seconds a wind is catchable (0 when none), `surge` seconds of boosted output left. */
+  wind(): { left: number; surge: number; mult: number };
+  catchWind(): void;
 }
 export interface UI {
   update(): void; // called ~10x per second; cheap. Rebuilds panel body only on tab/state-key change.
@@ -349,9 +352,13 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     'Guide',
     BUTTON_HELP.guide,
   );
+  // Trade Wind chip: shown only while a wind is catchable or a surge is running.
+  const windBtn = btn('', 'wind-chip', () => ctx.catchWind());
+  windBtn.dataset.qa = 'wind-chip';
+  windBtn.style.display = 'none';
   const actions = el('div', 'top-actions');
   actions.append(...(ctx.audio ? [help(soundToggle(ctx.audio), 'Sound', BUTTON_HELP.sound)] : []), guideBtn, toggle);
-  topbar.append(hud, actions);
+  topbar.append(hud, windBtn, actions);
   setPanel(!narrow());
 
   const manifoldBar = el('div', 'manifold-bar hidden');
@@ -1085,6 +1092,17 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     const s = get();
     sInk.v.textContent = fmt(s.ink, s.notation);
     sRate.v.textContent = fmt(prod(s).total, s.notation);
+    const w = ctx.wind();
+    const windShow = w.left > 0 || w.surge > 0;
+    windBtn.style.display = windShow ? '' : 'none';
+    if (windShow) {
+      const label = w.left > 0
+        ? `Trade Wind ${Math.ceil(w.left)}s`
+        : `Surge x${w.mult} ${Math.ceil(w.surge)}s`;
+      if (windBtn.textContent !== label) windBtn.textContent = label;
+      windBtn.disabled = w.left <= 0;
+      windBtn.classList.toggle('wind-live', w.left > 0);
+    }
     sCharts.box.style.display = s.drifts > 0 || s.charts.gt(0) ? '' : 'none';
     sCharts.v.textContent = fmt(s.charts, s.notation);
     sCurv.box.style.display = s.projections > 0 ? '' : 'none';

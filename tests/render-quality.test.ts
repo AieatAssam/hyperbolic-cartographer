@@ -63,9 +63,9 @@ describe('stepGovernor', () => {
 });
 
 describe('palette', () => {
-  it('TILE_IDENTITIES has exactly 5 keys, all hex colours in range', () => {
+  it('TILE_IDENTITIES has exactly 6 keys, all hex colours in range', () => {
     const entries = Object.entries(TILE_IDENTITIES);
-    expect(entries).toHaveLength(5);
+    expect(entries).toHaveLength(6);
     for (const [, token] of entries) {
       expect(isHex(token.base)).toBe(true);
       expect(isHex(token.emissive)).toBe(true);

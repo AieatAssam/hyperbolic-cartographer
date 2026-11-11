@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import Decimal from 'break_eternity.js';
 import { config } from './core/config';
 import { initialState, graphOf, GRAPHS, SURFACE_GRAPHS, type GameState, type SurfacePreview } from './core/state';
-import { adjacency, buyChartUpg, buyCurvUpg, isActive, maxRing, mods, place, prod, previewDelta, sell, sellValue, survey, tileCost, togglePin } from './core/economy';
+import { adjacency, buyChartUpg, buyCurvUpg, catchWind, isActive, maxRing, mods, place, prod, previewDelta, sell, sellValue, survey, tileCost, togglePin } from './core/economy';
 import {
   applyConstellationRewards,
   detectMatches,
@@ -24,6 +24,7 @@ import { buildManifoldStage, type ManifoldStage } from './render/surface-stage';
 import { createScene, type QualityLevel } from './render/scene';
 import { Board } from './render/board';
 import { SurfaceBoard } from './render/surface-board';
+import { loadTileModels } from './render/tile-models';
 import {
   fitBoard, fitDistance, freeRect, phonePortrait, shouldReframe, sphericalOffset, type Rect, type Role,
 } from './render/framing';
@@ -422,6 +423,11 @@ function syncBoard(full = true) {
   } else {
     board = new Board(s.geometry, scene.environment);
   }
+  // GLB motifs arrive asynchronously; the primitive motifs stay until (and unless) they load.
+  const built = board;
+  loadTileModels().then((models) => {
+    if (board === built && Object.keys(models).length) built.useModels(models);
+  });
   tap.clearSelection();
   prevTiles = (manifoldTiles ?? s.tiles).slice();
   scene.add(board.group);
@@ -498,6 +504,29 @@ function linkApexScreen(links: readonly { from: number; to: number }[], i: numbe
   return { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H };
 }
 
+// Trade Winds: a live-play timer only. The reward (catchWind) is deterministic core logic; the spawn gap is cosmetic.
+let windLeft = 0; // seconds the current wind stays catchable; 0 when none
+let windAt = windGap();
+function windGap() {
+  return config.wind.minGap + Math.random() * (config.wind.maxGap - config.wind.minGap);
+}
+function tickWind(dt: number) {
+  if (windLeft > 0) {
+    windLeft = Math.max(0, windLeft - dt);
+    if (windLeft === 0) windAt = windGap();
+  } else if ((windAt -= dt) <= 0) {
+    windLeft = config.wind.life;
+  }
+}
+function catchWindNow() {
+  if (windLeft <= 0) return;
+  windLeft = 0;
+  windAt = windGap();
+  const gain = catchWind(s);
+  audio.cue('upgrade');
+  ui.toast(`Wind caught! +${fmt(gain, s.notation)} Ink and x${config.wind.surgeMult} Ink/s for ${config.wind.surgeSec}s`);
+}
+
 let hover = -1; // mouse hover only; touch uses tap.selected
 let qaHover = -1; // layout/capture hook; cleared on pointer move
 const ui = createUI(document.getElementById('ui')!, {
@@ -505,6 +534,8 @@ const ui = createUI(document.getElementById('ui')!, {
   tool,
   dev,
   audio,
+  wind: () => ({ left: windLeft, surge: s.surge, mult: config.wind.surgeMult }),
+  catchWind: catchWindNow,
   selected: () => tap.selected,
   boardFocus: () => {
     if (inspectCell >= 0) return inspectCell;
@@ -741,7 +772,7 @@ const worldAt = (x: number, y: number) => {
   return ray.ray.intersectPlane(plane, new THREE.Vector3());
 };
 let panFrom: THREE.Vector3 | null = null; // hyperbolic one-pointer pan anchor
-const PLACE_TOOLS = new Set<TileType>(['spring', 'mill', 'beacon', 'bridge', 'vault']);
+const PLACE_TOOLS = new Set<TileType>(['spring', 'mill', 'beacon', 'bridge', 'vault', 'lighthouse']);
 const isPlaceTool = (t: Tool): t is TileType => PLACE_TOOLS.has(t as TileType);
 let bridgePulse = 0;
 let constellationPulseUntil = 0;
@@ -949,6 +980,7 @@ function frame(now: number) {
   let steps = 0;
   while (acc >= STEP && steps++ < 1000) simulate(s, STEP), (acc -= STEP);
   if (steps >= 1000) acc = 0;
+  if (!locked && manifoldPreview === 'off') tickWind(dt);
 
   if (s.drifts !== lastDriftCount) {
     lastDriftCount = s.drifts;

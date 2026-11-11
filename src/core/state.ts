@@ -37,6 +37,9 @@ export interface GameState {
   constellationKeys: string[];
   /** Log of completed patterns (persists across Drift). */
   constellationLog: { id: ConstellationId; bonusInk: number; at: number }[];
+  /** seconds of Trade Wind surge left (live play only) */
+  surge: number;
+  windsCaught: number;
 }
 
 // Generated once at max size (hyper radius 4 = 232 tiles).
@@ -79,5 +82,7 @@ export function initialState(): GameState {
     notation: 'suffix',
     constellationKeys: [],
     constellationLog: [],
+    surge: 0,
+    windsCaught: 0,
   };
 }

@@ -25,6 +25,8 @@ Tiles (from `TILE_INFO` in `src/core/tiles.ts`):
 - **Spring**: produces Ink.
 - **Mill**: produces Ink, +100% per adjacent Spring.
 - **Beacon**: adjacent tiles x1.5 (stacks multiplicatively).
+- **Lighthouse**: producers exactly two steps away x1.25 (stacks). Bridges do not extend its reach.
+- **Trade Wind**: a wind occasionally blows in during live play. Catch it from the HUD chip for a burst of Ink and a short x3 Ink/s surge. Surges do not carry into offline progress.
 - **Bridge**: its neighbours count as adjacent to each other. Long Bridges extends the reach.
 - **Vault**: improves offline progress and adds a small global Ink bonus.
 
@@ -163,6 +165,8 @@ tests/           Vitest suites, plus the opt-in pacing bot
 Changes from the original brief (all in `src/core/config.ts`; formulas unchanged):
 
 - Mill output 5 → 9 Ink/s (pacing: first Drift was ~25 min).
+- Lighthouse: cost 50,000 Ink, x1.25 to producers two steps away (`config.tiles.lighthouse`).
+- Trade Winds: appear every 40–80 s of live play for 14 s; catching pays max(30 s of Ink/s, 25 Ink) and grants a 20 s x3 surge (`config.wind`).
 - Survey growth 8^ring → 6^ring on the square board (base 50).
 - Charts on Drift = floor((runInk / 2.5e5)^0.5) instead of /1e6 (Drift still unlocks at 1e6 Ink); otherwise Projection took > 2 h.
 - Hyperbolic survey: base 2e5, growth 12^ring; board starts at radius 2, base max radius 3, +1 via the "Deeper Horizon" Curvature upgrade (radius 4 = 232 tiles).

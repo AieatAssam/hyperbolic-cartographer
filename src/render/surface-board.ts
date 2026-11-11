@@ -11,6 +11,8 @@ import { bumpRev, createEmbedding, frameAt, writeFrame, type Embedding } from '.
 import { embedKlein, embedKleinImmersion, embedTorus } from './embed-providers';
 import type { TileType } from '../core/tiles';
 import { TILE_TYPES } from '../core/tiles';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { TileModels } from './tile-models';
 import { config } from '../core/config';
 import {
   chartCell, kleinBoundingRadius, surfaceFrame, TILE_GAP, type Flow, type Surface3d,
@@ -622,6 +624,17 @@ export class SurfaceBoard {
     const t = this.tops[i];
     return { c: [t.x, t.z] as [number, number], corner: [t.x + 0.4, t.z + 0.4] as [number, number] };
   }
+  /** Swaps the primitive motifs for GLB geometry (see tile-models.ts). Mill housing and wheel are merged, static here. */
+  useModels(models: TileModels) {
+    for (const t of TILE_TYPES) {
+      let geo = models[t];
+      if (t === 'mill' && models.mill && models.mill_wheel) {
+        try { geo = mergeGeometries([models.mill, models.mill_wheel]) ?? geo; } catch { /* keep housing only */ }
+      }
+      if (geo) this.motifs[t].geometry.dispose(), (this.motifs[t].geometry = geo);
+    }
+  }
+
   viewMatrix(): number[] { return [1, 0, 0, 0, 1, 0, 0, 0, 1]; }
   recenter() {}
   pan() {}
@@ -635,5 +648,6 @@ function motifGeo(t: TileType): THREE.BufferGeometry {
     case 'beacon': return new THREE.ConeGeometry(0.15, 0.4, 6).translate(0, 0.2, 0);
     case 'bridge': return new THREE.TorusGeometry(0.17, 0.045, 6, 12, Math.PI);
     case 'vault': return new THREE.OctahedronGeometry(0.19);
+    case 'lighthouse': return new THREE.CylinderGeometry(0.07, 0.11, 0.42, 8).translate(0, 0.21, 0);
   }
 }

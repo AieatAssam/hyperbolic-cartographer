@@ -7,6 +7,7 @@ export const config = {
     beacon: { cost: 1000, mult: 1.5 },
     bridge: { cost: 5200 },
     vault: { cost: 25000, offline: 0.1, global: 0.02 },
+    lighthouse: { cost: 50000, mult: 1.25 },
   },
   costGrowth: 1.12,
   sellRefund: 0.5,
@@ -16,6 +17,8 @@ export const config = {
   projection: { minCharts: 25 },
   offline: { baseEff: 0.5, capHours: 8 },
   startInk: 22,
+  /** Trade Wind: a timed chance to catch a burst of Ink plus a production surge (live play only). */
+  wind: { minGap: 40, maxGap: 80, life: 14, burstSec: 30, minInk: 25, surgeSec: 20, surgeMult: 3 },
   /** One-time run rewards (first placement of each kind). */
   rewards: { firstMillInk: 35, firstBridgeInk: 120 },
   /** Named shape bonuses (graph adjacency; once per unique instance per run). */
@@ -31,7 +34,7 @@ export const config = {
     /** Pixels between HUD and the top of the fitted footprint on portrait. */
     portraitTopPad: 18,
   },
-  ui: { inspectFadeMs: 300 },
+  ui: { inspectFadeMs: 300, /** mill_wheel spin while the mill produces, rad/s */ wheelSpin: 1.6 },
   autoSpringInterval: 1, // seconds between auto-placed Springs
   /** Manifold preview (Layer 3): grid sizes, framing, skin. */
   manifold: {
