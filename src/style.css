@@ -8,6 +8,8 @@
   --danger-soft: #ffb3b3; --gain-label: #ffe7a8; --gain-label-bg: #04060e;
   --dev-bg: rgba(30, 8, 12, 0.8); --dev-border: rgba(255, 107, 107, 0.5);
   --flash: #ffffff;
+  --gold-dim: color-mix(in srgb, var(--gold) 18%, transparent);
+  --ease: cubic-bezier(.2,.7,.2,1);
   /* Spacing scale (4pt base) — shell, chrome, and component rhythm */
   --space-1: 4px;
   --space-2: 6px;
@@ -63,20 +65,40 @@ html, body {
   overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; border: 0;
 }
 
+.panel-body, .info-text, .palette, textarea {
+  scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink) 25%, transparent) transparent;
+}
+
 /* Generic controls: every interactive target is at least 44px */
 button {
   font: inherit; cursor: pointer; background: var(--control-bg); color: var(--ink);
-  border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 10px;
   min-height: 44px; min-width: 44px;
+  transition: background-color .14s var(--ease), border-color .14s var(--ease), color .14s var(--ease), box-shadow .14s var(--ease), transform .08s var(--ease);
 }
 button:disabled { cursor: not-allowed; opacity: 0.4; }
 button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 button.primary { background: var(--gold); border-color: var(--gold); color: var(--primary-on-gold); font-weight: 600; }
 button.danger { background: transparent; border-color: var(--red); color: var(--red); }
+/* :where() keeps the generic hover at specificity (0,1,0), so variant rules (primary, tab, tool, buy) keep their own colours */
+@media (hover: hover) {
+  :where(button:not(:disabled)):hover {
+    border-color: color-mix(in srgb, var(--ink) 35%, var(--line));
+    background: color-mix(in srgb, var(--ink) 8%, var(--control-bg));
+  }
+  button.primary:not(:disabled):hover { filter: brightness(1.08); box-shadow: 0 0 14px color-mix(in srgb, var(--gold) 45%, transparent); }
+  button.danger:not(:disabled):hover { border-color: var(--red); }
+  button.tool:not(:disabled):hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--gold) 45%, var(--line)); }
+  button.tab:not(:disabled):hover { color: var(--ink); }
+  .card:hover { border-color: color-mix(in srgb, var(--ink) 20%, var(--line)); }
+}
+/* Press: tools sink instead of lifting (their rule is later and more specific) */
+button:not(:disabled):active { transform: translateY(1px) scale(.98); }
+button.tool:not(:disabled):active { transform: translateY(1px) scale(.98); }
 
 select, input[type=number], input[type=text] {
   font: inherit; min-height: 44px; padding: 6px 8px; color: var(--ink);
-  background: var(--field-bg); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--field-bg); border: 1px solid var(--line); border-radius: var(--radius-sm);
 }
 label.check, label:has(> input[type=checkbox]) {
   display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer;
@@ -105,6 +127,7 @@ input[type=checkbox] {
   flex: 1 1 0; min-width: 0;
   display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--control-gap) var(--space-4);
   padding: var(--hud-pad-y) var(--hud-pad-x); border: 1px solid var(--line); border-radius: var(--radius-xl); background: var(--glass);
+  box-shadow: 0 10px 30px rgb(0 0 0 / .35), inset 0 1px 0 rgb(255 255 255 / .06);
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }
 .stat {
@@ -114,7 +137,7 @@ input[type=checkbox] {
 .stat .label { font-size: 10px; line-height: 1.1; }
 .stat .value { font-size: 15px; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .goals { flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
-.goal { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 13px; min-width: 0; }
+.goal { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 13px; min-width: 0; font-variant-numeric: tabular-nums; }
 .goal .label { flex: 0 0 auto; }
 .goal-text { flex: 1 1 auto; min-width: 0; }
 .goal-short { display: none; }
@@ -131,6 +154,7 @@ input[type=checkbox] {
 .fill {
   height: 100%; width: 0; background: linear-gradient(90deg, var(--bar-lo), var(--gold), var(--bar-hi));
   transition: width 0.4s ease;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .25);
 }
 
 .top-actions { flex: 0 0 auto; display: flex; flex-direction: row; align-items: center; gap: var(--control-gap); }
@@ -166,6 +190,7 @@ button.panel-toggle.attention-pulse { animation: menu-pulse-once 1.4s ease-out 1
   overflow-x: auto; overflow-y: hidden;
   scrollbar-width: thin; border: 1px solid var(--line); border-radius: var(--radius-xl);
   background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgb(0 0 0 / .35), inset 0 1px 0 rgb(255 255 255 / .06);
   position: relative;
   mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 22px), transparent 100%);
   -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 22px), transparent 100%);
@@ -194,7 +219,7 @@ button.tool {
   font-size: 10px; color: var(--muted);
 }
 .tool .key.letter { font-family: system-ui, sans-serif; font-weight: 700; letter-spacing: 0.04em; }
-button.tool.active { border-color: var(--gold); box-shadow: 0 0 12px rgba(232, 200, 114, 0.35); }
+button.tool.active { border-color: var(--gold); box-shadow: 0 0 12px color-mix(in srgb, var(--gold) 35%, transparent); }
 button.tool.cant .cost, button.tool:disabled .cost { color: var(--red); opacity: 0.7; }
 button.tool:disabled { opacity: 0.55; }
 .tool:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
@@ -223,7 +248,8 @@ button.tool:disabled { opacity: 0.55; }
   max-height: 100%; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: var(--space-5);
   display: flex; flex-direction: column;
   border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel-bg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 10px 30px rgb(0 0 0 / .35), inset 0 1px 0 rgb(255 255 255 / .06);
+  backdrop-filter: blur(12px) saturate(1.2); -webkit-backdrop-filter: blur(12px) saturate(1.2);
 }
 .panel.hidden { display: none; }
 .panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
@@ -245,6 +271,7 @@ button.tab {
 button.tab.active { color: var(--ink); border-bottom-color: var(--gold); }
 button.tab.locked { font-style: italic; opacity: 0.5; }
 button.tab.locked::after { content: ' \1F512'; }
+button.tab:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
 .card {
   margin-bottom: var(--space-4); padding: var(--space-4) var(--space-5); border: 1px solid var(--line);
   border-radius: var(--radius-md); background: rgba(255, 255, 255, 0.02);
@@ -271,7 +298,7 @@ ul.reset li::before {
 .compare { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-3); margin-bottom: var(--space-4); }
 .compare .box {
   min-width: 0; padding: var(--space-3); text-align: center; font-size: 12px; color: var(--muted);
-  border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line); border-radius: var(--radius-md); background: rgba(255, 255, 255, 0.02);
 }
 .compare .big {
   display: block; font-size: 22px; font-weight: 700; color: var(--ink);
@@ -290,6 +317,7 @@ ul.reset li::before {
   max-height: 34vh; overflow: hidden;
   padding: var(--space-4) var(--chrome-pad-x); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--glass);
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgb(0 0 0 / .35), inset 0 1px 0 rgb(255 255 255 / .06);
 }
 .tutorial.hidden { display: none; }
 .tutorial h3.tut-title { margin: 0 0 4px; font-size: 14px; color: var(--gold); }
@@ -303,6 +331,7 @@ ul.reset li::before {
 .infocard {
   min-width: 0; padding: var(--chrome-pad-y) var(--chrome-pad-x); border: 1px solid var(--line); border-radius: var(--radius-lg);
   background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgb(0 0 0 / .35), inset 0 1px 0 rgb(255 255 255 / .06);
   display: flex; flex-direction: column; gap: var(--space-2); touch-action: pan-y;
 }
 .info-scroll {
@@ -354,7 +383,7 @@ ul.reset li::before {
 /* Tooltip (desktop only; touch uses the infocard) */
 .tooltip {
   position: fixed; z-index: 45; max-width: 240px; padding: 6px 10px; border: 1px solid var(--line);
-  border-radius: 8px; background: var(--glass); backdrop-filter: blur(10px); font-size: 13px;
+  border-radius: var(--radius-sm); background: var(--glass); backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgb(0 0 0 / .35), inset 0 1px 0 rgb(255 255 255 / .06); font-size: 13px;
 }
 
 /* Modal */
@@ -368,7 +397,9 @@ ul.reset li::before {
   display: flex; flex-direction: column; width: 100%;
   max-width: min(560px, calc(100vw - 24px));
   max-height: 100vh; max-height: calc(100dvh - 24px);
-  padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-bg);
+  padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel-bg);
+  box-shadow: 0 10px 30px rgb(0 0 0 / .35), inset 0 1px 0 rgb(255 255 255 / .06);
+  backdrop-filter: blur(12px) saturate(1.2); -webkit-backdrop-filter: blur(12px) saturate(1.2);
 }
 .modal > h2 { flex: none; margin: 0 0 8px; font-size: 20px; color: var(--gold); }
 .modal-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }
@@ -379,7 +410,7 @@ ul.reset li::before {
 .modal ul li { margin-bottom: 3px; }
 .modal textarea, .modal input[type=text] {
   display: block; width: 100%; max-width: 100%; box-sizing: border-box; margin-bottom: 10px; padding: 8px;
-  border: 1px solid var(--line); border-radius: 8px; background: var(--field-bg); color: var(--ink); font: inherit;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--field-bg); color: var(--ink); font: inherit;
 }
 .modal textarea { font-family: ui-monospace, monospace; font-size: 12px; resize: vertical; }
 .modal button { min-height: 44px; min-width: 44px; }
@@ -393,7 +424,7 @@ ul.reset li::before {
   position: fixed; z-index: 30; left: 12px;
   bottom: calc(max(8px, env(safe-area-inset-bottom)) + 112px);
   max-width: 260px; padding: 8px;
-  border: 1px solid var(--dev-border); border-radius: 8px;
+  border: 1px solid var(--dev-border); border-radius: var(--radius-sm);
   background: var(--dev-bg); color: var(--danger-soft);
   font-family: ui-monospace, monospace; font-size: 11px;
 }
@@ -402,7 +433,7 @@ ul.reset li::before {
 /* Floating +Ink/s on bridge placement preview (screen space, not DOM tooltip). */
 .board-gain-label {
   position: fixed; z-index: 55; pointer-events: none; transform: translate(-50%, -100%);
-  padding: 6px 12px; border-radius: 10px; font-size: 16px; font-weight: 800; line-height: 1.2;
+  padding: 6px 12px; border-radius: var(--radius-md); font-size: 16px; font-weight: 800; line-height: 1.2;
   font-variant-numeric: tabular-nums; color: var(--gain-label);
   background: color-mix(in srgb, var(--gain-label-bg) 94%, transparent); border: 2px solid var(--gold);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.65), 0 0 16px color-mix(in srgb, var(--gold) 40%, transparent);
@@ -415,7 +446,7 @@ ul.reset li::before {
 .flow-rate-labels { position: fixed; inset: 0; z-index: 54; pointer-events: none; }
 .flow-rate-label {
   position: fixed; pointer-events: none; transform: translate(-50%, -50%);
-  padding: 2px 7px; border-radius: 8px; font-size: 11px; font-weight: 700; line-height: 1.2;
+  padding: 2px 7px; border-radius: var(--radius-sm); font-size: 11px; font-weight: 700; line-height: 1.2;
   font-variant-numeric: tabular-nums; color: #e8f6ff;
   background: rgba(8, 14, 24, 0.82); border: 1px solid rgba(95, 212, 255, 0.65);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
@@ -424,12 +455,12 @@ ul.reset li::before {
 
 /* Toast: centred, around 40% from top, never blocks input */
 .toast {
-  position: fixed; z-index: 40; top: 40%; left: 50%; transform: translate(-50%, -50%);
+  position: fixed; z-index: 40; top: 40%; left: 50%; transform: translate(-50%, calc(-50% + 8px));
   max-width: calc(100% - 32px); padding: 8px 14px; border: 1px solid var(--line);
-  border-radius: 10px; background: var(--glass); color: var(--gold); text-align: center;
-  opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease;
+  border-radius: var(--radius-md); background: var(--glass); color: var(--gold); text-align: center;
+  opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.3s ease;
 }
-.toast.show { opacity: 1; visibility: visible; }
+.toast.show { opacity: 1; visibility: visible; transform: translate(-50%, -50%); }
 
 /* Prestige flash */
 .flash {
@@ -497,7 +528,7 @@ ul.reset li::before {
     flex-wrap: nowrap; align-items: center; justify-content: flex-start; gap: var(--control-gap);
     padding: 0; min-height: var(--control-h);
     border: none; border-radius: 0; background: transparent;
-    backdrop-filter: none; -webkit-backdrop-filter: none;
+    backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none;
     flex: 1 1 auto; min-width: 0;
   }
   .hud:not(.hud-open) .stat {
@@ -698,7 +729,7 @@ body.transitioning #c { pointer-events: none; }
   gap: 6px;
   max-width: min(100vw - 16px, 520px);
   padding: 6px 8px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--glass);
   backdrop-filter: blur(10px);
   box-shadow: 0 4px 24px rgb(0 0 0 / 35%);
@@ -711,7 +742,7 @@ button.mf-btn {
   padding: 6px 10px;
   font-size: 12px;
   line-height: 1.1;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: rgb(255 255 255 / 8%);
 }
 button.mf-btn.active { background: var(--gold-dim); color: var(--gold); }
@@ -764,3 +795,12 @@ button.sound-toggle[aria-pressed="true"] { color: var(--muted); }
 .audio-credits .audio-licences {
   display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-5); margin: var(--space-3) 0; font-size: 12px; color: var(--muted);
 }
+
+/* Reduced motion (last, so it wins): no flash, no toast slide, no button lift/press or transitions */
+@media (prefers-reduced-motion: reduce) {
+  button, button:not(:disabled):active, button.tool:not(:disabled):hover, button.tool:not(:disabled):active { transition: none; transform: none; }
+  .toast, .toast.show { transform: translate(-50%, -50%); transition: opacity 0.3s ease, visibility 0.3s ease; }
+  .flash { animation: none; opacity: 0; }
+}
+
+.value, .cost, .hud-seg { font-variant-numeric: tabular-nums; }

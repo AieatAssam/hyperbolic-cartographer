@@ -14,9 +14,12 @@
 export const LIGHTS = {
   /** Hemisphere sky colour (warm-violet ambient from above). */
   hemiSky: 0xd9c4ff, hemiGround: 0x1f4a52, hemiIntensity: 0.6,
-  /** Warm key light, main shadow-less directional. */
+  /** Warm key light, the only shadow caster (high quality only, see QUALITY_PROFILES.shadows in scene.ts). */
   key: 0xffd9a8, keyIntensity: 2.0, keyPos: [6, 12, 5] as [number, number, number],
-  /** Cool fill light from the left, softens key shadows (no shadow maps are used). */
+  /** Key shadow map: size, ortho half-width (covers the table disk, radius 9.55, plus margin), near/far, bias. */
+  shadowMapSize: 2048, shadowExtent: 11, shadowNear: 1, shadowFar: 30, shadowRadius: 3,
+  shadowBias: -0.0005, shadowNormalBias: 0.02,
+  /** Cool fill light from the left, softens key shadows. */
   fill: 0x7fc8ff, fillIntensity: 0.7, fillPos: [-9, 6, -2] as [number, number, number],
   /** Magenta rim light from behind, separates tiles from the backdrop. */
   rim: 0xff7ad9, rimIntensity: 1.3, rimPos: [-2, 5, -12] as [number, number, number],
@@ -107,8 +110,8 @@ export interface EmptySlotToken extends MaterialToken {
   restTrim: number;
 }
 export const EMPTY_SLOT: EmptySlotToken = {
-  base: 0x1c1430, emissive: 0x3a2e60, emissiveIntensity: 0.12, roughness: 0.9, metalness: 0, accent: 0x54467a,
-  restInset: 0.88, restRimMix: 0.38, restTrim: 0.55,
+  base: 0x1c1430, emissive: 0x3a2e60, emissiveIntensity: 0.2, roughness: 0.9, metalness: 0, accent: 0x54467a,
+  restInset: 0.88, restRimMix: 0.28, restTrim: 0.55,
 };
 
 /**
