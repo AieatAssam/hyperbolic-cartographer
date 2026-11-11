@@ -88,7 +88,7 @@ Shadow maps are off.
 | `cistern` | basin (primitive) |
 | `scriptorium` | book block (primitive) |
 
-**Empty slot.** `EMPTY_SLOT`: `base` `#1c1430` (dark recessed well), `accent` `#54467a` (subdued violet border), `emissive` `#3a2e60` at `emissiveIntensity` 0.12, `roughness` 0.9, `metalness` 0.
+**Empty slot.** `EMPTY_SLOT`: `base` `#1c1430` (dark recessed well), `accent` `#54467a` (subdued violet border), `emissive` `#3a2e60` at `emissiveIntensity` 0.2, `roughness` 0.9, `metalness` 0.
 
 **Next ring.** `NEXT_SLOT`: `base` `#140e22`, `border` `#2e2546`. Darker than the empty slot.
 
@@ -190,7 +190,7 @@ Empty slots are dark recessed wells, not grey slabs:
 
 - The base is `EMPTY_SLOT.base`, very dark violet. The border is `EMPTY_SLOT.accent`, subdued and never near-white.
 - The next ring (one step out, preview only) is darker still, with a barely visible border (`NEXT_SLOT`).
-- Grey reads as disabled. Keep slots dark and matte (roughness 0.9), with a faint inner emissive (0.12).
+- Grey reads as disabled. Keep slots dark and matte (roughness 0.9), with a faint inner emissive (0.2).
 
 ### Tabletop (Wired)
 

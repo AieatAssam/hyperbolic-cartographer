@@ -18,12 +18,13 @@ export interface QualityProfile {
   maxDpr: number;
   bloom: boolean;
   bloomScale: number; // bloom buffer size relative to drawing buffer
+  shadows: boolean; // key light casts shadows
 }
 
 export const QUALITY_PROFILES: readonly QualityProfile[] = [
-  { level: 0, maxDpr: 1, bloom: false, bloomScale: 0 },
-  { level: 1, maxDpr: 1.5, bloom: true, bloomScale: 0.5 },
-  { level: 2, maxDpr: 2, bloom: true, bloomScale: 1 },
+  { level: 0, maxDpr: 1, bloom: false, bloomScale: 0, shadows: false },
+  { level: 1, maxDpr: 1.5, bloom: true, bloomScale: 0.5, shadows: false },
+  { level: 2, maxDpr: 2, bloom: true, bloomScale: 1, shadows: true },
 ];
 
 export interface DeviceHints { dpr: number; coarsePointer: boolean; minSide: number }
@@ -165,7 +166,8 @@ export function createScene(canvas: HTMLCanvasElement, opts: { preserveDrawingBu
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = LIGHTS.exposure;
-  renderer.shadowMap.enabled = false;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap; // PCFSoftShadowMap was removed in three r187
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(FOG.color); // fallback only; backdrop covers it
@@ -183,7 +185,18 @@ export function createScene(canvas: HTMLCanvasElement, opts: { preserveDrawingBu
     scene.add(l);
     return l;
   };
-  addDir(LIGHTS.key, LIGHTS.keyIntensity, LIGHTS.keyPos, 'key');
+  const key = addDir(LIGHTS.key, LIGHTS.keyIntensity, LIGHTS.keyPos, 'key');
+  key.target.position.set(0, 0, 0); // board centre
+  scene.add(key.target);
+  key.shadow.mapSize.set(LIGHTS.shadowMapSize, LIGHTS.shadowMapSize);
+  const sc = key.shadow.camera;
+  sc.left = -LIGHTS.shadowExtent; sc.right = LIGHTS.shadowExtent;
+  sc.top = LIGHTS.shadowExtent; sc.bottom = -LIGHTS.shadowExtent;
+  sc.near = LIGHTS.shadowNear; sc.far = LIGHTS.shadowFar;
+  sc.updateProjectionMatrix();
+  key.shadow.bias = LIGHTS.shadowBias;
+  key.shadow.normalBias = LIGHTS.shadowNormalBias;
+  key.shadow.radius = LIGHTS.shadowRadius;
   addDir(LIGHTS.fill, LIGHTS.fillIntensity, LIGHTS.fillPos, 'fill');
   addDir(LIGHTS.rim, LIGHTS.rimIntensity, LIGHTS.rimPos, 'rim');
 
@@ -232,6 +245,7 @@ export function createScene(canvas: HTMLCanvasElement, opts: { preserveDrawingBu
     composer.setSize(innerWidth, innerHeight);
     renderer.getDrawingBufferSize(drawSize);
     bloom.enabled = p.bloom;
+    key.castShadow = p.shadows;
     if (p.bloom) bloom.setSize(Math.max(1, Math.round(drawSize.x * p.bloomScale)), Math.max(1, Math.round(drawSize.y * p.bloomScale)));
     backdrop.material.uniforms.uRes.value.copy(drawSize);
   };

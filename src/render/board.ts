@@ -211,6 +211,8 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     mat.customProgramCacheKey = () => 'board-glow';
     const mesh = new THREE.Mesh(this.geom, mat);
     mesh.frustumCulled = false;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     this.group.add(mesh);
     this.tops = g.ring.map(() => new THREE.Vector3());
 
@@ -220,6 +222,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       const im = new THREE.InstancedMesh(set.geos[t], motifMaterial(t), n);
       im.count = 0;
       im.frustumCulled = false;
+      im.castShadow = true;
       im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       this.motifs[t] = im;
       this.group.add(im);
@@ -400,8 +403,10 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     if (this.hyper) {
       const slab = new THREE.Mesh(new THREE.CylinderGeometry(DISK_R + 0.25, DISK_R + 0.55, DEPTH, 128, 1, true), edge);
       slab.position.y = -DEPTH / 2 - 0.01;
+      slab.receiveShadow = true;
       const face = new THREE.Mesh(new THREE.CircleGeometry(DISK_R + 0.25, 128).rotateX(-Math.PI / 2), top);
       face.position.y = -0.01;
+      face.receiveShadow = true;
       // colour scaled past the bloom threshold: the rim is meant to glow
       const rimCol = col(BOARD.rim).multiplyScalar(BLOOM.threshold + 1.2);
       const rim = new THREE.Mesh(new THREE.TorusGeometry(DISK_R + 0.25, 0.07, 8, 160).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: rimCol }));
@@ -410,6 +415,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       const S = 12;
       const slab = new THREE.Mesh(new THREE.BoxGeometry(S + 0.6, DEPTH, S + 0.6), [edge, edge, top, edge, edge, edge]);
       slab.position.y = -DEPTH / 2 - 0.01;
+      slab.receiveShadow = true;
       const lip = new THREE.Mesh(new THREE.BoxGeometry(S + 0.9, 0.12, S + 0.9), edge);
       lip.position.y = -DEPTH - 0.07;
       this.group.add(slab, lip);
@@ -444,6 +450,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       this.wheel = new THREE.InstancedMesh(set.wheel, motifMaterial('mill'), n);
       this.wheel.count = 0;
       this.wheel.frustumCulled = false;
+      this.wheel.castShadow = true;
       this.wheel.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       this.wheelBase = Array.from({ length: n }, () => new THREE.Matrix4());
       this.wheelOn = new Array(n).fill(false);
