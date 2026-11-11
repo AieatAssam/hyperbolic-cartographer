@@ -173,7 +173,7 @@ tests/           Vitest suites, plus the opt-in pacing bot
 
 Changes from the original brief (all in `src/core/config.ts`; formulas unchanged):
 
-- Mill output 5 → 9 Ink/s (pacing: first Drift was ~25 min); now 9 → 18 Ink/s (`tiles.mill.out`) under the spring strain rule below. A Mill counts only its strongest 8 Spring shares (`tiles.mill.maxSprings`), which caps Bridge hubs.
+- Mill output 5 → 9 Ink/s (pacing: first Drift was ~25 min); now 9 → 18 Ink/s (`tiles.mill.out`) under the spring strain rule below. A Mill counts only its strongest 8 Spring shares (`tiles.mill.maxSprings`), which caps Bridge hubs. Likewise only the strongest 6 Bridge-relayed Beacons count per producer (`tiles.beacon.maxRelayed`), and Vault global bonus now has diminishing returns: the first Vault gives +2%, each further one 0.97x the one before (`tiles.vault.decay`, limit +67%; was a flat +2% each).
 - Spring strain (new, `tiles.spring.strain` **0.33**): a Spring's output is split among the Mills it feeds. With k Mills, each gets share 1/(1 + 0.33·(k−1)): 100%, 75%, 60%, 50%. A Spring touching a Bridge is channelled and gives every Mill full share (the Bridge exception).
 - Deep Wells (replaces the old Spring Charts discount; same id `cheapSprings`, no migration): each level multiplies strain by `tiles.spring.deepWells` **0.8** (Springs thin 20% less per extra Mill). Springs no longer have a cost discount.
 - Beacon-through-Bridge rule (new): Beacons that are true graph neighbours multiply the output of a tile. A Beacon reached only through a Bridge relay adds `mult - 1` to a multiplier instead (so two relayed Beacons give 1 + 2·bonus, not (1+bonus)²). Scriptorium only sees true neighbours. This stops one Bridge hub from stacking Beacons exponentially.
@@ -186,7 +186,7 @@ Changes from the original brief (all in `src/core/config.ts`; formulas unchanged
 - Hyperbolic survey: base 2e5, growth 12^ring; board starts at radius 2, base max radius 3, +1 via the "Deeper Horizon" Curvature upgrade (radius 4 = 232 tiles).
 - Offline base efficiency 50% (unspecified in brief).
 - 2026-11 balance pass: `startInk` 22, `costGrowth` 1.12, Mill cost 85, Spring out 1.15, Drift at 2.65e5 Ink, first Mill/Bridge Ink rewards (`npm run sim-economy` for casual/greedy milestones).
-- Greedy bot with these numbers: Drift available at 3.4 min, first Drift taken at 20.5 min (the bot waits for its Charts/s peak), Projection at 39.0 min.
+- Greedy bot with these numbers: Drift available at 3.4 min, first Drift taken at 18.7 min (the bot waits for its Charts/s peak), Projection at 34.8 min.
 - Manifold preview grids (visual only, not economy): torus **16×8**, Klein **8×8**; framing/spin/demo pulse rates in `config.manifold`.
 - Manifold 3D flow (visual only): the tiling slides over the surface so far-side and interior cells come to you. Drag the torus to spin it (x) or roll it through the hole (y); drag the Klein bottle vertically to glide tiles through the neck, horizontally to turn it; right-drag orbits the camera. `dragFlow` **0.0025** turns/px, `idleFlow` **0.012** turns/s (off with reduced motion), tile patch subdivision `patchSubdiv` **6**.
 - Portrait playable framing: `camera.portraitPolar` 0.55 rad and `portraitTopPad` 18 px so a square board fills more of the HUD-to-dock band without clipping (width still limits size; leftover height sits above the info card).

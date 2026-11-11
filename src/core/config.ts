@@ -6,9 +6,11 @@ export const config = {
     spring: { cost: 10, out: 1.15, strain: 0.33, deepWells: 0.8 },
     /** maxSprings: a Mill counts only its strongest N Spring shares (matters only through Bridges). */
     mill: { cost: 85, out: 18, perSpring: 1, maxSprings: 8 },
-    beacon: { cost: 1000, mult: 1.5 },
+    /** maxRelayed: only the strongest N Beacons reached through a Bridge count for one producer. */
+    beacon: { cost: 1000, mult: 1.5, maxRelayed: 6 },
     bridge: { cost: 5200 },
-    vault: { cost: 25000, offline: 0.1, global: 0.02 },
+    /** global: the first Vault's bonus; each further Vault adds `decay` times the one before (limit global/(1-decay)). */
+    vault: { cost: 25000, offline: 0.1, global: 0.02, decay: 0.97 },
     lighthouse: { cost: 50000, mult: 1.25 },
     /** Each Spring adjacent to a Cistern multiplies its own output by mult (per Cistern). */
     cistern: { cost: 2500, mult: 3 },

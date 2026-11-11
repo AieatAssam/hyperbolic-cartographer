@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import Decimal from 'break_eternity.js';
 import { config } from '../src/core/config';
 import { GRAPHS, initialState } from '../src/core/state';
-import { mods, place, production, springShare } from '../src/core/economy';
+import { mods, place, production, springShare, vaultBonus } from '../src/core/economy';
 import { applyOffline } from '../src/core/tick';
 import { exportString, importSave, makeSave, toJson } from '../src/core/save';
 import { drift, project } from '../src/core/prestige';
@@ -91,6 +91,28 @@ describe('spring strain, Cistern, Scriptorium', () => {
     expect(springs.length).toBeGreaterThan(config.tiles.mill.maxSprings);
     const tiles = board(...chain.map((x): [number, TileType] => [x, 'bridge']), [mill, 'mill'], ...springs.map((x): [number, TileType] => [x, 'spring']));
     expect(production(g, tiles, m).perTile[mill]).toBeCloseTo(M * (1 + config.tiles.mill.perSpring * config.tiles.mill.maxSprings));
+  });
+
+  it('only the strongest maxRelayed Bridge-relayed Beacons count for one producer', () => {
+    const chain = [0];
+    while (chain.length < 8) chain.push(g.neighbours[chain[chain.length - 1]].find((n) => !chain.includes(n) && !chain.slice(0, -1).some((x) => g.neighbours[x].includes(n)))!);
+    const touch = [...new Set(chain.flatMap((x) => g.neighbours[x]))].filter((n) => !chain.includes(n));
+    const [mill, ...beacons] = touch;
+    const near = beacons.filter((n) => g.neighbours[mill].includes(n)).length;
+    const bonus = config.tiles.beacon.mult - 1;
+    expect(beacons.length - near).toBeGreaterThan(config.tiles.beacon.maxRelayed);
+    const tiles = board(...chain.map((x): [number, TileType] => [x, 'bridge']), [mill, 'mill'], ...beacons.map((x): [number, TileType] => [x, 'beacon']));
+    expect(production(g, tiles, m).perTile[mill]).toBeCloseTo(M * (1 + bonus) ** near * (1 + bonus * config.tiles.beacon.maxRelayed));
+  });
+
+  it('Vault bonus has diminishing returns and a limit', () => {
+    const { global, decay } = config.tiles.vault;
+    expect(vaultBonus(0)).toBe(0);
+    expect(vaultBonus(1)).toBeCloseTo(global);
+    expect(vaultBonus(2)).toBeCloseTo(global * (1 + decay));
+    expect(vaultBonus(1000)).toBeLessThan(global / (1 - decay) + 1e-9);
+    const one = production(g, board([0, 'spring'], [a, 'vault']), m).total;
+    expect(one).toBeCloseTo(S * (1 + global));
   });
 
   it('a Mill with 2 Springs and 2 Beacons out-produces a Mill with 4 Springs', () => {

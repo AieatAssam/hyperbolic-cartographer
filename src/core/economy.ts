@@ -103,6 +103,12 @@ export interface Production {
   feeds: number[];
 }
 
+/** Global bonus from n Vaults: the first gives vault.global, each further one `decay` times the one before. */
+export function vaultBonus(n: number): number {
+  const { global, decay } = config.tiles.vault;
+  return decay === 1 ? global * n : (global * (1 - decay ** n)) / (1 - decay);
+}
+
 /** Share of a Spring's flow that each of k Mills gets: 1/(1+strain*(k-1)). Symmetric, so order never matters. */
 export function springShare(k: number, strain = config.tiles.spring.strain): number {
   return k <= 1 ? 1 : 1 / (1 + strain * (k - 1));
@@ -127,7 +133,7 @@ export function ring2(g: TileGraph, i: number): number[] {
 export function production(g: TileGraph, tiles: (TileType | null)[], m: Mods): Production {
   const T = config.tiles;
   const vaults = tiles.filter((t) => t === 'vault').length;
-  const global = m.global * (1 + T.vault.global * vaults);
+  const global = m.global * (1 + vaultBonus(vaults));
   const perTile = tiles.map(() => 0);
   // Relay map looked up once per board (its cache key is a join of the whole board).
   const relay = tiles.includes('bridge') ? relayAdjacency(g, tiles, m.reach) : null;
@@ -169,9 +175,12 @@ export function production(g: TileGraph, tiles: (TileType | null)[], m: Mods): P
     const lit = (n: number) => m.beacon + m.beaconPerDegree * g.neighbours[n].length;
     for (const n of g.neighbours[i]) if (tiles[n] === 'beacon') out *= lit(n);
     if (relay && t !== 'scriptorium') {
-      let far = 0;
-      for (const n of adj) if (tiles[n] === 'beacon' && !g.neighbours[i].includes(n)) far += lit(n) - 1;
-      out *= 1 + far;
+      const far: number[] = [];
+      for (const n of adj) if (tiles[n] === 'beacon' && !g.neighbours[i].includes(n)) far.push(lit(n) - 1);
+      if (far.length > T.beacon.maxRelayed) far.sort((a, b) => b - a).length = T.beacon.maxRelayed;
+      let sum = 0;
+      for (const x of far) sum += x;
+      out *= 1 + sum;
     }
     for (const n of ring2(g, i)) if (tiles[n] === 'lighthouse') out *= T.lighthouse.mult;
     perTile[i] = out * global;
