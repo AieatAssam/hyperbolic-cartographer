@@ -17,7 +17,7 @@ import {
   type Tuple3,
 } from './fx-graph';
 import {
-  chartCell, chartCellCenter, kleinFrameAtGrid, torusFrameAtGrid,
+  chartCell, chartCellCenter, NO_FLOW, surfaceFrame, type Flow,
 } from './surface-params';
 import { buildKleinSurfaceEdgePaths, buildTorusSurfaceEdgePaths } from './manifold-edge-paths';
 
@@ -49,11 +49,15 @@ export interface TorusEmbedParams {
   majorR?: number;
   minorR?: number;
   chart?: boolean;
+  /** 3D only: shifts the tiling over the torus (see surface-params Flow). */
+  flow?: Flow;
 }
 
 export interface KleinEmbedParams {
   chart?: boolean;
   cell?: number;
+  /** immersion only: glide of the tiling along the tube */
+  flow?: Flow;
 }
 
 /** C0: square tabletop frames (matches board.ts outline at identity view). */
@@ -103,12 +107,12 @@ export function embedDisk(g: HyperBoard, out: Embedding, params: DiskEmbedParams
 /** C3: 3D torus or fundamental-square chart. */
 export function embedTorus(g: SurfaceGraph, out: Embedding, params: TorusEmbedParams = {}): Embedding {
   const chart = params.chart ?? false;
+  const flow = params.flow ?? NO_FLOW;
   const cell = chartCell(g.width, g.height);
   const at = (i: number): Tuple3 => {
     const [x, y] = g.xy[i];
     if (chart) return chartCellCenter(x, y, g.width, g.height, cell);
-    const { p } = torusFrameAtGrid(x + 0.5, y + 0.5, g.width, g.height);
-    return p;
+    return surfaceFrame('torus', x + 0.5, y + 0.5, g.width, g.height, flow).p;
   };
   if (chart) {
     const xy = g.xy.map(([x, y]) => {
@@ -126,21 +130,21 @@ export function embedTorus(g: SurfaceGraph, out: Embedding, params: TorusEmbedPa
     fillPortals(g, out, at);
   } else {
     const flat: [number, number][] = g.xy.map(([x, y]) => {
-      const { p } = torusFrameAtGrid(x + 0.5, y + 0.5, g.width, g.height);
+      const { p } = surfaceFrame('torus', x + 0.5, y + 0.5, g.width, g.height, flow);
       return [p[0], p[2]];
     });
     out.pitch = medianEdgePitch(g, flat, g.ring.map(() => 1));
     out.chart2d = new Float32Array(g.ring.length * 2);
     for (let i = 0; i < g.ring.length; i++) {
       const [x, y] = g.xy[i];
-      const { p, n, t } = torusFrameAtGrid(x + 0.5, y + 0.5, g.width, g.height);
+      const { p, n, t } = surfaceFrame('torus', x + 0.5, y + 0.5, g.width, g.height, flow);
       const c = chartCellCenter(x, y, g.width, g.height, cell);
       out.chart2d[i * 2] = c[0];
       out.chart2d[i * 2 + 1] = c[2];
       writeFrameExt(out, i, { p, s: 1, n, t, chi: 1 });
     }
     fillPortals(g, out, at);
-    buildTorusSurfaceEdgePaths(g, out);
+    buildTorusSurfaceEdgePaths(g, out, flow);
   }
   if (chart) {
     buildEdgePaths(g, out, (a, b) => {
@@ -156,26 +160,27 @@ export function embedTorus(g: SurfaceGraph, out: Embedding, params: TorusEmbedPa
 /** Bonus: Fig-8 Klein bottle immersion (self-intersection drawn, not adjacency). */
 export function embedKleinImmersion(g: SurfaceGraph, out: Embedding, params: KleinEmbedParams = {}): Embedding {
   const cell = params.cell ?? chartCell(g.width, g.height);
+  const flow = params.flow ?? NO_FLOW;
   const flat: [number, number][] = g.xy.map(([x, y]) => {
-    const { p } = kleinFrameAtGrid(x + 0.5, y + 0.5, g.width, g.height);
+    const { p } = surfaceFrame('klein', x + 0.5, y + 0.5, g.width, g.height, flow);
     return [p[0], p[2]];
   });
   out.pitch = medianEdgePitch(g, flat);
   out.chart2d = new Float32Array(g.ring.length * 2);
   const at = (i: number): Tuple3 => {
     const [x, y] = g.xy[i];
-    return kleinFrameAtGrid(x + 0.5, y + 0.5, g.width, g.height).p;
+    return surfaceFrame('klein', x + 0.5, y + 0.5, g.width, g.height, flow).p;
   };
   for (let i = 0; i < g.ring.length; i++) {
     const [x, y] = g.xy[i];
-    const { p, n, t } = kleinFrameAtGrid(x + 0.5, y + 0.5, g.width, g.height);
+    const { p, n, t } = surfaceFrame('klein', x + 0.5, y + 0.5, g.width, g.height, flow);
     const c = chartCellCenter(x, y, g.width, g.height, cell);
     out.chart2d[i * 2] = c[0];
     out.chart2d[i * 2 + 1] = c[2];
     writeFrameExt(out, i, { p, s: 1, n, t, chi: 1 });
   }
   fillPortals(g, out, at);
-  buildKleinSurfaceEdgePaths(g, out);
+  buildKleinSurfaceEdgePaths(g, out, flow);
   bumpRev(out);
   return out;
 }

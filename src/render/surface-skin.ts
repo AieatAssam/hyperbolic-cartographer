@@ -1,16 +1,16 @@
 import * as THREE from 'three';
-import { hexToRgb, SURFACE } from '../art/palette';
+import { SURFACE } from '../art/palette';
 import { config } from '../core/config';
-import type { SurfaceGraph } from '../core/geometry/quotient';
-import { KLEIN_U_MAX, KLEIN_V_MAX, KLEIN_SELF_INTERSECT_U, kleinImmersionFrame } from './klein-bottle';
+import { KLEIN_U_MAX, KLEIN_V_MAX, KLEIN_SELF_INTERSECT_U } from './klein-bottle';
 import {
-  KLEIN_SCALE, kleinImmersionPos, torusPosFromUv,
+  KLEIN_SCALE, kleinImmersionPos, torusNormalFromUv, torusPosFromUv,
 } from './surface-params';
 
 const col = (h: number) => new THREE.Color(h);
 
-function skinTexture(uSeg: number, vSeg: number): THREE.CanvasTexture {
-  const N = 512;
+/** Soft radial gradient only: the per-cell grid lines are gone (tiles carry the structure now). */
+function skinTexture(): THREE.CanvasTexture {
+  const N = 256;
   const cv = document.createElement('canvas');
   cv.width = cv.height = N;
   const g = cv.getContext('2d')!;
@@ -20,59 +20,69 @@ function skinTexture(uSeg: number, vSeg: number): THREE.CanvasTexture {
   grad.addColorStop(1, `#${SURFACE.skin.toString(16).padStart(6, '0')}`);
   g.fillStyle = grad;
   g.fillRect(0, 0, N, N);
-  const [sir, sig, sib] = hexToRgb(SURFACE.skinInk).map((v) => Math.round(v * 255));
-  g.strokeStyle = `rgba(${sir},${sig},${sib},0.35)`;
-  g.lineWidth = 1;
-  const du = N / Math.max(1, uSeg), dv = N / Math.max(1, vSeg);
-  for (let i = 0; i <= uSeg; i++) {
-    g.beginPath(); g.moveTo(i * du, 0); g.lineTo(i * du, N); g.stroke();
-  }
-  for (let j = 0; j <= vSeg; j++) {
-    g.beginPath(); g.moveTo(0, j * dv); g.lineTo(N, j * dv); g.stroke();
-  }
   const tex = new THREE.CanvasTexture(cv);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
-function skinMaterial(uSeg: number, vSeg: number, env: THREE.Texture | null, rim = false, opacity = config.manifold.skinAlpha) {
-  const map = skinTexture(uSeg, vSeg);
+/** Adds a fresnel edge glow (view-angle rim) to a physical material. */
+function addFresnelRim(mat: THREE.MeshPhysicalMaterial, strength: number) {
   const rimCol = col(SURFACE.skinInk).lerp(col(SURFACE.skin), 0.35);
-  return new THREE.MeshStandardMaterial({
-    map,
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uRimCol = { value: rimCol };
+    sh.uniforms.uRimK = { value: strength };
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uRimCol;\nuniform float uRimK;')
+      .replace(
+        '#include <opaque_fragment>',
+        `float fres = pow(1.0 - clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0), 3.0);
+        outgoingLight += uRimCol * fres * uRimK;
+        #include <opaque_fragment>`,
+      );
+  };
+  return mat;
+}
+
+function torusSkinMaterial(env: THREE.Texture | null) {
+  const mat = new THREE.MeshPhysicalMaterial({
+    map: skinTexture(),
     color: col(SURFACE.skinInk),
-    emissive: rim ? rimCol : col(0x000000),
-    emissiveIntensity: rim ? config.manifold.skinRimEmissive : 0,
+    emissive: col(0x000000),
     transparent: true,
-    opacity,
-    roughness: rim ? 0.72 : 0.88,
-    metalness: rim ? 0.12 : 0.08,
+    opacity: config.manifold.skinAlpha,
+    roughness: 0.38,
+    metalness: 0.15,
+    clearcoat: 0.7,
+    clearcoatRoughness: 0.2,
     envMap: env,
-    envMapIntensity: rim ? 0.38 : 0.22,
+    envMapIntensity: 1.0,
     side: THREE.DoubleSide,
     depthWrite: false,
     polygonOffset: true,
     polygonOffsetFactor: 2,
     polygonOffsetUnits: 2,
   });
+  return addFresnelRim(mat, config.manifold.skinRimEmissive);
 }
 
-function parametricMesh(
-  uSteps: number, vSteps: number, texW: number, texH: number,
-  posAt: (u: number, v: number) => [number, number, number], env: THREE.Texture | null, name: string,
-) {
-  const pos: number[] = [], idx: number[] = [], uvs: number[] = [];
+/** Torus: smooth analytic normals, indexed grid. */
+export function buildTorusSkin(env: THREE.Texture | null): THREE.Mesh {
+  const uSteps = config.manifold.torusSkinU, vSteps = config.manifold.torusSkinV;
+  const pos = new Float32Array((uSteps + 1) * (vSteps + 1) * 3);
+  const nrm = new Float32Array(pos.length);
+  let o = 0;
   for (let yi = 0; yi <= vSteps; yi++) {
     for (let xi = 0; xi <= uSteps; xi++) {
-      const u = (xi / uSteps) * Math.PI * 2;
-      const v = (yi / vSteps) * Math.PI * 2;
-      const [px, py, pz] = posAt(u, v);
-      pos.push(px, py, pz);
-      uvs.push(xi / uSteps, yi / vSteps);
+      const u = (xi / uSteps) * Math.PI * 2, v = (yi / vSteps) * Math.PI * 2;
+      const [px, py, pz] = torusPosFromUv(u, v);
+      const [nx, ny, nz] = torusNormalFromUv(u, v);
+      pos[o] = px; pos[o + 1] = py; pos[o + 2] = pz;
+      nrm[o] = nx; nrm[o + 1] = ny; nrm[o + 2] = nz;
+      o += 3;
     }
   }
   const row = uSteps + 1;
+  const idx: number[] = [];
   for (let yi = 0; yi < vSteps; yi++) {
     for (let xi = 0; xi < uSteps; xi++) {
       const a = yi * row + xi, b = a + 1, c = a + row, d = c + 1;
@@ -80,63 +90,90 @@ function parametricMesh(
     }
   }
   const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geom.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
   geom.setIndex(idx);
-  geom.computeVertexNormals();
-  const mesh = new THREE.Mesh(geom, skinMaterial(texW, texH, env, name === 'klein-skin', config.manifold.skinAlpha));
-  mesh.name = name;
+  const mesh = new THREE.Mesh(geom, torusSkinMaterial(env));
+  mesh.name = 'torus-skin';
   mesh.renderOrder = -6;
   return mesh;
 }
 
-export function buildTorusSkin(g: SurfaceGraph, env: THREE.Texture | null): THREE.Mesh {
-  return parametricMesh(g.width * 4, g.height * 4, g.width, g.height, (u, v) => torusPosFromUv(u, v), env, 'torus-skin');
-}
-
-function kleinParametricMesh(
-  uSteps: number, vSteps: number, texW: number, texH: number,
-  posAt: (u: number, v: number) => [number, number, number], env: THREE.Texture | null,
-) {
-  const pos: number[] = [], idx: number[] = [], uvs: number[] = [], nrm: number[] = [];
+/**
+ * Klein immersion skin as an indexed grid. Immersion gluing (π, v) ≡ (0, π − v) closes the u-seam: the u=π
+ * column is not emitted; its quads reference the u=0 column at v → π − v. Shared vertices get averaged normals.
+ */
+function kleinIndexedGeometry(uSteps: number, vSteps: number): THREE.BufferGeometry {
+  if (vSteps % 2 !== 0) throw new Error('kleinSkinV must be even for the glide seam');
   const scale = KLEIN_SCALE();
-  for (let yi = 0; yi <= vSteps; yi++) {
-    for (let xi = 0; xi <= uSteps; xi++) {
-      const u = (xi / uSteps) * KLEIN_U_MAX;
-      const v = (yi / vSteps) * KLEIN_V_MAX;
-      const [px, py, pz] = posAt(u, v);
-      pos.push(px, py, pz);
-      uvs.push(xi / uSteps, yi / vSteps);
-      const n = kleinImmersionFrame(u, v, scale).n;
-      nrm.push(n[0], n[1], n[2]);
+  const pos = new Float32Array(uSteps * vSteps * 3);
+  const uvs = new Float32Array(uSteps * vSteps * 2);
+  const idx: number[] = [];
+  const at = (ui: number, vi: number) => {
+    // Wrap u across the glide seam: column uSteps is column 0 with v → π − v.
+    let uu = ui, vv = ((vi % vSteps) + vSteps) % vSteps;
+    if (uu >= uSteps) { uu -= uSteps; vv = (vSteps / 2 - vv + vSteps) % vSteps; }
+    return uu * vSteps + vv;
+  };
+  for (let ui = 0; ui < uSteps; ui++) {
+    for (let vi = 0; vi < vSteps; vi++) {
+      const u = (ui / uSteps) * KLEIN_U_MAX, v = (vi / vSteps) * KLEIN_V_MAX;
+      const [x, y, z] = kleinImmersionPos(u, v, scale);
+      const k = ui * vSteps + vi;
+      pos[k * 3] = x; pos[k * 3 + 1] = y; pos[k * 3 + 2] = z;
+      uvs[k * 2] = ui / uSteps; uvs[k * 2 + 1] = vi / vSteps;
     }
   }
-  const row = uSteps + 1;
-  for (let yi = 0; yi < vSteps; yi++) {
-    for (let xi = 0; xi < uSteps; xi++) {
-      const a = yi * row + xi, b = a + 1, c = a + row, d = c + 1;
+  for (let ui = 0; ui < uSteps; ui++) {
+    for (let vi = 0; vi < vSteps; vi++) {
+      const a = at(ui, vi), b = at(ui + 1, vi), c = at(ui, vi + 1), d = at(ui + 1, vi + 1);
       idx.push(a, c, b, b, c, d);
     }
   }
   const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geom.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geom.setIndex(idx);
-  const mesh = new THREE.Mesh(geom, skinMaterial(texW, texH, env, true, config.manifold.kleinSkinAlpha));
-  mesh.name = 'klein-skin';
-  mesh.renderOrder = -8;
-  return mesh;
+  geom.computeVertexNormals();
+  return geom;
 }
 
-export function buildKleinImmersionSkin(g: SurfaceGraph, env: THREE.Texture | null): THREE.Mesh {
-  const scale = KLEIN_SCALE();
-  const uSteps = config.manifold.kleinSkinU;
-  const vSteps = config.manifold.kleinSkinV;
-  return kleinParametricMesh(
-    uSteps, vSteps, g.width, g.height,
-    (u, v) => kleinImmersionPos(u, v, scale), env,
-  );
+function kleinGlassMaterial(env: THREE.Texture | null, side: THREE.Side, colourK: number) {
+  const mat = new THREE.MeshPhysicalMaterial({
+    map: skinTexture(),
+    color: col(SURFACE.skinInk).multiplyScalar(colourK),
+    transparent: true,
+    opacity: config.manifold.kleinSkinAlpha,
+    roughness: 0.12,
+    metalness: 0,
+    clearcoat: 1,
+    clearcoatRoughness: 0.08,
+    iridescence: 0.35,
+    envMap: env,
+    envMapIntensity: 1.2,
+    side,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: 2,
+    polygonOffsetUnits: 2,
+  });
+  return addFresnelRim(mat, config.manifold.skinRimEmissive * 1.8);
+}
+
+export function buildKleinImmersionSkin(env: THREE.Texture | null): THREE.Group {
+  const k = config.manifold.kleinSkinDetail;
+  const geom = kleinIndexedGeometry(config.manifold.kleinSkinU * k, config.manifold.kleinSkinV * k);
+  // Two glass passes: the back wall (dimmer, drawn first) then the front wall.
+  const back = new THREE.Mesh(geom, kleinGlassMaterial(env, THREE.BackSide, 0.6));
+  back.name = 'klein-skin-back';
+  back.renderOrder = -11;
+  const front = new THREE.Mesh(geom, kleinGlassMaterial(env, THREE.FrontSide, 1));
+  front.name = 'klein-skin';
+  front.renderOrder = -10;
+  const grp = new THREE.Group();
+  grp.name = 'klein-skin';
+  grp.add(back, front);
+  return grp;
 }
 
 export function buildSelfIntersectionLine(scale = KLEIN_SCALE()): THREE.Group {
@@ -187,28 +224,4 @@ export function buildSelfIntersectionLine(scale = KLEIN_SCALE()): THREE.Group {
   grp.name = 'klein-self-intersection';
   grp.add(line, beads);
   return grp;
-}
-
-export function buildTorusSeamRing(g: SurfaceGraph): THREE.Line {
-  const pts: number[] = [];
-  const n = g.height * 8;
-  for (let i = 0; i <= n; i++) {
-    const gy = (i / n) * g.height;
-    const u = (0.5 / g.width) * Math.PI * 2;
-    const v = (gy / g.height) * Math.PI * 2;
-    const [x, y, z] = torusPosFromUv(u, v);
-    pts.push(x, y, z);
-  }
-  const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-  const mat = new THREE.LineDashedMaterial({
-    color: SURFACE.seamA,
-    transparent: true,
-    opacity: 0.85,
-    dashSize: SURFACE.dashPattern[0] * 1.2,
-    gapSize: SURFACE.dashPattern[1],
-  });
-  const line = new THREE.Line(geom, mat);
-  line.computeLineDistances();
-  return line;
 }
