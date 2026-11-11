@@ -5,12 +5,13 @@ import { apply, boost, boostToOrigin, dist, geodesic, identity, inverse, mul, no
 import { TILE_TYPES, type TileType } from '../core/tiles';
 import { config } from '../core/config';
 import {
-  BLOOM, BOARD, CONSTELLATION, EMPTY_SLOT, MATERIAL, NEXT_SLOT, PLACE, PREVIEW, TILE_IDENTITIES, bevelColour, hoverFace, motifScale, sideColour, tileHeight, trimGlow,
+  BLOOM, BOARD, CONSTELLATION, CONSTELLATION_BURST, EMPTY_SLOT, MATERIAL, MOTIF, NEXT_SLOT, PLACE, PREVIEW, TILE_IDENTITIES, bevelColour, hoverFace, motifScale, sideColour, tileHeight, trimGlow,
 } from '../art/palette';
 import type { BoardHighlight } from './board-highlight';
 import { FlowArchOverlay } from './flow-arch';
 import { placeGlsl, placeScale } from './transition';
-import type { TileModels } from './tile-models';
+import { motifMaterial, prepareMotifs, type MotifSet, type TileModels } from './tile-models';
+import { prod } from '../core/economy';
 import { bumpRev, createEmbedding, medianEdgePitch, writeFrame, type Embedding } from './fx-graph';
 
 export const DISK_R = 9;
@@ -38,18 +39,6 @@ const C = {
   white: col(BOARD.hover), adj: col(BOARD.adjacency), gold: col(BOARD.gold), bridge: col(PREVIEW.bridgeOutline),
   dim: col(EMPTY_SLOT.base), black: col(0),
 };
-
-/** Motif accent per tile type: a distinct silhouette so tiles read on phones and for colour-blind players. */
-function motif(t: TileType): THREE.BufferGeometry {
-  switch (t) {
-    case 'spring': return new THREE.SphereGeometry(0.16, 12, 8); // droplet orb
-    case 'mill': return new THREE.TorusGeometry(0.15, 0.05, 6, 12).rotateX(Math.PI / 2); // wheel
-    case 'beacon': return new THREE.ConeGeometry(0.15, 0.4, 6).translate(0, 0.2, 0); // spire
-    case 'bridge': return new THREE.TorusGeometry(0.17, 0.045, 6, 12, Math.PI); // arch
-    case 'vault': return new THREE.OctahedronGeometry(0.19); // gem
-    case 'lighthouse': return new THREE.CylinderGeometry(0.07, 0.11, 0.42, 8).translate(0, 0.21, 0); // lantern
-  }
-}
 
 /** Procedural cartographer's tabletop: rhumb lines, graticule, contours and constellations in ink. Local, no assets. */
 function tableTexture(round: boolean): THREE.CanvasTexture {
@@ -144,6 +133,16 @@ export class Board {
   /** mill_wheel layer (from the GLB): one instance per mill, spun in tick() while that mill produces. */
   private wheel: THREE.InstancedMesh | null = null;
   private wheelBase: THREE.Matrix4[] = [];
+  /** Wheel offset on the housing face (fitted units), from prepareMotifs. */
+  private wheelOffset = new THREE.Matrix4();
+  /** Glow ring under each model: one instanced flat ring for every tile, colour = type hue or strain state. */
+  private rings: THREE.InstancedMesh;
+  private tmpC = new THREE.Color();
+  private tmpV = new THREE.Vector3();
+  private tmpV2 = new THREE.Color();
+  private tmpR = new THREE.Color();
+  private r4 = new THREE.Matrix4();
+  private pr: ReturnType<typeof prod> | null = null;
   private wheelOn: boolean[] = [];
   private spin = new THREE.Matrix4();
   private settling = new Map<number, number>();
@@ -155,6 +154,7 @@ export class Board {
   private readonly flowArch = new FlowArchOverlay();
   private constellationStars: THREE.InstancedMesh;
   private ghostLine: THREE.LineSegments;
+  private reducedMotion = false;
 
   constructor(readonly geometry: Geometry, env: THREE.Texture | null = null) {
     const g = GRAPHS[geometry];
@@ -215,18 +215,27 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     this.tops = g.ring.map(() => new THREE.Vector3());
 
     this.motifs = {} as Record<TileType, THREE.InstancedMesh>;
+    const set = prepareMotifs({});
     for (const t of TILE_TYPES) {
-      const tk = TILE_IDENTITIES[t];
-      // motif = the tile's emissive core: the only per-tile surface meant to cross BLOOM.threshold
-      const im = new THREE.InstancedMesh(motif(t), new THREE.MeshStandardMaterial({
-        color: tk.emissive, emissive: tk.emissive, emissiveIntensity: tk.emissiveIntensity, roughness: 0.25, metalness: 0,
-      }), n);
+      const im = new THREE.InstancedMesh(set.geos[t], motifMaterial(t), n);
       im.count = 0;
       im.frustumCulled = false;
       im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       this.motifs[t] = im;
       this.group.add(im);
     }
+    this.rings = new THREE.InstancedMesh(
+      new THREE.RingGeometry(MOTIF.ringInner, MOTIF.ringOuter, 40).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({
+        transparent: true, opacity: MOTIF.ringAlpha, blending: THREE.AdditiveBlending, depthWrite: false,
+      }),
+      n,
+    );
+    this.rings.count = 0;
+    this.rings.frustumCulled = false;
+    this.rings.renderOrder = 4;
+    this.rings.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.group.add(this.rings);
     this.buildTable();
     const bridgeTk = TILE_IDENTITIES.bridge;
     this.previewLine = new THREE.Line(
@@ -295,6 +304,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     mesh: THREE.LineSegments,
     lift: number,
     opacity = 1,
+    reveal = 1,
   ) {
     const mat = mesh.material as THREE.LineBasicMaterial | THREE.LineDashedMaterial;
     mat.opacity = opacity;
@@ -303,11 +313,15 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       return;
     }
     const pts: number[] = [];
-    for (const [a, b] of edges) {
+    const n = edges.length;
+    edges.forEach(([a, b], k) => {
       const ta = this.tops[a], tb = this.tops[b];
-      if (!ta || !tb) continue;
-      pts.push(ta.x, ta.y + lift, ta.z, tb.x, tb.y + lift, tb.z);
-    }
+      if (!ta || !tb) return;
+      // reveal runs 0..1 over the whole set: each edge draws in turn, so the star chart is traced edge by edge
+      const f = Math.min(1, Math.max(0, reveal * n - k));
+      if (f <= 0) return;
+      pts.push(ta.x, ta.y + lift, ta.z, ta.x + (tb.x - ta.x) * f, ta.y + lift + (tb.y - ta.y) * f, ta.z + (tb.z - ta.z) * f);
+    });
     mesh.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
     if (mesh.material instanceof THREE.LineDashedMaterial) (mesh as THREE.Line).computeLineDistances();
     mesh.visible = pts.length > 0;
@@ -320,15 +334,19 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     }
     const cells = [...new Set(edges.flat())];
     const m4 = new THREE.Matrix4();
-    const sc = 0.65 + 0.55 * pulse;
+    const elapsed = (1 - pulse) * CONSTELLATION_BURST.seconds;
     let i = 0;
-    for (const c of cells) {
+    cells.forEach((c, j) => {
       const t = this.tops[c];
-      if (!t) continue;
+      if (!t) return;
+      // members flare in sequence: each star gets a short bump once its turn comes, then settles
+      const age = elapsed - j * CONSTELLATION_BURST.stagger;
+      const bump = !this.reducedMotion && age >= 0 ? CONSTELLATION_BURST.bump * Math.exp(-age * 5) : 0;
+      const sc = 0.65 + 0.55 * pulse + bump;
       m4.makeTranslation(t.x, t.y + 0.38 * sc, t.z);
       m4.scale(new THREE.Vector3(sc, sc, sc));
       this.constellationStars.setMatrixAt(i++, m4);
-    }
+    });
     this.constellationStars.count = i;
     this.constellationStars.instanceMatrix.needsUpdate = true;
     (this.constellationStars.material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.65 * pulse;
@@ -341,7 +359,9 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     const faint = hl?.constellationPermanent;
     const ghost = hl?.constellationGhost;
     const pulseOp = bright?.length ? (0.55 + 0.45 * pulse) * CONSTELLATION.opacityPulse : 0;
-    this.updateEdgeLines(bright, this.constellationPulse, 0.07, pulseOp);
+    const elapsed = (1 - pulse) * CONSTELLATION_BURST.seconds;
+    const reveal = this.reducedMotion ? 1 : Math.min(1, elapsed / CONSTELLATION_BURST.drawSeconds);
+    this.updateEdgeLines(bright, this.constellationPulse, 0.07, pulseOp, reveal);
     this.updateEdgeLines(faint, this.constellationFaint, 0.06, CONSTELLATION.opacityComplete * 0.85);
     this.updateEdgeLines(ghost, this.ghostLine, 0.06, CONSTELLATION.opacityGhost);
     if (pulse <= 0 && bright?.length) {
@@ -415,25 +435,21 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     return { pts, c: [cu * DISK_R, cw * DISK_R], scale: Math.max(0, 1 - cu * cu - cw * cw) };
   }
 
-  /** Swaps the primitive motifs for GLB geometry (see tile-models.ts). Safe to call after the first frame. */
+  /** Swaps the primitive motifs for GLB geometry (see tile-models.ts): fitted, vertex-coloured, wheel placed. */
   useModels(models: TileModels) {
-    for (const t of TILE_TYPES) {
-      const geo = models[t];
-      if (geo) this.motifs[t].geometry.dispose(), (this.motifs[t].geometry = geo);
-    }
-    const wheelGeo = models.mill_wheel;
-    if (wheelGeo && !this.wheel) {
-      const n = this.glowQ.length, tk = TILE_IDENTITIES.mill;
-      this.wheel = new THREE.InstancedMesh(wheelGeo, new THREE.MeshStandardMaterial({
-        color: tk.emissive, emissive: tk.emissive, emissiveIntensity: tk.emissiveIntensity, roughness: 0.25, metalness: 0,
-      }), n);
+    const set: MotifSet = prepareMotifs(models);
+    for (const t of TILE_TYPES) this.motifs[t].geometry.dispose(), (this.motifs[t].geometry = set.geos[t]);
+    const n = this.glowQ.length;
+    if (!this.wheel) {
+      this.wheel = new THREE.InstancedMesh(set.wheel, motifMaterial('mill'), n);
       this.wheel.count = 0;
       this.wheel.frustumCulled = false;
       this.wheel.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       this.wheelBase = Array.from({ length: n }, () => new THREE.Matrix4());
       this.wheelOn = new Array(n).fill(false);
       this.group.add(this.wheel);
-    }
+    } else this.wheel.geometry.dispose(), (this.wheel.geometry = set.wheel);
+    this.wheelOffset.makeTranslation(set.wheelAt.x, set.wheelAt.y, set.wheelAt.z);
     this.key = ''; // force a rebuild so the instances are written to the new geometry
   }
 
@@ -459,6 +475,8 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     const glowA = this.geom.attributes.glow.array as Float32Array;
     const g = GRAPHS[this.geometry], K = this.K, { c, side, border, glow, trim } = this;
     for (const t of TILE_TYPES) this.motifs[t].count = 0;
+    this.rings.count = 0;
+    this.pr = prod(s);
     if (this.wheel) this.wheel.count = 0;
     const embed = this.embed;
     for (let i = 0; i < n; i++) {
@@ -535,15 +553,21 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       this.tops[i].set(cx, h, cz);
       writeFrame(embed, i, { p: [cx, h, cz], s: o.scale, n: [0, 1, 0] });
       if (t && o.scale > 0.02) {
-        const im = this.motifs[t], sc = Math.sqrt(o.scale) * (this.hyper ? 1.3 : 1) * motifScale(L);
+        const im = this.motifs[t], st = this.strain(i, t);
+        const sc = MOTIF.fill * GAP * Math.sqrt(o.scale) * (this.hyper ? 1.3 : 1) * motifScale(L) * (1 - MOTIF.strainShrink * st.k);
         this.m4.compose(this.tops[i], this.q, this.sc.setScalar(sc));
         this.motifSlot[i] = im.count;
+        im.setColorAt(im.count, st.tint);
         im.setMatrixAt(im.count++, this.m4);
+        this.tmpV.copy(this.tops[i]).y += MOTIF.ringLift;
+        this.r4.compose(this.tmpV, this.q, this.sc.setScalar(GAP * Math.sqrt(o.scale)));
+        this.rings.setColorAt(this.rings.count, st.ring);
+        this.rings.setMatrixAt(this.rings.count++, this.r4);
         if (t === 'mill' && this.wheel) {
           const k = this.wheel.count++;
-          this.wheelBase[k].copy(this.m4);
+          this.wheelBase[k].copy(this.m4).multiply(this.wheelOffset);
           this.wheelOn[k] = perTile[i] > 0;
-          this.wheel.setMatrixAt(k, this.m4);
+          this.wheel.setMatrixAt(k, this.wheelBase[k]);
         }
       } else this.motifSlot[i] = -1;
       const hidden = o.scale <= 0, hb = h * 0.82;
@@ -569,10 +593,35 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     this.geom.computeVertexNormals(); // non-indexed: face normals, written in place
     bumpRev(embed);
     for (const name of ['position', 'normal', 'color', 'glow']) this.geom.attributes[name].needsUpdate = true;
-    for (const t of TILE_TYPES) this.motifs[t].instanceMatrix.needsUpdate = true;
+    for (const t of TILE_TYPES) {
+      const im = this.motifs[t];
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    }
+    this.rings.instanceMatrix.needsUpdate = true;
+    if (this.rings.instanceColor) this.rings.instanceColor.needsUpdate = true;
     if (this.wheel) this.wheel.instanceMatrix.needsUpdate = true;
     this.updatePreviewArc(hl?.arc);
     this.overlayConstellations(hl);
+  }
+
+  /**
+   * Spring strain from core economy (prod: share / feeds, read only). k in 0..1 = how far below full share, drives the
+   * model's dim and shrink. A Bridge-channelled Spring (full share, feeds > 1) gets a bright gold ring instead.
+   */
+  private strain(i: number, t: TileType): { k: number; tint: THREE.Color; ring: THREE.Color } {
+    const tk = TILE_IDENTITIES[t];
+    const tint = this.tmpC.set(0xffffff), ring = this.tmpR.set(tk.emissive).multiplyScalar(0.35);
+    if (t !== 'spring' || !this.pr || !(this.pr.feeds[i] > 0)) return { k: 0, tint, ring };
+    const share = this.pr.share[i], feeds = this.pr.feeds[i];
+    const k = Math.min(1, Math.max(0, (1 - share) * 2));
+    if (feeds > 1 && share >= 1) {
+      return { k: 0, tint, ring: this.tmpV2.set(TILE_IDENTITIES.bridge.accent).multiplyScalar(MOTIF.channelBoost) };
+    }
+    const dim = 1 - MOTIF.strainDim * k;
+    tint.set(0xffffff).lerp(this.tmpV2.set(MOTIF.strainTint), 0.6 * k).multiplyScalar(dim);
+    ring.set(MOTIF.strainTint).multiplyScalar(0.5 * (1 - k));
+    return { k, tint, ring };
   }
 
   /** Inspect ink-flow arches (runs every frame). */
@@ -609,6 +658,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
 
   /** Per frame: advance the squash clock; motifs of settling tiles (few) follow the same curve. */
   tick(now: number, reduced: boolean) {
+    this.reducedMotion = reduced;
     this.uClock.value = reduced ? 1e9 : now;
     if (this.wheel && !reduced) {
       // producing mills turn their wheel about the tile normal (local Z of the authored mesh)

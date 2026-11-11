@@ -11,6 +11,8 @@ export interface Mods {
   beacon: number;
   beaconPerDegree: number;
   reach: number;
+  /** Effective Spring strain (Deep Wells lowers it). */
+  strain: number;
 }
 
 export function mods(s: GameState): Mods {
@@ -19,6 +21,7 @@ export function mods(s: GameState): Mods {
     beacon: config.tiles.beacon.mult + 0.25 * s.chartUpg.beacon + (has(s, 'brightBeacons') ? 0.25 : 0),
     beaconPerDegree: 0.05 * s.curvUpg.beaconDegree,
     reach: 1 + s.curvUpg.bridgeReach,
+    strain: config.tiles.spring.strain * config.tiles.spring.deepWells ** s.chartUpg.cheapSprings,
   };
 }
 
@@ -94,6 +97,15 @@ export function adjacency(g: TileGraph, tiles: (TileType | null)[], i: number, r
 export interface Production {
   perTile: number[];
   total: number;
+  /** Per tile: a Spring's share of its flow to each Mill it feeds (1 for everything else). */
+  share: number[];
+  /** Per tile: for a Spring, how many Mills it feeds (0 for everything else). */
+  feeds: number[];
+}
+
+/** Share of a Spring's flow that each of k Mills gets: 1/(1+strain*(k-1)). Symmetric, so order never matters. */
+export function springShare(k: number, strain = config.tiles.spring.strain): number {
+  return k <= 1 ? 1 : 1 / (1 + strain * (k - 1));
 }
 
 /** Nodes at graph distance exactly 2 (Lighthouse range). Bridges do not extend it. */
@@ -119,22 +131,49 @@ export function production(g: TileGraph, tiles: (TileType | null)[], m: Mods): P
   const perTile = tiles.map(() => 0);
   // Relay map looked up once per board (its cache key is a join of the whole board).
   const relay = tiles.includes('bridge') ? relayAdjacency(g, tiles, m.reach) : null;
+  const adjOf = (i: number): Iterable<number> => (relay ? relay(i) : g.neighbours[i]);
+  // Strain pass: how many Mills each Spring feeds. A Spring touching a Bridge is channelled (full share).
+  const feeds = tiles.map(() => 0);
+  const share = tiles.map(() => 1);
+  tiles.forEach((t, i) => {
+    if (t !== 'spring') return;
+    let k = 0;
+    for (const n of adjOf(i)) if (tiles[n] === 'mill') k++;
+    feeds[i] = k;
+    const channelled = g.neighbours[i].some((n) => tiles[n] === 'bridge');
+    share[i] = channelled ? 1 : springShare(k, m.strain);
+  });
   let total = 0;
   tiles.forEach((t, i) => {
-    if (t !== 'spring' && t !== 'mill') return;
-    const adj: Iterable<number> = relay ? relay(i) : g.neighbours[i];
-    let out = T.spring.out;
-    if (t === 'mill') {
-      let springs = 0;
-      for (const n of adj) if (tiles[n] === 'spring') springs++;
-      out = T.mill.out * (1 + T.mill.perSpring * springs);
+    if (t !== 'spring' && t !== 'mill' && t !== 'scriptorium') return;
+    const adj = adjOf(i);
+    let out = 0;
+    if (t === 'spring') {
+      out = T.spring.out;
+      for (const n of g.neighbours[i]) if (tiles[n] === 'cistern') out *= T.cistern.mult;
+    } else if (t === 'mill') {
+      let flow = 0;
+      for (const n of adj) if (tiles[n] === 'spring') flow += share[n];
+      out = T.mill.out * (1 + T.mill.perSpring * flow);
+    } else {
+      const kinds = new Set<TileType>();
+      for (const n of g.neighbours[i]) if (tiles[n] && tiles[n] !== 'scriptorium') kinds.add(tiles[n]!);
+      out = T.scriptorium.out * kinds.size;
     }
-    for (const n of adj) if (tiles[n] === 'beacon') out *= m.beacon + m.beaconPerDegree * g.neighbours[n].length;
+    // Beacons: true neighbours multiply. Beacons reached only through a Bridge are fainter and add instead
+    // (Springs and Mills only), so a Bridge hub cannot stack them exponentially.
+    const lit = (n: number) => m.beacon + m.beaconPerDegree * g.neighbours[n].length;
+    for (const n of g.neighbours[i]) if (tiles[n] === 'beacon') out *= lit(n);
+    if (relay && t !== 'scriptorium') {
+      let far = 0;
+      for (const n of adj) if (tiles[n] === 'beacon' && !g.neighbours[i].includes(n)) far += lit(n) - 1;
+      out *= 1 + far;
+    }
     for (const n of ring2(g, i)) if (tiles[n] === 'lighthouse') out *= T.lighthouse.mult;
     perTile[i] = out * global;
     total += perTile[i];
   });
-  return { perTile, total };
+  return { perTile, total, share, feeds };
 }
 
 let cache: { key: string; p: Production } | null = null;
@@ -178,8 +217,7 @@ export function hasBoostedMill(s: GameState): boolean {
 }
 
 export function tileCost(s: GameState, t: TileType, n = owned(s, t)): Decimal {
-  const disc = t === 'spring' ? 0.6 ** s.chartUpg.cheapSprings : 1;
-  return new Decimal(config.tiles[t].cost * disc).mul(Decimal.pow(config.costGrowth, n));
+  return new Decimal(config.tiles[t].cost).mul(Decimal.pow(config.costGrowth, n));
 }
 
 export const isActive = (s: GameState, i: number) => graphOf(s).ring[i] <= s.ring;

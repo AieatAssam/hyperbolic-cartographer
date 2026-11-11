@@ -70,7 +70,7 @@ export const STEPS: TutStep[] = [
     id: 'boost',
     title: 'Adjacency boost',
     body: () =>
-      `Mill makes ${config.tiles.mill.out} Ink/s, +${pct(config.tiles.mill.perSpring)}% for each Spring sharing an edge. ` +
+      `Mill makes ${config.tiles.mill.out} Ink/s, +${pct(config.tiles.mill.perSpring)}% for each Spring sharing an edge. A Spring feeding several Mills gives each less. ` +
       'Only edge neighbours count (up to 4 on the square grid). Get a Mill touching a Spring.',
     complete: (s) => hasBoostedMill(s),
     manual: false,

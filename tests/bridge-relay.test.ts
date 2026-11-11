@@ -4,7 +4,7 @@ import { squareGraph } from '../src/core/geometry/square';
 import type { TileType } from '../src/core/tiles';
 import { bridgeComponents, bridgeTouchSet } from '../src/core/bridge-relay';
 
-const m = { global: 1, beacon: 1.5, beaconPerDegree: 0, reach: 1 };
+const m = { global: 1, beacon: 1.5, beaconPerDegree: 0, reach: 1, strain: 0.33 };
 
 describe('bridge relay chain', () => {
   it('touch set links every tile along a two-bridge chain', () => {

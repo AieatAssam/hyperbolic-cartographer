@@ -37,7 +37,7 @@ describe('flowLinksForTile', () => {
 
   it('does not split a two-bridge chain into hop segments', () => {
     const g = squareGraph(1);
-    const m = { global: 1, beacon: 1.5, beaconPerDegree: 0, reach: 1 };
+    const m = { global: 1, beacon: 1.5, beaconPerDegree: 0, reach: 1, strain: 0.33 };
     const tiles: (TileType | null)[] = g.ring.map(() => null);
     const by = (x: number, y: number) => g.xy.findIndex(([a, b]) => a === x && b === y);
     const spring = by(-1, 0);

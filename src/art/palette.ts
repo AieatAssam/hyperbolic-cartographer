@@ -84,7 +84,11 @@ export const TILE_IDENTITIES = {
   vault: { base: 0x0f9a6e, emissive: 0x4fe8b0, emissiveIntensity: 2.0, roughness: 0.7, metalness: 0, accent: 0xff9ab0 },
   /** lighthouse: magenta beacon-light. Boosts producers two steps away. */
   lighthouse: { base: 0xd0289a, emissive: 0xff7ad0, emissiveIntensity: 2.2, roughness: 0.64, metalness: 0, accent: 0xfff0a0 },
-} as const satisfies Record<'spring' | 'mill' | 'beacon' | 'bridge' | 'vault' | 'lighthouse', MaterialToken>;
+  /** cistern: teal basin water. Multiplies adjacent Springs. */
+  cistern: { base: 0x22b0b0, emissive: 0x7ff0f0, emissiveIntensity: 2.2, roughness: 0.6, metalness: 0, accent: 0xf6e7a0 },
+  /** scriptorium: sienna ink. Output grows with the kinds of tile beside it. */
+  scriptorium: { base: 0x8ebf1d, emissive: 0xc6f060, emissiveIntensity: 2.1, roughness: 0.66, metalness: 0, accent: 0xf4e4c1 },
+} as const satisfies Record<'spring' | 'mill' | 'beacon' | 'bridge' | 'vault' | 'lighthouse' | 'cistern' | 'scriptorium', MaterialToken>;
 
 /**
  * Empty board slot: a dark recessed well with a subdued violet border (accent), never near-white.
@@ -322,6 +326,20 @@ export const UI = {
   lineAlpha: 0.22,
   devPanelBg: [30, 8, 12] as const,
   devPanelBgAlpha: 0.8,
+} as const;
+
+/**
+ * Tile models (render/tile-models.ts). fill: model footprint as a fraction of the cell side (GAP), about 75% of the
+ * inner face at mid output. emissive: tint on the lit body (bloom stays off the models). Body colour = the type's
+ * emissive hue, accent band = the type's accent. ring*: the glow ring under each model. strain*: a Spring's loss of
+ * share (1 - share) dims and shrinks its model; a Bridge-channelled Spring gets a bright ring.
+ */
+/** Constellation completion choreography (seconds). Lines trace edge by edge, then members flare in turn. */
+export const CONSTELLATION_BURST = { seconds: 1.5, drawSeconds: 0.8, stagger: 0.12, bump: 0.5 } as const;
+
+export const MOTIF = {
+  fill: 0.56, emissive: 0.18, ringInner: 0.42, ringOuter: 0.5, ringLift: 0.012, ringAlpha: 0.55,
+  strainDim: 0.55, strainShrink: 0.22, strainTint: 0x6b7388, channelBoost: 1.3,
 } as const;
 
 /** Palette tool-chip fill: tile `base` from TILE_IDENTITIES. */
