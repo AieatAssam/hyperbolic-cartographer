@@ -19,7 +19,7 @@ const T = config.tiles;
 
 export const TOOL_HELP: Record<Tool, string> = {
   spring: `Produces ${fmt(T.spring.out)} Ink/s, split among the Mills it feeds: each extra Mill cuts every share (${[1, 2, 3, 4].map((k) => pct(springShare(k))).join(', ')}...). A Bridge touching it gives full flow. Tap or click an empty cell to place it.`,
-  mill: `Produces ${fmt(T.mill.out)} Ink/s, plus ${pct(T.mill.perSpring)} for each adjacent Spring's share. A Spring feeding several Mills splits its output, so put Mills next to Springs that feed few others, or link the Spring with a Bridge.`,
+  mill: `Produces ${fmt(T.mill.out)} Ink/s, plus ${pct(T.mill.perSpring)} for each adjacent Spring's share. A Spring feeding several Mills splits its output, so put Mills next to Springs that feed few others, or link the Spring with a Bridge. A Mill draws on at most ${T.mill.maxSprings} Springs.`,
   beacon: `Multiplies the output of adjacent tiles by x${T.beacon.mult}. A Beacon reached only through a Bridge adds its bonus instead of multiplying (Springs and Mills only).`,
   bridge: 'A chain of Bridges connects every tile touching the chain as if they were neighbours. A Spring touching a Bridge gives full flow to every Mill. Long Bridges extends relay one hop further.',
   vault: `Adds ${pct(T.vault.offline)} offline efficiency and ${pct(T.vault.global)} global Ink output for each Vault.`,

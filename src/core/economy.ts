@@ -152,8 +152,12 @@ export function production(g: TileGraph, tiles: (TileType | null)[], m: Mods): P
       out = T.spring.out;
       for (const n of g.neighbours[i]) if (tiles[n] === 'cistern') out *= T.cistern.mult;
     } else if (t === 'mill') {
+      // A Mill draws on at most maxSprings Springs (its strongest shares), so a Bridge hub cannot funnel a whole board into one Mill.
+      const shares: number[] = [];
+      for (const n of adj) if (tiles[n] === 'spring') shares.push(share[n]);
+      if (shares.length > T.mill.maxSprings) shares.sort((a, b) => b - a).length = T.mill.maxSprings;
       let flow = 0;
-      for (const n of adj) if (tiles[n] === 'spring') flow += share[n];
+      for (const x of shares) flow += x;
       out = T.mill.out * (1 + T.mill.perSpring * flow);
     } else {
       const kinds = new Set<TileType>();
