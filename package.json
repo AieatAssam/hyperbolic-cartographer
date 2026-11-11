@@ -11,7 +11,8 @@
     "test": "vitest run",
     "pacing": "PACING=1 vitest run tests/pacing.test.ts",
     "sim-economy": "npx tsx scripts/sim-economy.ts",
-    "layout": "node scripts/layout.mjs"
+    "layout": "node scripts/layout.mjs",
+    "playtest": "npx --yes tsx scripts/playtest.ts"
   },
   "dependencies": {
     "break_eternity.js": "^2.1.3",

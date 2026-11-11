@@ -30,6 +30,20 @@ export function simulate(s: GameState, dt: number, eff = 1, offline = false): Ga
   return s;
 }
 
+/**
+ * Advance `seconds` of simulated time in the same 0.1 s steps as live play, with live rules
+ * (no offline penalty). `onStep(s, t)` runs after each step with t = simulated seconds so far.
+ */
+export function fastForward(s: GameState, seconds: number, onStep?: (s: GameState, t: number) => void): GameState {
+  const steps = Math.round(seconds * config.tickRate);
+  const dt = 1 / config.tickRate;
+  for (let k = 1; k <= steps; k++) {
+    simulate(s, dt);
+    onStep?.(s, k * dt);
+  }
+  return s;
+}
+
 export interface OfflineReport {
   seconds: number;
   ink: Decimal;
