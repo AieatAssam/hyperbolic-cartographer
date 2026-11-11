@@ -328,6 +328,17 @@ These works inform readability and framing. They are **not** sources to copy or 
 | Cartography of the Riven Realms (Vagrus) | [Lost Pilgrims devlog](https://lostpilgrims.itch.io/vagrus/devlog/837441/cartography-of-the-riven-realms) | On phones, keep the free play band clean; drop secondary ornament before shrinking touch targets. |
 | Monument Valley (ustwo games) | [Monument Valley](https://ustwogames.co.uk/our-games/monument-valley/) | Each 3D surface reads as a calm centred monument with breathing room; building tiles use chunky silhouettes at phone size. |
 
+### STAGE (Wired in `surface-stage.ts`)
+
+| Token | Hex | Meaning |
+|---|---|---|
+| `brass` | `#c9a25a` | Plinth rim and gimbal rings. |
+| `lacquer` | `#140d24` | Chart plinth lacquer. |
+| `engrave` | `#7fd4ff` | Engraved compass ring. |
+| `mote` | `#cfd8ff` | Dust motes. |
+| `key` | `#ffe2b8` | Warm stage key light. |
+| `rim` | `#8fd0ff` | Cool stage rim light. |
+
 ### Manifold preview (Wired)
 
 | Token / behaviour | Meaning |

@@ -69,6 +69,7 @@ uniform float uTime;
 uniform vec2 uRes;
 uniform vec3 uTop, uHorizon, uBottom, uNebulaA, uNebulaB, uStar;
 uniform float uVignette, uGrain;
+uniform float uFocus; // 0 = default look, 1 = manifold on stage (calmer grid and nebula, darker corners)
 varying vec3 vDir;
 
 float hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -88,8 +89,9 @@ void main() {
   float t = uTime;
   float n1 = fbm(d * 2.2 + vec3(t * 0.012, 0.0, t * 0.008));
   float n2 = fbm(d * 4.1 + vec3(0.0, -t * 0.010, 0.0) + n1 * 1.5);
-  col += uNebulaA * smoothstep(0.42, 0.82, n1) * 0.55;
-  col += uNebulaB * smoothstep(0.48, 0.88, n2) * 0.42;
+  float nebulaK = 1.0 - 0.3 * uFocus;
+  col += uNebulaA * smoothstep(0.42, 0.82, n1) * 0.55 * nebulaK;
+  col += uNebulaB * smoothstep(0.48, 0.88, n2) * 0.42 * nebulaK;
 
   // Sparse ink-speck stars, kept under the bloom threshold.
   float s = noise(d * 160.0);
@@ -104,13 +106,15 @@ void main() {
   float contour = smoothstep(0.036, 0.0, abs(fract(fbm(d * 3.2 + t * 0.004) * 3.0) - 0.5));
   vec3 teal = vec3(0.22, 0.72, 0.82);
   vec3 gold = vec3(0.91, 0.78, 0.45);
-  col += teal * parallel * 0.2;
-  col += gold * (rhumb * 0.22 + contour * 0.15);
+  float gratK = 1.0 - 0.88 * uFocus;
+  col += teal * parallel * 0.2 * gratK;
+  col += gold * (rhumb * 0.22 + contour * 0.15) * gratK;
 
   // Parchment grain + vignette; keep the fog floor plum-dark (no milky haze).
   vec2 uv = gl_FragCoord.xy / uRes;
   col += (hash(vec3(gl_FragCoord.xy, 0.0)) - 0.5) * uGrain;
-  col *= mix(1.0 - uVignette, 1.0, smoothstep(0.92, 0.18, length(uv - 0.5)));
+  // Focus adds 0.23 to the vignette strength: corners land about 25% darker than at focus 0, centre unchanged.
+  col *= mix(1.0 - (uVignette + uFocus * 0.23), 1.0, smoothstep(0.92, 0.18, length(uv - 0.5)));
   col = max(col, uBottom * 0.32);
 
   gl_FragColor = vec4(col, 1.0);
@@ -134,6 +138,7 @@ function createBackdrop() {
       uStar: { value: c(BACKDROP.star) },
       uVignette: { value: BACKDROP.vignette },
       uGrain: { value: BACKDROP.grain },
+      uFocus: { value: 0 },
     },
     side: THREE.BackSide,
     depthWrite: false,
@@ -240,10 +245,19 @@ export function createScene(canvas: HTMLCanvasElement, opts: { preserveDrawingBu
   resize();
 
   let time = 0;
+  // Stage focus (backdrop uFocus): eased toward the target in renderFrame. Time constant ~0.2 s (settles in ~0.6 s).
+  let focusTarget = 0;
+  let focus = 0;
+  const FOCUS_TAU_S = 0.2;
+  /** 0 = default backdrop, 1 = manifold on stage (grid x0.12, nebula x0.7, corners ~25% darker). Clamped to 0..1. */
+  const setStageFocus = (target: number) => { focusTarget = Math.min(1, Math.max(0, target)); };
   /** Call once per rAF with frame delta in seconds. Replaces renderer.render(scene, camera). */
   const renderFrame = (dt: number) => {
-    time += Math.min(Math.max(dt, 0), 0.1) * BACKDROP.drift;
+    const stepS = Math.min(Math.max(dt, 0), 0.1);
+    time += stepS * BACKDROP.drift;
     backdrop.material.uniforms.uTime.value = time;
+    focus += (focusTarget - focus) * (1 - Math.exp(-stepS / FOCUS_TAU_S));
+    backdrop.material.uniforms.uFocus.value = focus;
     backdrop.mesh.position.copy(camera.position);
     const prev = gov.level;
     gov = stepGovernor(gov, dt);
@@ -276,7 +290,7 @@ export function createScene(canvas: HTMLCanvasElement, opts: { preserveDrawingBu
     renderer.dispose();
   };
 
-  return { renderer, scene, camera, controls, composer, renderFrame, resize, getQuality, setQuality, dispose };
+  return { renderer, scene, camera, controls, composer, renderFrame, resize, getQuality, setQuality, setStageFocus, dispose };
 }
 
 export type SceneHandle = ReturnType<typeof createScene>;

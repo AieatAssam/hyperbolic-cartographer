@@ -337,3 +337,8 @@ export const FX = {
   beaconAlpha: 0.6, beaconIdle: 0.3, popStrength: 1.6,
   addLeg: 0.6, addSpark: 0.5, addRing: 0.3, addPop: 0.3, addWash: 0, addVortex: 0.4,
 } as const;
+
+/** Manifold display stage (render/surface-stage.ts): brass plinth and gimbal, lacquer, engraving, motes, stage lights. */
+export const STAGE = {
+  brass: 0xc9a25a, lacquer: 0x140d24, engrave: 0x7fd4ff, mote: 0xcfd8ff, key: 0xffe2b8, rim: 0x8fd0ff,
+} as const;

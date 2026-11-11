@@ -13,12 +13,10 @@ import type { TileType } from '../core/tiles';
 import { TILE_TYPES } from '../core/tiles';
 import { config } from '../core/config';
 import {
-  chartCell, kleinBoundingRadius, kleinPatchCorners, TILE_GAP,
-  torusBoundingRadius, torusPatchCorners,
+  chartCell, kleinBoundingRadius, surfaceFrame, TILE_GAP, type Flow, type Surface3d,
+  torusBoundingRadius,
 } from './surface-params';
-import {
-  buildKleinImmersionSkin, buildSelfIntersectionLine, buildTorusSeamRing, buildTorusSkin,
-} from './surface-skin';
+import { buildKleinImmersionSkin, buildSelfIntersectionLine, buildTorusSkin } from './surface-skin';
 import { buildChartSeams, buildEdgeGhosts } from './surface-deco';
 import { circlePts } from './framing';
 
@@ -26,6 +24,8 @@ const GAP = 0.85;
 const INSET = 0.8;
 const PER_K = 15;
 const K = 4;
+/** Bounding radius for the 3D tile geometry (set once; the mesh is never frustum-culled). */
+const SPHERE_R = 40;
 
 const col = (hex: number) => new THREE.Color(hex);
 const TOK = Object.fromEntries(TILE_TYPES.map((t) => {
@@ -46,6 +46,22 @@ const C = {
   ghost: col(SURFACE.ghost),
 };
 
+/** Per-tile vertex attributes (position, normal, color, glow) plus the per-vertex placement clock. */
+function tileGeometry(verts: number): THREE.BufferGeometry {
+  const geo = new THREE.BufferGeometry();
+  for (const name of ['born', 'revealAt'])
+    geo.setAttribute(name, new THREE.BufferAttribute(new Float32Array(verts).fill(-1e4), 1));
+  for (const name of ['position', 'normal', 'color', 'glow'])
+    geo.setAttribute(name, new THREE.BufferAttribute(new Float32Array(verts * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  return geo;
+}
+
+function markBorn(geo: THREE.BufferGeometry, i: number, span: number, now: number) {
+  const a = geo.attributes.born as THREE.BufferAttribute;
+  (a.array as Float32Array).fill(now, i * span, (i + 1) * span);
+  a.needsUpdate = true;
+}
+
 /** Manifold preview board (torus 3D / chart, Klein square, Klein immersion). */
 export class SurfaceBoard {
   readonly group = new THREE.Group();
@@ -55,7 +71,18 @@ export class SurfaceBoard {
   chartMode = false;
   seamView = true;
   immersion3d = false;
-  private geom = new THREE.BufferGeometry();
+  /** Tiling shift in turns of the torus period, [u, v] in [0, 1). Ignored on Klein. */
+  flow: [number, number] = [0, 0];
+  private readonly geom: THREE.BufferGeometry;
+  private readonly geom3d: THREE.BufferGeometry;
+  private readonly S: number;
+  /** Vertices per tile in the curved 3D geometry: 6·S² top triangles + 24·S wall triangle vertices. */
+  private readonly vpt3d: number;
+  private readonly gridP: Float64Array;
+  private readonly gridN: Float64Array;
+  private hidden: Uint8Array;
+  private lastRing = 99;
+  private skinKey = '';
   private motifs: Record<TileType, THREE.InstancedMesh>;
   private uClock = { value: 0 };
   private meshKey = '';
@@ -82,13 +109,16 @@ export class SurfaceBoard {
     this.envMap = env;
     this.chartMode = surface === 'klein';
     const n = graph.ring.length;
-    const verts = n * K * PER_K;
+    this.S = config.manifold.patchSubdiv;
+    this.vpt3d = 6 * this.S * this.S + 24 * this.S;
+    this.gridP = new Float64Array((this.S + 1) * (this.S + 1) * 3);
+    this.gridN = new Float64Array((this.S + 1) * (this.S + 1) * 3);
+    this.hidden = new Uint8Array(n);
     this.embed = createEmbedding(n);
     this.tops = graph.ring.map(() => new THREE.Vector3());
-    for (const name of ['born', 'revealAt'])
-      this.geom.setAttribute(name, new THREE.BufferAttribute(new Float32Array(verts).fill(-1e4), 1));
-    for (const name of ['position', 'normal', 'color', 'glow'])
-      this.geom.setAttribute(name, new THREE.BufferAttribute(new Float32Array(verts * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    this.geom = tileGeometry(n * K * PER_K);
+    this.geom3d = tileGeometry(n * this.vpt3d);
+    this.geom3d.boundingSphere = new THREE.Sphere(new THREE.Vector3(), SPHERE_R);
     const toks = TILE_TYPES.map((t) => TILE_IDENTITIES[t]);
     const mat = new THREE.MeshStandardMaterial({
       vertexColors: true,
@@ -155,6 +185,21 @@ export class SurfaceBoard {
     return this.surface === 'klein' ? !this.immersion3d : this.chartMode;
   }
 
+  /** Sets the torus tiling shift (wrapped to [0, 1)). Klein has no flow: the glide tears under any v-shift. */
+  setFlow(u: number, v: number) {
+    const wrap = (t: number) => ((t % 1) + 1) % 1;
+    this.flow = [wrap(u), this.surface === 'torus' ? wrap(v) : 0];
+  }
+
+  /** The 3D surface name (only called on the curved 3D path, where surface is torus or klein). */
+  private surface3d(): Surface3d {
+    return this.surface === 'klein' ? 'klein' : 'torus';
+  }
+
+  private flowObj(): Flow {
+    return { u: this.flow[0], v: this.flow[1] };
+  }
+
   private clearGroup(g: THREE.Group) {
     while (g.children.length) {
       const ch = g.children[0];
@@ -192,12 +237,10 @@ export class SurfaceBoard {
 
   private syncSkin() {
     this.clearGroup(this.skinGroup);
-    const g = this.graph;
     if (this.surface === 'torus' && !this.chartMode) {
-      this.skinGroup.add(buildTorusSkin(g, this.envMap));
-      if (this.seamView) this.skinGroup.add(buildTorusSeamRing(g));
+      this.skinGroup.add(buildTorusSkin(this.envMap));
     } else if (this.surface === 'klein' && this.immersion3d) {
-      this.skinGroup.add(buildKleinImmersionSkin(g, this.envMap));
+      this.skinGroup.add(buildKleinImmersionSkin(this.envMap));
       this.skinGroup.add(buildSelfIntersectionLine());
     }
     this.syncTilePresentation();
@@ -205,18 +248,17 @@ export class SurfaceBoard {
 
   private syncDeco() {
     this.clearGroup(this.decoGroup);
-    const g = this.graph;
     if (!this.seamView) return;
     if (this.isChartFlat()) {
-      this.decoGroup.add(buildChartSeams(g, this.surface === 'klein'));
-      this.decoGroup.add(buildEdgeGhosts(g, this.surface === 'klein'));
+      this.decoGroup.add(buildChartSeams(this.graph, this.surface === 'klein'));
+      this.decoGroup.add(buildEdgeGhosts(this.graph, this.surface === 'klein'));
     }
   }
 
   private syncEmbedding() {
     const g = this.graph;
-    if (this.surface === 'torus') embedTorus(g, this.embed, { chart: this.chartMode });
-    else if (this.immersion3d) embedKleinImmersion(g, this.embed, {});
+    if (this.surface === 'torus') embedTorus(g, this.embed, { chart: this.chartMode, flow: this.flowObj() });
+    else if (this.immersion3d) embedKleinImmersion(g, this.embed, { flow: this.flowObj() });
     else embedKlein(g, this.embed, {});
   }
 
@@ -226,23 +268,14 @@ export class SurfaceBoard {
     const [x, y] = this.graph.xy[i];
     const g = this.graph;
     const flat = this.isChartFlat();
-    if (!flat && this.surface === 'torus') {
-      const patch = torusPatchCorners(x, y, g.width, g.height);
+    if (!flat) {
+      // Curved 3D: the tile frame sits at the cell centre; the patch itself is sampled in emitCurved.
+      const f = surfaceFrame(this.surface3d(), x + 0.5, y + 0.5, g.width, g.height, this.flowObj());
       return {
-        c: new THREE.Vector3(...patch.p),
-        n: new THREE.Vector3(...patch.n),
-        t: new THREE.Vector3(...patch.t),
-        pts: patch.corners.map((p) => new THREE.Vector3(...p)),
-        scale: 1,
-      };
-    }
-    if (!flat && this.surface === 'klein' && this.immersion3d) {
-      const patch = kleinPatchCorners(x, y, g.width, g.height);
-      return {
-        c: new THREE.Vector3(...patch.p),
-        n: new THREE.Vector3(...patch.n),
-        t: new THREE.Vector3(...patch.t),
-        pts: patch.corners.map((p) => new THREE.Vector3(...p)),
+        c: new THREE.Vector3(...f.skin),
+        n: new THREE.Vector3(...f.n),
+        t: new THREE.Vector3(...f.t),
+        pts: [],
         scale: 1,
       };
     }
@@ -253,7 +286,7 @@ export class SurfaceBoard {
     t.crossVectors(b, n).normalize();
     const c = new THREE.Vector3(...f.p);
     const cell = chartCell(g.width, g.height);
-    const half = (flat ? cell * 0.5 * (1 - TILE_GAP()) : GAP * 0.28) * Math.max(0.05, f.s);
+    const half = cell * 0.5 * (1 - TILE_GAP()) * Math.max(0.05, f.s);
     const pts = [
       c.clone().addScaledVector(t, -half).addScaledVector(b, -half),
       c.clone().addScaledVector(t, half).addScaledVector(b, -half),
@@ -263,9 +296,84 @@ export class SurfaceBoard {
     return { c, n, t, pts, scale: f.s };
   }
 
+  /**
+   * Curved 3D tile: an S×S top sampled on the surface (lifted along the normal by h) with perimeter walls
+   * down to the surface. Writes vpt3d vertices at this tile's slot in geom3d. Hidden tiles collapse to a point.
+   */
+  private emitCurved(i: number, faceCol: THREE.Color, sideCol: THREE.Color, glowCol: THREE.Color, h: number, ins: number, hidden: boolean, centre: THREE.Vector3) {
+    const S = this.S, N = S + 1;
+    const g = this.graph;
+    const [x, y] = g.xy[i];
+    const pos = this.geom3d.attributes.position.array as Float32Array;
+    const nrm = this.geom3d.attributes.normal.array as Float32Array;
+    const colA = this.geom3d.attributes.color.array as Float32Array;
+    const glowA = this.geom3d.attributes.glow.array as Float32Array;
+    const gp = this.gridP, gn = this.gridN;
+    const half = hidden ? 0 : 0.5 * ins;
+    const hTop = hidden ? 0 : h;
+    const flow = this.flowObj();
+    for (let a = 0; a <= S; a++) {
+      for (let b = 0; b <= S; b++) {
+        const f = surfaceFrame(this.surface3d(), x + 0.5 + (2 * a / S - 1) * half, y + 0.5 + (2 * b / S - 1) * half, g.width, g.height, flow, 0);
+        const k = (a * N + b) * 3;
+        gp[k] = f.p[0]; gp[k + 1] = f.p[1]; gp[k + 2] = f.p[2];
+        gn[k] = f.n[0]; gn[k + 1] = f.n[1]; gn[k + 2] = f.n[2];
+      }
+    }
+    let v = i * this.vpt3d;
+    const put = (px: number, py: number, pz: number, nx: number, ny: number, nz: number, cc: THREE.Color, gl: THREE.Color) => {
+      const j = v * 3;
+      pos[j] = px; pos[j + 1] = py; pos[j + 2] = pz;
+      nrm[j] = nx; nrm[j + 1] = ny; nrm[j + 2] = nz;
+      colA[j] = cc.r; colA[j + 1] = cc.g; colA[j + 2] = cc.b;
+      glowA[j] = gl.r; glowA[j + 1] = gl.g; glowA[j + 2] = gl.b;
+      v++;
+    };
+    // Grid sample (a, b) lifted by `lift` along its normal.
+    const vtx = (a: number, b: number, lift: number, cc: THREE.Color, gl: THREE.Color) => {
+      const k = (a * N + b) * 3;
+      put(gp[k] + gn[k] * lift, gp[k + 1] + gn[k + 1] * lift, gp[k + 2] + gn[k + 2] * lift, gn[k], gn[k + 1], gn[k + 2], cc, gl);
+    };
+    for (let a = 0; a < S; a++) {
+      for (let b = 0; b < S; b++) {
+        vtx(a, b, hTop, faceCol, glowCol);
+        vtx(a + 1, b, hTop, faceCol, glowCol);
+        vtx(a, b + 1, hTop, faceCol, glowCol);
+        vtx(a + 1, b, hTop, faceCol, glowCol);
+        vtx(a + 1, b + 1, hTop, faceCol, glowCol);
+        vtx(a, b + 1, hTop, faceCol, glowCol);
+      }
+    }
+    // Perimeter walls: one quad per boundary segment, top edge down to the surface.
+    const wall = (a0: number, b0: number, a1: number, b1: number) => {
+      const k0 = (a0 * N + b0) * 3, k1 = (a1 * N + b1) * 3;
+      const mx = (gp[k0] + gp[k1]) / 2 - centre.x, my = (gp[k0 + 1] + gp[k1 + 1]) / 2 - centre.y, mz = (gp[k0 + 2] + gp[k1 + 2]) / 2 - centre.z;
+      const tx = gp[k1] - gp[k0], ty = gp[k1 + 1] - gp[k0 + 1], tz = gp[k1 + 2] - gp[k0 + 2];
+      const sx = gn[k0] + gn[k1], sy = gn[k0 + 1] + gn[k1 + 1], sz = gn[k0 + 2] + gn[k1 + 2];
+      let wx = ty * sz - tz * sy, wy = tz * sx - tx * sz, wz = tx * sy - ty * sx;
+      const wl = Math.hypot(wx, wy, wz) || 1;
+      wx /= wl; wy /= wl; wz /= wl;
+      if (wx * mx + wy * my + wz * mz < 0) { wx = -wx; wy = -wy; wz = -wz; }
+      const t0 = (k: number, c: number, lift: number) => gp[k + c] + gn[k + c] * lift;
+      const put4 = (k: number, lift: number) => put(t0(k, 0, lift), t0(k, 1, lift), t0(k, 2, lift), wx, wy, wz, sideCol, C.black);
+      put4(k0, hTop); put4(k0, 0); put4(k1, hTop);
+      put4(k1, hTop); put4(k0, 0); put4(k1, 0);
+    };
+    for (let a = 0; a < S; a++) {
+      wall(a, 0, a + 1, 0);
+      wall(a, S, a + 1, S);
+      wall(0, a, 0, a + 1);
+      wall(S, a, S, a + 1);
+    }
+  }
+
   private rebuildMesh(g: SurfaceGraph, s: Pick<GameState, 'tiles' | 'ring'>) {
+    this.lastRing = s.ring;
     this.syncEmbedding();
     const n = g.ring.length;
+    const manifold3d = !this.isChartFlat();
+    const geo = manifold3d ? this.geom3d : this.geom;
+    if (this.tileMesh.geometry !== geo) this.tileMesh.geometry = geo;
     const pos = this.geom.attributes.position.array as Float32Array;
     const colA = this.geom.attributes.color.array as Float32Array;
     const glowA = this.geom.attributes.glow.array as Float32Array;
@@ -278,7 +386,6 @@ export class SurfaceBoard {
     }
     const embed = this.embed;
     const kleinGlass = this.kleinGlass();
-    const manifold3d = !this.isChartFlat();
     const { c, side, border, glow, trim } = this;
     for (let i = 0; i < n; i++) {
       const o = this.tileCorners(i);
@@ -344,7 +451,13 @@ export class SurfaceBoard {
         this.m4.scale(this.sc);
         im.setMatrixAt(im.count++, this.m4);
       }
-      const hidden = o.scale <= 0;
+      const hiddenTile = o.scale <= 0;
+      this.hidden[i] = hiddenTile ? 1 : 0;
+      if (manifold3d) {
+        this.emitCurved(i, c, side, glow, h, ins, hiddenTile, o.c);
+        continue;
+      }
+      const hidden = hiddenTile;
       const insetAt = (corner: THREE.Vector3) => topC.clone().lerp(corner, ins);
       let v = i * K * PER_K;
       const put = (x: number, y: number, z: number, cc: THREE.Color, gl: THREE.Color) => {
@@ -403,7 +516,7 @@ export class SurfaceBoard {
         put(q.x, q.y, q.z, side, C.black);
         put(p.x, p.y, p.z, side, C.black);
       }
-      if (this.seamView) {
+      if (this.seamView && !manifold3d) {
         for (const j of g.neighbours[i]) {
           if (!g.seamEdge(i, j) || j < i) continue;
           const ghost = new THREE.Mesh(
@@ -418,16 +531,20 @@ export class SurfaceBoard {
         }
       }
     }
-    this.geom.computeVertexNormals();
+    if (!manifold3d) this.geom.computeVertexNormals();
     bumpRev(embed);
-    for (const name of ['position', 'normal', 'color', 'glow']) this.geom.attributes[name].needsUpdate = true;
+    for (const name of ['position', 'normal', 'color', 'glow']) geo.attributes[name].needsUpdate = true;
     for (const t of TILE_TYPES) this.motifs[t].instanceMatrix.needsUpdate = true;
-    this.syncSkin();
-    this.syncDeco();
+    const skinKey = `${this.surface}|${this.chartMode}|${this.immersion3d}|${this.seamView}`;
+    if (skinKey !== this.skinKey) {
+      this.skinKey = skinKey;
+      this.syncSkin();
+      this.syncDeco();
+    }
   }
 
   update(s: GameState, _perTile: number[], hover: number, hoverAdj?: number[]) {
-    const key = `${s.tiles.join()}|${s.ring}|${hover}|${hoverAdj?.join() ?? ''}|${this.chartMode}|${this.seamView}|${this.immersion3d}`;
+    const key = `${s.tiles.join()}|${s.ring}|${hover}|${hoverAdj?.join() ?? ''}|${this.chartMode}|${this.seamView}|${this.immersion3d}|${this.flow.join()}`;
     if (key === this.meshKey) return;
     this.meshKey = key;
     this.rebuildMesh(this.graph, s);
@@ -457,13 +574,25 @@ export class SurfaceBoard {
     });
   }
 
+  /** 3D only: the tile under a ray, via the hit triangle's first vertex (tile = vertex / vpt3d). -1 on miss. */
+  pickRay(raycaster: THREE.Raycaster): number {
+    if (this.isChartFlat()) return -1;
+    const n = this.graph.ring.length;
+    for (const hit of raycaster.intersectObject(this.tileMesh, false)) {
+      const a = hit.face?.a;
+      if (a === undefined) continue;
+      const tile = Math.floor(a / this.vpt3d);
+      if (tile >= n || this.hidden[tile]) continue;
+      if (this.graph.ring[tile] > this.lastRing + 1) continue;
+      return tile;
+    }
+    return -1;
+  }
+
   markPlaced(i: number, now: number) {
     if (!(i >= 0 && i < this.graph.ring.length)) return;
-    const span = K * PER_K;
-    const a = this.geom.attributes.born as THREE.BufferAttribute;
-    const born = a.array as Float32Array;
-    born.fill(now, i * span, (i + 1) * span);
-    a.needsUpdate = true;
+    markBorn(this.geom, i, K * PER_K, now);
+    markBorn(this.geom3d, i, this.vpt3d, now);
   }
 
   markRevealed() {}
@@ -485,6 +614,8 @@ export class SurfaceBoard {
         (Array.isArray(m) ? m : [m]).forEach((x) => x.dispose());
       }
     });
+    this.geom.dispose();
+    this.geom3d.dispose();
   }
 
   cellWorld(i: number) {

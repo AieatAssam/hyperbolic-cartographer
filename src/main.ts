@@ -20,6 +20,7 @@ import { canDrift, canProject, drift, project } from './core/prestige';
 import { applyOffline, simulate } from './core/tick';
 import { exportString, importSave, makeSave, toJson } from './core/save';
 import { TILE_INFO, TILE_TYPES, type TileType } from './core/tiles';
+import { buildManifoldStage, type ManifoldStage } from './render/surface-stage';
 import { createScene, type QualityLevel } from './render/scene';
 import { Board } from './render/board';
 import { SurfaceBoard } from './render/surface-board';
@@ -30,7 +31,8 @@ import {
   fitManifoldProjected, checkManifoldProjectFit, kleinImmersionTargetY, manifoldFitPolar,
   measureTorusLandscapeBox, resetManifoldFitFov,
 } from './render/manifold-camera-fit';
-import { kleinCameraOffset } from './render/surface-params';
+import { kleinCameraOffset, torusBoundingRadius, kleinBoundingRadius } from './render/surface-params';
+import { kleinBottleAabb } from './render/klein-bottle';
 import { CartographyFX, type FxContext, type FxQuality } from './render/fx';
 import { analyseCanvasPixels } from './render/canvas-check';
 import type { BoardHighlight } from './render/board-highlight';
@@ -76,7 +78,7 @@ const persist = () => store.set(KEY, exportString(makeSave(s, Date.now())));
 
 // ---- render ----
 const canvas = document.getElementById('c') as HTMLCanvasElement;
-const { renderer, scene, camera, controls, composer, renderFrame, getQuality, setQuality } = createScene(canvas, { preserveDrawingBuffer: qa });
+const { renderer, scene, camera, controls, composer, renderFrame, getQuality, setQuality, setStageFocus } = createScene(canvas, { preserveDrawingBuffer: qa });
 const fx = new CartographyFX(getQuality().level as FxQuality);
 scene.add(fx.group);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
@@ -496,6 +498,8 @@ function linkApexScreen(links: readonly { from: number; to: number }[], i: numbe
   return { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H };
 }
 
+let hover = -1; // mouse hover only; touch uses tap.selected
+let qaHover = -1; // layout/capture hook; cleared on pointer move
 const ui = createUI(document.getElementById('ui')!, {
   state: () => s,
   tool,
@@ -736,8 +740,6 @@ const worldAt = (x: number, y: number) => {
   ray.setFromCamera(ndc, camera);
   return ray.ray.intersectPlane(plane, new THREE.Vector3());
 };
-let hover = -1; // mouse hover only; touch uses tap.selected
-let qaHover = -1; // layout/capture hook; cleared on pointer move
 let panFrom: THREE.Vector3 | null = null; // hyperbolic one-pointer pan anchor
 const PLACE_TOOLS = new Set<TileType>(['spring', 'mill', 'beacon', 'bridge', 'vault']);
 const isPlaceTool = (t: Tool): t is TileType => PLACE_TOOLS.has(t as TileType);
@@ -787,6 +789,10 @@ function cellHtml(i: number): string {
   const meta = (s: string) => `<div class="info-meta">${s}</div>`;
   const effect = (s: string) => `<div class="info-effect">${s}</div>`;
   const note = (s: string) => `<div class="info-note muted">${s}</div>`;
+  if (manifoldTiles) { // preview board: its own graph and tiles, no economy
+    const t = manifoldTiles[i];
+    return lead(t ? TILE_INFO[t].name : tl === 'sell' || tl === 'pin' ? 'Empty cell' : `Place ${TILE_INFO[tl].name}`);
+  }
   if (!isActive(s, i)) {
     return `${lead('Unsurveyed')}${note(`Survey ring ${graphOf(s).ring[i]} to open this cell.`)}`;
   }
@@ -833,9 +839,27 @@ function cellHtml(i: number): string {
 }
 
 const pickAt = (x: number, y: number) => {
-  const w = worldAt(x, y);
+  const w = worldAt(x, y); // also aims `ray`
+  if (flow3d() && isSurfaceBoard(board)) return board.pickRay(ray);
   return w ? board.pick(w.x, w.z, renderState()) : -1;
 };
+/** 3D manifold: the tiling can slide over the surface, so left-drag drives that flow instead of the camera. */
+const flow3d = () => manifoldPreview !== 'off' && isSurfaceBoard(board) && !board.isChartFlat();
+/** Drag in px -> flow. Torus: x spins the tiling around the ring, y rolls it through the hole.
+ *  Klein: only the glide direction is a symmetry, so y pushes tiles through the neck and x turns the bottle. */
+function dragFlow(dx: number, dy: number) {
+  if (!isSurfaceBoard(board)) return;
+  const k = config.manifold.dragFlow, [fu, fv] = board.flow;
+  if (board.surface === 'torus') board.setFlow(fu + dx * k, fv + dy * k);
+  else (board.setFlow(fu + dy * k, 0), (board.group.rotation.y += dx * 0.006));
+}
+// Capture runs before OrbitControls' own pointerdown, so it sees the right binding for this gesture.
+canvas.addEventListener('pointerdown', () => {
+  if (manifoldPreview === 'off') return;
+  const f = flow3d();
+  controls.mouseButtons.LEFT = f ? null : THREE.MOUSE.ROTATE;
+  controls.touches.ONE = f ? null : THREE.TOUCH.ROTATE;
+}, true);
 const kindOf = (e: PointerEvent): PointerKind => (e.pointerType === 'touch' ? 'touch' : e.pointerType === 'pen' ? 'pen' : 'mouse');
 const endPointer = () => {
   if (tap.active === 0) panFrom = null;
@@ -875,7 +899,9 @@ addEventListener('pointercancel', (e) => {
 });
 canvas.addEventListener('pointermove', (e) => {
   qaHover = -1;
-  if (tap.move(e.pointerId, e.clientX, e.clientY) && s.geometry === 'hyper' && panFrom && !isSurfaceBoard(board)) {
+  const drag = tap.move(e.pointerId, e.clientX, e.clientY);
+  if (drag && flow3d()) dragFlow(e.movementX, e.movementY);
+  else if (drag && s.geometry === 'hyper' && panFrom && !isSurfaceBoard(board)) {
     const w = worldAt(e.clientX, e.clientY);
     if (w) board.pan(w.x - panFrom.x, w.z - panFrom.z, maxRing(s)), (panFrom = w);
   }
@@ -885,6 +911,26 @@ canvas.addEventListener('pointermove', (e) => {
 });
 canvas.addEventListener('pointerleave', () => ((hover = -1), ui.tooltip(0, 0, null)));
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// Plinth, gimbal rings and lights exist only while a 3D manifold is on show.
+let stage: ManifoldStage | null = null, stageFor = '';
+function syncStage(t: number, dt: number) {
+  const want = flow3d() && isSurfaceBoard(board) ? board.surface : '';
+  if (want !== stageFor) {
+    stageFor = want;
+    if (stage) (scene.remove(stage.group), stage.dispose(), (stage = null));
+    if (want) {
+      const torus = want === 'torus';
+      const radius = torus ? torusBoundingRadius() : kleinBoundingRadius();
+      const floorY = torus ? -config.manifold.torusMinorR : kleinBottleAabb().lo[1];
+      const q = getQuality().level;
+      stage = buildManifoldStage(radius, floorY, scene.environment, q <= 0 ? 'low' : q === 1 ? 'medium' : 'high');
+      scene.add(stage.group);
+    }
+    setStageFocus(want ? 1 : 0);
+  }
+  stage?.tick(t, dt, reduced.matches);
+}
 
 // ---- persistence ----
 setInterval(persist, 10_000);
@@ -971,12 +1017,18 @@ function frame(now: number) {
   if (!locked) diffFx();
   fx.update(dt, ctx);
   board.tick(fx.now, reduced.matches);
-  if (manifoldSpinOn && isSurfaceBoard(board) && !board.isChartFlat()) {
-    if (board.surface === 'klein' && board.immersion3d) {
+  syncStage(now / 1000, dt);
+  if (isSurfaceBoard(board) && !board.isChartFlat()) {
+    if (manifoldSpinOn && board.surface === 'klein') {
       kleinSpinPhase += dt * config.manifold.idleSpin;
       board.group.rotation.y = Math.sin(kleinSpinPhase) * config.manifold.kleinSpinSway;
-    } else {
-      board.group.rotation.y += dt * config.manifold.idleSpin;
+    }
+    // Gentle idle flow carries tiles round the far side / through the bottle; it holds still while a cell is
+    // being aimed at so the target never slides out from under the pointer.
+    if (!qa && !reduced.matches && !tap.active && focus < 0) {
+      const v = dt * config.manifold.idleFlow, [fu, fv] = board.flow;
+      if (board.surface === 'torus') board.setFlow(fu + v * 0.5, fv + v);
+      else board.setFlow(fu + v, 0);
     }
   }
   controls.update();

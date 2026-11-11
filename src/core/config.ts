@@ -77,6 +77,12 @@ export const config = {
     kleinSkinU: 96,
     kleinSkinV: 48,
     torusImmersionPolar: 1.08,
+    patchSubdiv: 6,
+    torusSkinU: 160,
+    torusSkinV: 48,
+    kleinSkinDetail: 2,
+    dragFlow: 0.0025,
+    idleFlow: 0.012,
   },
 };
 

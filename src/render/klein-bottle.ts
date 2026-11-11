@@ -6,10 +6,45 @@ export type Tuple3 = [number, number, number];
 export const KLEIN_U_MAX = Math.PI;
 export const KLEIN_V_MAX = Math.PI * 2;
 
+/**
+ * Continuous grid coords (cell centres at x+0.5, y+0.5) → immersion (u,v), no clamp.
+ * The +π/2 phase on v makes the glide Y → h−Y match (π,v) ≡ (0,π−v) exactly.
+ */
+export function kleinParam(gx: number, gy: number, w: number, h: number): [number, number] {
+  const k = Math.floor(gx / w); // lift along x: each odd sheet is glide-reflected
+  if (k & 1) gy = h - gy;
+  const tab = arcTable(), f = (gx / w - k) * ARC_N, i = Math.min(ARC_N - 1, Math.floor(f));
+  return [tab[i] + (tab[i + 1] - tab[i]) * (f - i), (gy / h) * KLEIN_V_MAX + Math.PI / 2];
+}
+
+/** u at equal arc-length steps along the tube centreline, so columns are evenly long instead of bunching in the neck. */
+const ARC_N = 256;
+let arcU: Float64Array | null = null;
+function arcTable(): Float64Array {
+  if (arcU) return arcU;
+  const N = 2048, len = new Float64Array(N + 1);
+  const centre = (u: number) => {
+    const c = [0, 0, 0];
+    for (let k = 0; k < 4; k++) kleinBottleRaw(u, (k * Math.PI) / 2).forEach((x, j) => (c[j] += x / 4));
+    return c;
+  };
+  let prev = centre(0);
+  for (let i = 1; i <= N; i++) {
+    const p = centre((i / N) * KLEIN_U_MAX);
+    len[i] = len[i - 1] + Math.hypot(p[0] - prev[0], p[1] - prev[1], p[2] - prev[2]);
+    prev = p;
+  }
+  arcU = new Float64Array(ARC_N + 1);
+  for (let k = 0, j = 0; k <= ARC_N; k++) {
+    const target = (k / ARC_N) * len[N];
+    while (j < N - 1 && len[j + 1] < target) j++;
+    arcU[k] = ((j + (target - len[j]) / (len[j + 1] - len[j] || 1)) / N) * KLEIN_U_MAX;
+  }
+  return arcU;
+}
+
 export function kleinGridToUv(gx: number, gy: number, w: number, h: number): [number, number] {
-  const u = Math.min(KLEIN_U_MAX, (gx / w) * KLEIN_U_MAX);
-  const v = (gy / h) * KLEIN_V_MAX;
-  return [u, v];
+  return kleinParam(gx, gy, w, h);
 }
 
 export function kleinMeshUv(ui: number, uSteps: number, vi: number, vSteps: number): [number, number] {
