@@ -31,10 +31,13 @@ peakHeap = Math.max(peakHeap, process.memoryUsage().heapUsed);
 const wallSec = (performance.now() - t0) / 1000;
 
 const fmt = (x: number | undefined) => (x === undefined ? 'never' : `${x.toFixed(1)} min`);
-console.log(`\nmilestones: Drift available ${fmt(log.firstDriftReady)}, first Drift ${fmt(log.firstDrift)}, Projection ${fmt(log.projection)}, ring 4+ hyper ${fmt(log.hyperFull)}`);
+console.log(
+  `\nmilestones: Drift available ${fmt(log.firstDriftReady)}, first Drift ${fmt(log.firstDrift)}, Projection ${fmt(log.projection)}, ` +
+    `Projection 2 ${fmt(log.projection2)}, ring 4+ hyper ${fmt(log.hyperFull)}`,
+);
 console.log(`final: ring ${s.ring} ${s.geometry}, drifts ${s.drifts}, projections ${s.projections}, ${mix(s)}`);
+console.log(`progress: achievements ${s.achievements.length}, charts ${s.charts.toExponential(2)}, curvature ${s.curvature.toExponential(2)}`);
 console.log(`wall ${wallSec.toFixed(1)} s, peak heap ${(peakHeap / 1e6).toFixed(0)} MB`);
-
 const failures: string[] = [];
 // A run shorter than a limit cannot judge that milestone.
 if (minutes >= LIMITS.driftReady && (log.firstDriftReady === undefined || log.firstDriftReady >= LIMITS.driftReady)) failures.push(`Drift not available before ${LIMITS.driftReady} min`);
