@@ -100,11 +100,8 @@ type Dec = GameState['ink'];
 const TABS: [Tab, string][] = [
   ['map', 'Map'], ['constellations', 'Stars'], ['drift', 'Drift'], ['charts', 'Charts'], ['proj', 'Projection'], ['miles', 'Milestones'], ['atlas', 'Atlas'], ['save', 'Settings'], ['guide', 'Guide'],
 ];
-const CONST_NAMES: Record<ConstellationId, string> = {
-  inkstream: config.constellations.inkstream.name,
-  millwheel: config.constellations.millwheel.name,
-  twinmills: config.constellations.twinmills.name,
-};
+const CONST_DEFS = Object.entries(config.constellations) as [ConstellationId, (typeof config.constellations)[ConstellationId]][];
+const CONST_NAMES = Object.fromEntries(CONST_DEFS.map(([id, d]) => [id, d.name])) as Record<ConstellationId, string>;
 const TOOL_NAME: Record<Tool, string> = { ...Object.fromEntries(TILE_TYPES.map((t) => [t, TILE_INFO[t].name])), sell: 'Sell', pin: 'Pin' } as Record<Tool, string>;
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] => {
@@ -659,18 +656,22 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const constellationsTab = (_s: GameState): HTMLElement[] => {
     const intro = card(
       title('Constellations'),
-      txt('Place named shapes on the board for Ink bonuses. Gold lines mark a pattern; dashed lines show a hint while you preview.'),
-      list('guide-list', [
-        `${config.constellations.inkstream.name}: ${config.constellations.inkstream.blurb} (+${config.constellations.inkstream.bonusInk} Ink)`,
-        `${config.constellations.millwheel.name}: ${config.constellations.millwheel.blurb} (+${config.constellations.millwheel.bonusInk} Ink)`,
-        `${config.constellations.twinmills.name}: ${config.constellations.twinmills.blurb} (+${config.constellations.twinmills.bonusInk} Ink)`,
-      ]),
+      txt(`Place named shapes on the board for Ink bonuses. Each pays its bonus or ${config.constellationScale.sec} s of Ink/s, whichever is more; repeats of the same shape in one run pay less. Gold lines mark a pattern; dashed lines show a hint while you preview.`),
     );
+    const shapeCard = card(title('Shapes'));
+    const discoveredLine = el('p', 'muted', '');
+    const shapeList = el('ul', 'guide-list');
+    shapeCard.append(discoveredLine, shapeList);
     const logCard = card(title('Completed this journey'));
     const logList = el('ul', 'guide-list');
     logCard.append(logList);
     watch(() => {
       const g = get();
+      const seen = new Set(g.constellationLog.map((r) => r.id));
+      discoveredLine.textContent = `Discovered ${seen.size} of ${CONST_DEFS.length} shapes`;
+      shapeList.replaceChildren(
+        ...CONST_DEFS.map(([id, d]) => el('li', seen.has(id) ? '' : 'muted', `${d.name}: ${d.blurb} (+${d.bonusInk} Ink)`)),
+      );
       logList.replaceChildren();
       if (!g.constellationLog.length) {
         logList.append(el('li', 'muted', 'None yet — complete a pattern on the board.'));
@@ -680,7 +681,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
         logList.append(el('li', '', `${CONST_NAMES[row.id]} · +${fmt(row.bonusInk, g.notation)} Ink`));
       }
     });
-    return [intro, logCard];
+    return [intro, shapeCard, logCard];
   };
 
   const mapTab = (s: GameState): HTMLElement[] => {
