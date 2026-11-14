@@ -4,6 +4,7 @@ import { TILE_INFO, TILE_TYPES, type TileType } from '../core/tiles';
 import type { ImportResult } from '../core/save';
 import type { OfflineReport } from '../core/tick';
 import { autoSurveyOn } from '../core/tick';
+import { blueprintProgress, clearBlueprint, saveBlueprint } from '../core/blueprint';
 import { config, chartUpgrades, curvUpgrades, type ChartUpgradeId, type CurvUpgradeId, type UpgradeDef } from '../core/config';
 import { MILESTONES, has } from '../core/milestones';
 import { canProject, chartsOnDrift, curvatureOnProjection } from '../core/prestige';
@@ -737,6 +738,53 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       card(title('Drift'), txt(DRIFT_EXPLAIN), stats, dc.box),
       card(title('Drift resets'), list('reset', DRIFT_RESETS), title('Drift keeps'), list('keep', DRIFT_KEEPS)),
     ];
+    if (!has(s, 'blueprint')) {
+      out.push(el('p', 'help', 'First Drift unlocks Blueprints: save a layout and it rebuilds itself.'));
+    } else {
+      const bpLine = txt('');
+      const sb = btn('Save layout', 'primary', () => {
+        const n = saveBlueprint(get());
+        if (n > 0) toast(`Blueprint saved: ${n} tiles`);
+      });
+      sb.dataset.qa = 'bp-save';
+      const sc = ctl(sb, 'Save layout', BUTTON_HELP.blueprintSave);
+      const clr = btn('Clear', '', () => clearBlueprint(get()));
+      clr.dataset.qa = 'bp-clear';
+      const cc = ctl(clr, 'Clear', BUTTON_HELP.blueprintClear);
+      watch(() => {
+        const g = get();
+        const bp = g.blueprints[g.geometry];
+        if (!bp) {
+          bpLine.textContent = 'No blueprint saved for this board.';
+        } else {
+          const { total, placed } = blueprintProgress(g);
+          bpLine.textContent = `Blueprint: ${placed} of ${total} tiles placed.`;
+        }
+        const empty = g.tiles.every((t) => t === null);
+        sb.disabled = empty;
+        sc.why(empty ? 'Place some tiles first. The board is empty.' : null);
+        clr.disabled = !bp;
+      });
+      const abox = el('input');
+      abox.type = 'checkbox';
+      abox.checked = s.autoBuild;
+      abox.onchange = () => {
+        get().autoBuild = abox.checked;
+      };
+      const alab = el('label', 'check');
+      alab.append(abox, ' Rebuild automatically');
+      help(alab, 'Rebuild automatically', BUTTON_HELP.blueprintAuto);
+      out.push(
+        card(
+          title('Blueprint'),
+          bpLine,
+          sc.box,
+          cc.box,
+          alab,
+          el('p', 'help', 'After a Drift the blueprint places its tiles again, cheapest first, as Ink allows. It never sells or replaces tiles. Each board shape keeps its own blueprint.'),
+        ),
+      );
+    }
     if (has(s, 'autoDrift')) {
       const cb = el('input');
       cb.type = 'checkbox';

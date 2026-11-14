@@ -56,7 +56,7 @@ export const TAB_HELP: Record<Tab, string> = {
 };
 
 export const BUTTON_HELP: Record<
-  'menu' | 'guide' | 'survey' | 'recenter' | 'drift' | 'project' | 'buyChart' | 'buyCurv' | 'autoDrift' |
+  'menu' | 'guide' | 'survey' | 'recenter' | 'drift' | 'project' | 'buyChart' | 'buyCurv' | 'autoDrift' | 'blueprintSave' | 'blueprintClear' | 'blueprintAuto' |
   'copy' | 'download' | 'import' | 'notation' | 'reset' | 'place' | 'cancel' |
   'tutNext' | 'tutBack' | 'tutHide' | 'tutRestart' | 'check' | 'overwrite' | 'confirmReset' | 'close' | 'sound',
   string
@@ -70,6 +70,9 @@ export const BUTTON_HELP: Record<
   buyChart: 'Spend Charts to raise this upgrade by one level.',
   buyCurv: 'Spend Curvature to raise this upgrade by one level.',
   autoDrift: 'Drift automatically once run Charts reach the number you set.',
+  blueprintSave: 'Save the current layout as this board\'s blueprint. Replaces any blueprint already saved here.',
+  blueprintClear: 'Forget this board\'s blueprint. Tiles already placed stay where they are.',
+  blueprintAuto: 'Rebuild the blueprint automatically as Ink allows, after each Drift.',
   copy: 'Copy the save string to the clipboard. Paste it into Import later to restore progress.',
   download: 'Download your save as a .json file to keep as a backup.',
   import: 'Load a save string or .json file. You see a preview before anything is overwritten.',

@@ -9,6 +9,7 @@ export interface Milestone {
 
 export const MILESTONES: Milestone[] = [
   { id: 'keepSurvey', name: '1 Drift', desc: 'Drift keeps your first Survey.', req: (s) => s.drifts >= 1 },
+  { id: 'blueprint', name: '1 Drift', desc: 'Blueprints: save a layout and it rebuilds itself after each Drift.', req: (s) => s.drifts >= 1 },
   { id: 'headStart', name: '2 Drifts', desc: 'Start each run with 100 Ink.', req: (s) => s.drifts >= 2 },
   { id: 'autoSurvey', name: '3 Drifts', desc: 'Auto-Survey when affordable.', req: (s) => s.drifts >= 3 },
   { id: 'autoSprings', name: '5 Drifts', desc: 'Auto-place Springs into empty cells.', req: (s) => s.drifts >= 5 },

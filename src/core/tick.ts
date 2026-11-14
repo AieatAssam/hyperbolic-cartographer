@@ -4,6 +4,7 @@ import { graphOf, type GameState } from './state';
 import { isActive, offlineCapSec, offlineEff, place, prod, surgeMult, survey } from './economy';
 import { chartsOnDrift, drift } from './prestige';
 import { has } from './milestones';
+import { blueprintReserves, blueprintStep } from './blueprint';
 
 export const autoSurveyOn = (s: GameState) => s.chartUpg.autoSurvey > 0 || has(s, 'autoSurvey');
 export const autoSpringsOn = (s: GameState) => s.chartUpg.autoSprings > 0 || has(s, 'autoSprings');
@@ -20,10 +21,11 @@ export function simulate(s: GameState, dt: number, eff = 1, offline = false): Ga
   s.totalTime += dt;
 
   if (autoSurveyOn(s)) survey(s);
-  // Board is static offline: auto-Springs only run live.
+  // Board is static offline: blueprints and auto-Springs only run live.
+  if (!offline && has(s, 'blueprint') && s.autoBuild && s.blueprints[s.geometry]) blueprintStep(s);
   if (!offline && autoSpringsOn(s) && (s.autoSpringTimer += dt) >= config.autoSpringInterval) {
     s.autoSpringTimer = 0;
-    const empty = graphOf(s).ring.findIndex((_, i) => isActive(s, i) && !s.tiles[i]);
+    const empty = graphOf(s).ring.findIndex((_, i) => isActive(s, i) && !s.tiles[i] && !blueprintReserves(s, i));
     if (empty >= 0) place(s, empty, 'spring');
   }
   if (has(s, 'autoDrift') && s.autoDrift.on && chartsOnDrift(s).gte(Math.max(1, s.autoDrift.at))) drift(s);

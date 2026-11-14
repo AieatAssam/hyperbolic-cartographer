@@ -34,6 +34,7 @@ Other controls:
 
 - **Sell**: removes a tile for a 50% refund.
 - **Pin**: pins a tile so it survives Drift. Pin slots are limited; Brass Pins adds more.
+- **Blueprint** (Drift tab, unlocked by 1 Drift): save the current layout, and after each Drift it rebuilds the tiles, cheapest first, as Ink allows. Each board shape keeps its own.
 - Disabled buttons show a line saying what is missing.
 - Some upgrades automate play: Survey Crew (auto-Survey) and Well Diggers (auto-place Springs).
 
