@@ -34,10 +34,12 @@ export function blueprintStep(s: GameState): number | null {
   let pick = -1;
   let pickType: TileType | null = null;
   let pickCost = null as ReturnType<typeof tileCost> | null;
+  const costs = new Map<TileType, ReturnType<typeof tileCost>>();
   for (let i = 0; i < bp.length; i++) {
     const t = bp[i];
     if (t === null || s.tiles[i] || !isActive(s, i)) continue;
-    const cost = tileCost(s, t);
+    let cost = costs.get(t); // tileCost counts the board, so price each type once
+    if (!cost) costs.set(t, (cost = tileCost(s, t)));
     if (pickCost === null || cost.lt(pickCost)) {
       pick = i;
       pickType = t;
