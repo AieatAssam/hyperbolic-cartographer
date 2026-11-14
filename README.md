@@ -191,6 +191,7 @@ Changes from the original brief (all in `src/core/config.ts`; formulas unchanged
 - Manifold 3D flow (visual only): the tiling slides over the surface so far-side and interior cells come to you. Drag the torus to spin it (x) or roll it through the hole (y); drag the Klein bottle vertically to glide tiles through the neck, horizontally to turn it; right-drag orbits the camera. `dragFlow` **0.0025** turns/px, `idleFlow` **0.012** turns/s (off with reduced motion), tile patch subdivision `patchSubdiv` **6**.
 - Portrait playable framing: `camera.portraitPolar` 0.55 rad and `portraitTopPad` 18 px so a square board fills more of the HUD-to-dock band without clipping (width still limits size; leftover height sits above the info card).
 - Visual only (`src/art/palette.ts`, not balance): key-light shadows on high quality only (`QUALITY_PROFILES.shadows`; 2048 map, ±11 ortho extent, bias -0.0005, normal bias 0.02), and empty slots `EMPTY_SLOT.emissiveIntensity` **0.2** and `restRimMix` **0.28** so the rest border reads as an inviting slot.
+- Constellations (`config.constellations`): five new shapes (Water Garden 400, Crown of Light 600, Grand Library 2,500, Long Span 4,000, Safe Harbour 20,000 Ink). Each pays max(its bonus, 20 s of Ink/s) for the first of its kind in a run, then 1/(1+k) of that for repeats (`config.constellationScale.sec` **20**).
 
 ## Credits and related works
 

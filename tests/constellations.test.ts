@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { config } from '../src/core/config';
 import { GRAPHS, initialState } from '../src/core/state';
 import {
   applyConstellationRewards,
+  constellationReward,
   countOccupiedComponents,
   detectMatches,
   eventsAfterPlace,
@@ -9,11 +11,15 @@ import {
   matchKey,
   networkLinkEdges,
 } from '../src/core/constellations';
-import { place } from '../src/core/economy';
+import { place, prod } from '../src/core/economy';
 import type { TileType } from '../src/core/tiles';
 
 describe('constellations', () => {
   const sq = GRAPHS.square;
+  const blank = () => sq.ring.map(() => null) as (TileType | null)[];
+  /** A tile with four neighbours on the square grid (interior). */
+  const centre = () => sq.neighbours.findIndex((nb) => nb.length >= 4);
+  const has = (tiles: (TileType | null)[], id: string) => detectMatches(sq, tiles).some((m) => m.id === id);
 
   it('detects an inkstream line on the square grid', () => {
     const tiles = sq.ring.map(() => null) as (TileType | null)[];
@@ -51,6 +57,71 @@ describe('constellations', () => {
     }
     expect(bridge >= 0).toBe(true);
     expect(detectMatches(sq, t2).some((x) => x.id === 'twinmills')).toBe(true);
+  });
+
+  it('watergarden: a Cistern with three adjacent Springs (two is not enough)', () => {
+    const c = centre();
+    const t = blank();
+    t[c] = 'cistern';
+    sq.neighbours[c].slice(0, 2).forEach((n) => (t[n] = 'spring'));
+    expect(has(t, 'watergarden')).toBe(false);
+    sq.neighbours[c].slice(0, 3).forEach((n) => (t[n] = 'spring'));
+    expect(has(t, 'watergarden')).toBe(true);
+  });
+
+  it('crown: a Beacon with four adjacent producers (a Bridge does not count)', () => {
+    const c = centre();
+    const [a, b, d, e] = sq.neighbours[c];
+    const t = blank();
+    t[c] = 'beacon';
+    t[a] = 'spring';
+    t[b] = 'mill';
+    t[d] = 'scriptorium';
+    t[e] = 'bridge';
+    expect(has(t, 'crown')).toBe(false);
+    t[e] = 'spring';
+    expect(has(t, 'crown')).toBe(true);
+  });
+
+  it('library: a Scriptorium beside four different kinds (other Scriptoria do not count)', () => {
+    const c = centre();
+    const [a, b, d, e] = sq.neighbours[c];
+    const t = blank();
+    t[c] = 'scriptorium';
+    t[a] = 'spring';
+    t[b] = 'mill';
+    t[d] = 'beacon';
+    t[e] = 'scriptorium';
+    expect(has(t, 'library')).toBe(false);
+    t[e] = 'bridge';
+    expect(has(t, 'library')).toBe(true);
+    const same = blank();
+    same[c] = 'scriptorium';
+    [a, b, d, e].forEach((n) => (same[n] = 'spring'));
+    expect(has(same, 'library')).toBe(false);
+  });
+
+  it('longspan: three Bridges in a line (two is not enough)', () => {
+    const j = sq.ring.findIndex((_, i) => sq.neighbours[i].length >= 2);
+    const [a, c] = sq.neighbours[j];
+    const t = blank();
+    t[j] = 'bridge';
+    t[a] = 'bridge';
+    expect(has(t, 'longspan')).toBe(false);
+    t[c] = 'bridge';
+    expect(sq.neighbours[a].includes(c)).toBe(false);
+    expect(has(t, 'longspan')).toBe(true);
+  });
+
+  it('harbour: a Lighthouse beside a Bridge and a Vault (no Vault is not enough)', () => {
+    const c = centre();
+    const [a, b] = sq.neighbours[c];
+    const t = blank();
+    t[c] = 'lighthouse';
+    t[a] = 'bridge';
+    expect(has(t, 'harbour')).toBe(false);
+    t[b] = 'vault';
+    expect(has(t, 'harbour')).toBe(true);
   });
 
   it('awards bonus once when a pattern completes on place', () => {
@@ -108,5 +179,46 @@ describe('constellations', () => {
       done = true;
     }
     expect(done).toBe(true);
+  });
+
+  describe('constellationReward', () => {
+    const sec = config.constellationScale.sec;
+    const bonus = config.constellations.inkstream.bonusInk;
+
+    it('floors at the fixed bonus on an empty board', () => {
+      const s = initialState();
+      expect(prod(s).total).toBe(0);
+      expect(constellationReward(s, 'inkstream')).toBe(bonus);
+    });
+
+    it('scales with production and falls off for repeats in a run', () => {
+      const s = initialState();
+      const t = blank();
+      sq.ring.forEach((_, i) => (t[i] = 'spring'));
+      s.tiles = t;
+      const p = prod(s).total;
+      expect(p).toBeGreaterThan(0);
+      const first = constellationReward(s, 'inkstream');
+      expect(first).toBeCloseTo(Math.max(bonus, p * sec), 6);
+      s.constellationKeys = ['inkstream:1,2,3'];
+      const second = constellationReward(s, 'inkstream');
+      expect(second).toBeCloseTo(Math.max(bonus, (p * sec) / 2), 6);
+      expect(constellationReward(s, 'inkstream', 1)).toBeCloseTo(Math.max(bonus, (p * sec) / 3), 6);
+      // A different id is not counted against inkstream.
+      expect(constellationReward(s, 'millwheel')).toBeCloseTo(Math.max(config.constellations.millwheel.bonusInk, p * sec), 6);
+    });
+  });
+
+  it('applyConstellationRewards raises runInk, lifetimeInk and stats.constellations', () => {
+    const s = initialState();
+    const ink0 = s.ink.toNumber();
+    applyConstellationRewards(s, [
+      { id: 'inkstream', name: 'Inkstream', bonusInk: 55, cells: [1, 2, 3], edges: [] },
+    ]);
+    expect(s.ink.toNumber()).toBe(ink0 + 55);
+    expect(s.runInk.toNumber()).toBe(55);
+    expect(s.lifetimeInk.toNumber()).toBe(55);
+    expect(s.stats.constellations).toBe(1);
+    expect(s.constellationKeys).toEqual(['inkstream:1,2,3']);
   });
 });

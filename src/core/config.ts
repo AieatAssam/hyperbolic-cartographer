@@ -34,7 +34,14 @@ export const config = {
     inkstream: { name: 'Inkstream', bonusInk: 55, blurb: 'A line of three Springs.' },
     millwheel: { name: 'Millwheel', bonusInk: 80, blurb: 'A Mill ringed by Springs on three sides.' },
     twinmills: { name: 'Twin Mills', bonusInk: 150, blurb: 'A Bridge linking two Mills.' },
+    watergarden: { name: 'Water Garden', bonusInk: 400, blurb: 'A Cistern feeding three Springs.' },
+    crown: { name: 'Crown of Light', bonusInk: 600, blurb: 'A Beacon lighting four producers.' },
+    library: { name: 'Grand Library', bonusInk: 2500, blurb: 'A Scriptorium beside four different kinds of tile.' },
+    longspan: { name: 'Long Span', bonusInk: 4000, blurb: 'A line of three Bridges.' },
+    harbour: { name: 'Safe Harbour', bonusInk: 20000, blurb: 'A Lighthouse beside a Bridge and a Vault.' },
   },
+  /** Repeat patterns of one kind pay max(bonusInk, sec s of Ink/s / (1 + earlier repeats in the run)). */
+  constellationScale: { sec: 20 },
   camera: {
     polarY: 13, polarZ: 9, margin: 12, phoneFill: 1.0, desktopFill: 1.0,
     /** Portrait playable board: polar from +Y (smaller = more overhead). ~32°. */

@@ -482,7 +482,7 @@ function applyTool(i: number): boolean {
   if (events.length) {
     applyConstellationRewards(s, events);
     for (const e of events) {
-      ui.toast(`★ ${e.name} — +${fmt(e.bonusInk, s.notation)} Ink & pattern bonus`);
+      ui.toast(`★ ${e.name}: +${fmt(e.bonusInk, s.notation)} Ink`);
       constellationBurstEdges = e.edges;
       constellationPermanent = mergeEdges(constellationPermanent, e.edges);
       constellationPulseUntil = performance.now() / 1000 + 1.5;
