@@ -354,10 +354,10 @@ export const UI = {
 export const CONSTELLATION_BURST = { seconds: 1.5, drawSeconds: 0.8, stagger: 0.12, bump: 0.5 } as const;
 
 export const MOTIF = {
-  fill: 0.56, emissive: 0.18, ringInner: 0.42, ringOuter: 0.5, ringLift: 0.012, ringAlpha: 0.55,
+  fill: 0.66, emissive: 0.05, ringInner: 0.42, ringOuter: 0.5, ringLift: 0.012, ringAlpha: 0.55,
   strainDim: 0.55, strainShrink: 0.22, strainTint: 0x6b7388, channelBoost: 1.3,
   /** Ivory-and-brass pieces: body = tile base lerped toward ivory by ivoryMix; lacquer roughness and a little metal. */
-  ivory: 0xf4ead2, ivoryMix: 0.6, roughness: 0.35, metalness: 0.25,
+  ivory: 0xf4ead2, ivoryMix: 0.6, roughness: 0.5, metalness: 0.05,
 } as const;
 
 /** Palette tool-chip fill: tile `base` from TILE_IDENTITIES. */

@@ -603,7 +603,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       writeFrame(embed, i, { p: [cx, h, cz], s: o.scale, n: [0, 1, 0] });
       if (t && o.scale > 0.02) {
         const im = this.motifs[t], st = this.strain(i, t);
-        const sc = MOTIF.fill * GAP * Math.sqrt(o.scale) * (this.hyper ? 1.3 : 1) * motifScale(L) * (1 - MOTIF.strainShrink * st.k);
+        const sc = MOTIF.fill * GAP * Math.sqrt(o.scale) * (this.hyper ? 1.9 : 1) * motifScale(L) * (1 - MOTIF.strainShrink * st.k);
         this.m4.compose(this.tops[i], this.q, this.sc.setScalar(sc));
         this.motifSlot[i] = im.count;
         im.setColorAt(im.count, st.tint);
