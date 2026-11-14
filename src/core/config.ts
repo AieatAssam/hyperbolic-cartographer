@@ -12,10 +12,10 @@ export const config = {
     /** global: the first Vault's bonus; each further Vault adds `decay` times the one before (limit global/(1-decay)). */
     vault: { cost: 25000, offline: 0.1, global: 0.02, decay: 0.97 },
     lighthouse: { cost: 50000, mult: 1.25 },
-    /** Each Spring adjacent to a Cistern multiplies its own output by mult (per Cistern). */
-    cistern: { cost: 2500, mult: 3 },
+    /** Each Spring adjacent to a Cistern multiplies its own output by mult and its flow to Mills by millFlow (per Cistern). */
+    cistern: { cost: 1200, mult: 3, millFlow: 1.5 },
     /** Output = out x number of distinct other tile types adjacent to it. */
-    scriptorium: { cost: 8000, out: 15 },
+    scriptorium: { cost: 8000, out: 40 },
   },
   costGrowth: 1.12,
   /** Each earned achievement adds this much to global Ink output (see achievementBonus). */

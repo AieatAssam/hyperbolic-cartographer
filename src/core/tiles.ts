@@ -14,6 +14,6 @@ export const TILE_INFO: Record<TileType, { name: string; desc: string }> = {
   bridge: { name: 'Bridge', desc: 'Touching a chain links every tile on that chain. A Spring touching a Bridge gives full flow to every Mill.' },
   vault: { name: 'Vault', desc: `+${pct(T.vault.offline)} offline efficiency, +${pct(T.vault.global)} global output; each further Vault adds a little less.` },
   lighthouse: { name: 'Lighthouse', desc: `Producers exactly 2 steps away x${T.lighthouse.mult}.` },
-  cistern: { name: 'Cistern', desc: `Adjacent Springs produce x${T.cistern.mult} (each Cistern multiplies).` },
+  cistern: { name: 'Cistern', desc: `Adjacent Springs produce x${T.cistern.mult} and count as ${T.cistern.millFlow} Springs for their Mills (each Cistern multiplies).` },
   scriptorium: { name: 'Scriptorium', desc: `Produces ${T.scriptorium.out}/s times the number of different kinds of tile next to it (other Scriptoria do not count).` },
 };

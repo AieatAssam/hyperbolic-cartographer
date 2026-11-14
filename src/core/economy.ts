@@ -176,7 +176,13 @@ export function production(
     } else if (t === 'mill') {
       // A Mill draws on at most maxSprings Springs (its strongest shares), so a Bridge hub cannot funnel a whole board into one Mill.
       const shares: number[] = [];
-      for (const x of adj) if (tiles[x] === 'spring') shares.push(share[x]);
+      // A Cistern-fed Spring also feeds its Mills more (millFlow per adjacent Cistern).
+      for (const x of adj) {
+        if (tiles[x] !== 'spring') continue;
+        let f = share[x];
+        for (const y of g.neighbours[x]) if (tiles[y] === 'cistern') f *= T.cistern.millFlow;
+        shares.push(f);
+      }
       if (shares.length > T.mill.maxSprings) shares.sort(desc).length = T.mill.maxSprings;
       let flow = 0;
       for (const x of shares) flow += x;
