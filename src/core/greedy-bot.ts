@@ -4,7 +4,7 @@
  */
 import { chartUpgrades, config, curvUpgrades } from './config';
 import { graphOf, initialState, type GameState } from './state';
-import { buyChartUpg, buyCurvUpg, isActive, maxRing, place, previewDelta, prod, sell, survey, surveyCost, tileCost } from './economy';
+import { buyChartUpg, buyCurvUpg, deltaScan, isActive, maxRing, place, prod, scanDelta, sell, survey, surveyCost, tileCost, type DeltaScan } from './economy';
 import { canProject, chartsOnDrift, drift, project } from './prestige';
 import { fastForward } from './tick';
 import { TILE_TYPES, type TileType } from './tiles';
@@ -21,14 +21,14 @@ function boardSignature(s: GameState): string {
 }
 
 // previewDelta is a pure function of the board, so scans between two board changes reuse it.
-let memo: { sig: string; deltas: Map<string, number> } | null = null;
+let memo: { sig: string; deltas: Map<number, number> } | null = null;
 
-function deltaFor(s: GameState, sig: string, i: number, t: TileType): number {
+function deltaFor(scan: DeltaScan, sig: string, i: number, t: TileType): number {
   if (memo?.sig !== sig) memo = { sig, deltas: new Map() };
-  const key = `${i}:${t}`;
+  const key = i * TILE_TYPES.length + TILE_TYPES.indexOf(t);
   let d = memo.deltas.get(key);
   if (d === undefined) {
-    d = previewDelta(s, i, t);
+    d = scanDelta(scan, i, t);
     memo.deltas.set(key, d);
   }
   return d;
@@ -45,12 +45,15 @@ export function bestGreedyBuy(s: GameState): GreedyBuy | null {
   const cells = graphOf(s).ring.map((_, i) => i).filter((i) => isActive(s, i));
   const sig = boardSignature(s);
   const costs = TILE_TYPES.map((t) => tileCost(s, t).toNumber());
+  let scan: DeltaScan | null = null;
   for (const i of cells) {
     for (let ti = 0; ti < TILE_TYPES.length; ti++) {
       const t = TILE_TYPES[ti];
       const cost = costs[ti];
       if (cost > budget || s.tiles[i] === t) continue;
-      const score = deltaFor(s, sig, i, t) / (cost * (s.tiles[i] ? 1.5 : 1)); // replacing wastes the old tile
+      // The scan (base production and relay) is only built when some delta is not memoised yet.
+      if (memo?.sig !== sig || !memo.deltas.has(i * TILE_TYPES.length + ti)) scan ??= deltaScan(s);
+      const score = deltaFor(scan!, sig, i, t) / (cost * (s.tiles[i] ? 1.5 : 1)); // replacing wastes the old tile
       if (score <= 0) continue;
       const beats = !best || score > best.score || (score === best.score && (ti < best.ti || (ti === best.ti && i < best.i)));
       if (beats) best = { i, t, cost, score, ti };
