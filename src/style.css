@@ -163,6 +163,13 @@ button.wind-chip { font-variant-numeric: tabular-nums; white-space: nowrap; padd
 button.wind-chip.wind-live { animation: wind-pulse 1.2s ease-in-out infinite; }
 @keyframes wind-pulse { 50% { box-shadow: 0 0 0 4px rgba(255, 240, 160, 0.45); } }
 @media (prefers-reduced-motion: reduce) { button.wind-chip.wind-live { animation: none; } }
+/* Gale: cool cyan-white. */
+button.wind-chip[data-kind="gale"] { background: linear-gradient(180deg, #e6fbff, #7fe3f5); border-color: #7fe3f5; color: #04323d; font-weight: 600; }
+/* Monsoon: deep blue-violet, with a slow pulse (disabled for reduced motion). */
+button.wind-chip[data-kind="monsoon"] { background: #2b1f6b; border-color: #6d5bd6; color: #e4dcff; font-weight: 600; }
+button.wind-chip[data-kind="monsoon"].wind-live { animation: monsoon-pulse 2.4s ease-in-out infinite; }
+@keyframes monsoon-pulse { 50% { box-shadow: 0 0 0 4px rgba(109, 91, 214, 0.45); } }
+@media (prefers-reduced-motion: reduce) { button.wind-chip[data-kind="monsoon"].wind-live { animation: none; } }
 /* HUD expand/collapse control: shown only in the phone portrait block below */
 button.hud-toggle { display: none; }
 button.guide-btn, button.panel-toggle {

@@ -18,7 +18,7 @@ import { archControl, fanForLink } from './render/flow-arch';
 import type { TileGraph } from './core/geometry/graph';
 import { canDrift, canProject, drift, project } from './core/prestige';
 import { applyOffline, fastForward, simulate } from './core/tick';
-import { newWindTimer, takeWind, tickWindTimer } from './core/wind';
+import { newWindTimer, takeWind, tickWindTimer, type WindKind } from './core/wind';
 import { exportString, importSave, makeSave, toJson } from './core/save';
 import { TILE_INFO, TILE_TYPES, type TileType } from './core/tiles';
 import { buildManifoldStage, type ManifoldStage } from './render/surface-stage';
@@ -512,10 +512,14 @@ function linkApexScreen(links: readonly { from: number; to: number }[], i: numbe
 // The reward (catchWind) is deterministic core logic; the spawn gap is cosmetic.
 const windT = newWindTimer();
 function catchWindNow(): boolean {
-  if (!takeWind(windT)) return false;
-  const gain = catchWind(s);
+  const kind = takeWind(windT);
+  if (!kind) return false;
+  const gain = catchWind(s, kind);
+  const k = config.wind.kinds[kind];
   audio.cue('upgrade');
-  ui.toast(`Wind caught! +${fmt(gain, s.notation)} Ink and x${config.wind.surgeMult} Ink/s for ${config.wind.surgeSec}s`);
+  ui.toast(kind === 'monsoon'
+    ? `Monsoon! +${fmt(gain, s.notation)} Ink (${k.burstSec / 60} minutes of rain)`
+    : `${k.name} caught! +${fmt(gain, s.notation)} Ink and x${k.surgeMult} Ink/s for ${k.surgeSec}s`);
   return true;
 }
 
@@ -526,7 +530,7 @@ const ui = createUI(document.getElementById('ui')!, {
   tool,
   dev,
   audio,
-  wind: () => ({ left: windT.left, surge: s.surge, mult: config.wind.surgeMult }),
+  wind: () => ({ left: windT.left, surge: s.surge, mult: s.surgeMult, kind: windT.kind, name: config.wind.kinds[windT.kind].name }),
   catchWind: catchWindNow,
   selected: () => tap.selected,
   boardFocus: () => {
@@ -1234,6 +1238,8 @@ if (dev) {
     sell: (i: number) => sell(s, i),
     survey: () => survey(s),
     catchWind: catchWindNow,
+    /** Dev: make a wind of this kind catchable now. */
+    forceWind: (kind: WindKind) => { windT.left = config.wind.life; windT.kind = kind; },
     /** Drift and Projection play their normal transitions, like the buttons. */
     drift: () => (trans || !canDrift(s) ? false : (startTransition('drift'), true)),
     project: () => (trans || !canProject(s) ? false : (startTransition('projection'), true)),

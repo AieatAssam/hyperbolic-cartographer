@@ -53,7 +53,30 @@ it('a caught wind is gone and the next one is scheduled after the gap', () => {
   const w = newWindTimer(rand);
   for (let k = 0; k < Math.ceil(config.wind.minGap * 10) + 5; k++) tickWindTimer(w, 0.1, rand);
   expect(w.left).toBeGreaterThan(0);
-  expect(takeWind(w, rand)).toBe(true);
+  expect(takeWind(w, rand)).toBe('trade');
   expect(w.left).toBe(0);
-  expect(takeWind(w, rand)).toBe(false);
+  expect(takeWind(w, rand)).toBe(null);
+});
+
+it('the wind schedule (times and kinds) is deterministic for a seed and independent of chunking', () => {
+  // A small seeded LCG, so the same seed always gives the same winds.
+  const seeded = (seed: number) => () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32);
+  const schedule = (chunks: number[]) => {
+    const rand = seeded(7);
+    const w = newWindTimer(rand);
+    const s = opening();
+    const winds: string[] = [];
+    let was = 0;
+    const onStep = () => {
+      tickWindTimer(w, 0.1, rand);
+      if (w.left > 0 && was === 0) winds.push(`${w.kind}@${s.runTime.toFixed(1)}`);
+      was = w.left;
+    };
+    for (const c of chunks) fastForward(s, c, onStep);
+    return winds;
+  };
+  const whole = schedule([600]);
+  expect(whole.length).toBeGreaterThan(3);
+  expect(schedule([100, 200, 300])).toEqual(whole);
+  expect(schedule([600])).toEqual(whole);
 });

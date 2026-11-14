@@ -5,6 +5,7 @@ import type { TileType } from './tiles';
 import type { TileGraph } from './geometry/graph';
 import { has } from './milestones';
 import { bridgeComponents, bridgeTouchSet, bridgeTouchSetExtended } from './bridge-relay';
+import type { WindKind } from './wind';
 
 export interface Mods {
   global: number;
@@ -205,17 +206,21 @@ export function previewDelta(s: GameState, i: number, type: TileType | null): nu
 
 export const owned = (s: GameState, t: TileType) => s.tiles.filter((x) => x === t).length;
 
-export const surgeMult = (s: GameState) => (s.surge > 0 ? config.wind.surgeMult : 1);
+export const surgeMult = (s: GameState) => (s.surge > 0 ? s.surgeMult : 1);
 /** Live Ink/s including the Trade Wind surge. */
 export const inkPerSec = (s: GameState) => prod(s).total * surgeMult(s);
 
-/** Catch a Trade Wind: an instant burst of Ink plus a timed production surge. Returns the Ink gained. */
-export function catchWind(s: GameState): Decimal {
-  const gain = Decimal.max(prod(s).total * config.wind.burstSec, config.wind.minInk);
+/** Catch a Trade Wind of the given kind: an instant burst of Ink plus a timed surge if the kind has one. Returns the Ink gained. */
+export function catchWind(s: GameState, kind: WindKind = 'trade'): Decimal {
+  const k = config.wind.kinds[kind];
+  const gain = Decimal.max(prod(s).total * k.burstSec, config.wind.minInk);
   s.ink = s.ink.add(gain);
   s.runInk = s.runInk.add(gain);
   s.lifetimeInk = s.lifetimeInk.add(gain);
-  s.surge = config.wind.surgeSec;
+  if (k.surgeSec > 0) {
+    s.surge = k.surgeSec;
+    s.surgeMult = k.surgeMult;
+  }
   s.windsCaught++;
   return gain;
 }

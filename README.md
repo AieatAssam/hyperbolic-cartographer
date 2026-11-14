@@ -26,7 +26,7 @@ Tiles (from `TILE_INFO` in `src/core/tiles.ts`):
 - **Mill**: produces Ink, +100% per adjacent Spring.
 - **Beacon**: adjacent tiles x1.5 (stacks multiplicatively).
 - **Lighthouse**: producers exactly two steps away x1.25 (stacks). Bridges do not extend its reach.
-- **Trade Wind**: a wind occasionally blows in during live play. Catch it from the HUD chip for a burst of Ink and a short x3 Ink/s surge. Surges do not carry into offline progress.
+- **Trade Winds**: a wind occasionally blows in during live play, in one of three kinds. Catch it from the HUD chip. **Trade Wind** (most common) pays a burst of Ink and a 20 s x3 Ink/s surge. **Gale** (less common) pays a smaller burst and a 12 s x7 surge. **Monsoon** (rare) pays a large burst of Ink and no surge. Surges do not carry into offline progress.
 - **Bridge**: its neighbours count as adjacent to each other. Long Bridges extends the reach.
 - **Vault**: improves offline progress and adds a small global Ink bonus.
 
@@ -180,7 +180,7 @@ Changes from the original brief (all in `src/core/config.ts`; formulas unchanged
 - Cistern (new): cost **2,500**, `cistern.mult` **3**. Each adjacent Spring multiplies its own output by 3 per adjacent Cistern.
 - Scriptorium (new): cost **8,000** (was 12,000 in the first draft), `scriptorium.out` **15** Ink/s × the number of distinct other tile kinds adjacent (other Scriptoria do not count, and relayed Beacons are ignored).
 - Lighthouse: cost 50,000 Ink, x1.25 to producers two steps away (`config.tiles.lighthouse`).
-- Trade Winds: appear every 40–80 s of live play for 14 s; catching pays max(30 s of Ink/s, 25 Ink) and grants a 20 s x3 surge (`config.wind`).
+- Trade Winds: appear every 40–80 s of live play for 14 s, weighted 75 Trade Wind / 20 Gale / 5 Monsoon. Catching pays max(burst of Ink/s, 25 Ink), where the burst is 30 s (Trade Wind), 10 s (Gale) or 240 s (Monsoon). Trade Wind grants a 20 s x3 surge, Gale a 12 s x7 surge, Monsoon none (`config.wind.kinds`).
 - Survey growth 8^ring → 6^ring on the square board (base 50).
 - Charts on Drift = floor((runInk / 2.5e5)^0.5) instead of /1e6 (Drift still unlocks at 1e6 Ink); otherwise Projection took > 2 h.
 - Hyperbolic survey: base 2e5, growth 12^ring; board starts at radius 2, base max radius 3, +1 via the "Deeper Horizon" Curvature upgrade (radius 4 = 232 tiles).

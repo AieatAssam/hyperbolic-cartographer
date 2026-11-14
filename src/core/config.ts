@@ -25,8 +25,20 @@ export const config = {
   projection: { minCharts: 25 },
   offline: { baseEff: 0.5, capHours: 8 },
   startInk: 22,
-  /** Trade Wind: a timed chance to catch a burst of Ink plus a production surge (live play only). */
-  wind: { minGap: 40, maxGap: 80, life: 14, burstSec: 30, minInk: 25, surgeSec: 20, surgeMult: 3 },
+  /**
+   * Trade Winds (live play only): a catchable wind every minGap..maxGap s, lasting `life` s.
+   * Each wind is one of `kinds` by weight. Catching pays max(kind.burstSec of Ink/s, minInk)
+   * and, if kind.surgeSec > 0, a surge of kind.surgeMult for that long.
+   * `surgeMult` is the default for state.surgeMult (read by state.ts and save.ts); catchWind overwrites it.
+   */
+  wind: {
+    minGap: 40, maxGap: 80, life: 14, minInk: 25, surgeMult: 3,
+    kinds: {
+      trade: { name: 'Trade Wind', weight: 75, burstSec: 30, surgeSec: 20, surgeMult: 3 },
+      gale: { name: 'Gale', weight: 20, burstSec: 10, surgeSec: 12, surgeMult: 7 },
+      monsoon: { name: 'Monsoon', weight: 5, burstSec: 240, surgeSec: 0, surgeMult: 1 },
+    },
+  },
   /** One-time run rewards (first placement of each kind). */
   rewards: { firstMillInk: 35, firstBridgeInk: 120 },
   /** Named shape bonuses (graph adjacency; once per unique instance per run). */
