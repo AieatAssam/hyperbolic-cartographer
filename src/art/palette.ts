@@ -94,7 +94,7 @@ export const TILE_IDENTITIES = {
 } as const satisfies Record<'spring' | 'mill' | 'beacon' | 'bridge' | 'vault' | 'lighthouse' | 'cistern' | 'scriptorium', MaterialToken>;
 
 /**
- * Empty board slot: a dark recessed well with a subdued violet border (accent), never near-white.
+ * Empty board slot: a shallow glass well, a touch lighter than the table, with a cool thin rim (accent), never near-white.
  * emissive is a faint inner breath, well below bloom.
  * At rest (not hovered, not a neighbour of the focus) the rim is quiet: restInset leaves a thin bevel band,
  * the border is mixed toward the face by restRimMix, and the trim is restTrim of the slot glow.
@@ -110,7 +110,7 @@ export interface EmptySlotToken extends MaterialToken {
   restTrim: number;
 }
 export const EMPTY_SLOT: EmptySlotToken = {
-  base: 0x1c1430, emissive: 0x3a2e60, emissiveIntensity: 0.2, roughness: 0.9, metalness: 0, accent: 0x54467a,
+  base: 0x28204a, emissive: 0x5a6ab8, emissiveIntensity: 0.1, roughness: 0.9, metalness: 0, accent: 0x4e5c94,
   restInset: 0.88, restRimMix: 0.28, restTrim: 0.55,
 };
 
@@ -169,7 +169,7 @@ export const PREVIEW = {
 } as const;
 
 export const BOARD = {
-  table: 0x3b2a4f, tableEdge: 0x7a5a3a,
+  tableCentre: 0x2a1d4a, table: 0x1a1233, tableEdge: 0x0d0a1e,
   rim: 0x5fd4ff, gold: 0xe8c872, hover: 0xffffff, adjacency: 0x5fd4ff,
   glowAccentIntensity: 2.4,
 } as const;

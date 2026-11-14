@@ -88,11 +88,11 @@ Shadow maps are off.
 | `cistern` | basin (primitive) |
 | `scriptorium` | book block (primitive) |
 
-**Empty slot.** `EMPTY_SLOT`: `base` `#1c1430` (dark recessed well), `accent` `#54467a` (subdued violet border), `emissive` `#3a2e60` at `emissiveIntensity` 0.2, `roughness` 0.9, `metalness` 0.
+**Empty slot.** `EMPTY_SLOT`: `base` `#28204a` (shallow glass well, a touch lighter than the table), `accent` `#4e5c94` (cool thin rim), `emissive` `#5a6ab8` at `emissiveIntensity` 0.1 (faint glow), `roughness` 0.9, `metalness` 0.
 
 **Next ring.** `NEXT_SLOT`: `base` `#140e22`, `border` `#2e2546`. Darker than the empty slot.
 
-**Board chrome.** `BOARD`: `table` `#3b2a4f`, `tableEdge` `#7a5a3a`, `rim` `#5fd4ff`, `gold` `#e8c872` (pin outline and reward highlight), `hover` `#ffffff`, `adjacency` `#5fd4ff`, `glowAccentIntensity` 2.4 (the accent cap; motif cores sit just under it).
+**Board chrome.** `BOARD`: `tableCentre` `#2a1d4a` → `table` `#1a1233` → `tableEdge` `#0d0a1e` (the tabletop gradient and dark side walls), `rim` `#5fd4ff` (UI `--cyan`; the 3D rim is brass, see Hyperbolic disk), `gold` `#e8c872` (pin outline and reward highlight), `hover` `#ffffff`, `adjacency` `#5fd4ff`, `glowAccentIntensity` 2.4 (the accent cap; motif cores sit just under it).
 
 **Constellation ink (Wired in `board.ts`).** Ribbons use saturated golds; no bloom.
 
@@ -188,20 +188,22 @@ Inspect flow uses one smooth quadratic arch per source–target pair (no hop tru
 
 Empty slots are dark recessed wells, not grey slabs:
 
-- The base is `EMPTY_SLOT.base`, very dark violet. The border is `EMPTY_SLOT.accent`, subdued and never near-white.
-- The next ring (one step out, preview only) is darker still, with a barely visible border (`NEXT_SLOT`).
-- Grey reads as disabled. Keep slots dark and matte (roughness 0.9), with a faint inner emissive (0.2).
+- The base is `EMPTY_SLOT.base`, a shallow glass well a little lighter than the table. The border is `EMPTY_SLOT.accent`, a cool thin rim, never near-white.
+- The next ring (one step out, preview only) is clearly dimmer than an active slot, with a barely visible border (`NEXT_SLOT`).
+- Grey reads as disabled. Keep slots dark and matte (roughness 0.9), with a faint cool inner emissive (0.1).
+- Tile faces must keep a WCAG contrast of at least 2.0 against `EMPTY_SLOT.base` (`tests/palette.test.ts`), which caps how light the slot can be.
 
 ### Tabletop (Wired)
 
-- A procedural `CanvasTexture` drawn at startup. It holds a radial violet-to-table gradient, parchment grain, a gold graticule, cyan rhumb lines, rose wobbly contours, and seven ink constellations. No image files.
-- Square board: a bevelled slab (`tableEdge` sides, textured top) with a lip beneath.
+- A procedural 2048 `CanvasTexture` drawn at startup, `tex.anisotropy` 8. It is a dark lacquer: a radial gradient from `tableCentre` to `table` to `tableEdge`, a vignette that sinks the outer quarter into the edge colour, fine parchment grain, a brass graticule (every 4th ring stronger), 16 brass rhumb lines (8 principal), a small compass rose at the centre, ruler ticks on the 4th and 8th rings, and five small cream constellations. No image files.
+- The table material is lacquer: roughness 0.55, metalness 0.15, so the key light gives a soft sheen.
+- Square board: a bevelled slab with dark `tableEdge` sides (roughness 0.55, metalness 0.15) and a lip beneath.
 - Hyperbolic board: a round slab with the same texture and a bevelled edge.
 
 ### Hyperbolic disk (Wired)
 
 - Same ink-map language as the square tabletop, with a circular texture.
-- A luminous cyan rim (`BOARD.rim`). It is a deliberate bloom accent, capped at `BOARD.glowAccentIntensity`.
+- A double brass rim: a bright gold line (`BOARD.gold`, just over `BLOOM.threshold`) on a faint wide halo. The texture carries the same double line on the table.
 
 ### Backdrop (Wired)
 
