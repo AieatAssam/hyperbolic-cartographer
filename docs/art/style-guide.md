@@ -162,8 +162,11 @@ Inspect flow uses one smooth quadratic arch per source–target pair (no hop tru
 
 | Field | Value | Meaning |
 |---|---|---|
-| `sideShade` | 0.32 | Side walls = `base * sideShade`. |
-| `bevelAccent` / `bevelLift` | 0.18 / 1.15 | Glassy bevel: base lerped toward accent, then lifted. |
+| `sideShade` | 0.32 | Flat side wall = `base * sideShade` (surface previews). |
+| `sideTop` / `sideBottom` / `sideTableMix` | 0.62 / 0.2 / 0.3 | Placed-tile wall gradient: top edge = `base * 0.62`, bottom edge = `base * 0.2` mixed 30% toward the table ink (`#1a1233`). |
+| `bevelAccent` / `bevelLift` / `bevelWarm` | 0.18 / 1.15 / 0.45 | Enamel rim: base lerped toward accent, then 45% toward warm ivory (`#fff2d8`). |
+| `hubLift` | 0.12 | Placed tiles only: the top fan centre is lerped toward white, so each face has a soft domed gradient. Empty slots stay flat. |
+| `bodyRoughness` / `bodyMetalness` | 0.42 / 0.1 | Lacquer response of the merged tile body. |
 | `faceGlow` | 0.06 | Emissive on the face, as a fraction of base. |
 | `trimGlowRest` / `trimGlowMax` | 0.12 / 0.55 | Bevel emissive by output level. Max is below the bloom threshold. |
 | `heightBase` / `heightPerLevel` / `heightLogFull` | 0.34 / 1.0 / 6 | Extrusion: `tileHeight = 0.34 + 1.0 * L`, where `L = min(1, log10(1 + output) / 6)`. |
@@ -171,7 +174,7 @@ Inspect flow uses one smooth quadratic arch per source–target pair (no hop tru
 | `hoverLerp` / `hoverTrim` | 0.12 / 0.8 | Face lerp toward white on hover, and bevel glow on hover. |
 | `pinBorder` | 0.75 | Bevel lerp toward `BOARD.gold` on pinned tiles. |
 | `motifScaleMin` / `motifScaleMax` | 0.85 / 1.35 | Motif core scale by output level. |
-| `bodyEnv` | 0.15 | `envMapIntensity` on the merged tile body. Low so room reflections don't wash faces pastel; scene env/table unaffected. |
+| `bodyEnv` | 0.22 | `envMapIntensity` on the merged tile body. Low so room reflections don't wash faces pastel; the soft sheen comes from this; scene env/table unaffected. |
 
 ## 3. Colour pipeline (Wired)
 
@@ -221,7 +224,7 @@ An inverted sphere (radius 100) that follows the camera, drawn first with no dep
 - **Faces get only `MATERIAL.faceGlow`.** The face never blooms.
 - **Bloom is for motif cores and the table rim only.** Motif cores have `emissiveIntensity` above `BLOOM.threshold` (1.4), up to `BOARD.glowAccentIntensity` (2.4).
 - **Trim glow stays below the threshold.** Bevel emissive runs from `trimGlowRest` to `trimGlowMax` (0.55) with output level, so it never blooms.
-- **Side walls** are `base * sideShade` for every tile, pinned tiles included. Pins are a gold bevel outline only (`pinBorder`), not a change to the walls.
+- **Side walls** run from `base * sideTop` at the top edge down to a deep, table-tinted `sideBottom` at the base, for every tile, pinned tiles included. Pins are a gold bevel outline only (`pinBorder`), not a change to the walls.
 - **Hover.** The face lerps 0.12 toward white (`hoverLerp`) so the hue survives. The bevel glow rises by `hoverTrim`.
 - **Caching.** Output is quantised to 8 steps per decade (`round(L * 8)`) for each tile. The board rebuilds only when that quantised signature, tiles, ring, pins, hover, hovered neighbours or view change. It does not rebuild every frame, and sub-step output changes do not trigger a rebuild.
 
@@ -311,8 +314,8 @@ The particle mechanics are specified in `particle-language.md`. This section lis
 
 ### Tile models and strain (Wired in `tile-models.ts`, `board.ts`, `surface-board.ts`)
 
-- **Models.** Each type's model is fitted so its footprint is 0.56 of its cell (`MOTIF.fill`). Body vertices take the type's base colour (`TILE_IDENTITIES.base`) and an accent band takes its accent. The mill wheel is accent-coloured. Cistern and Scriptorium are procedural (no GLB node).
-- **Material.** Vertex-coloured, with only a low emissive tint (`MOTIF.emissive`), so forms survive bloom.
+- **Models.** Each type's model is fitted so its footprint is 0.56 of its cell (`MOTIF.fill`). Body vertices take the type's base colour lerped 60% toward ivory `#f4ead2` (`MOTIF.ivoryMix`), so each piece is lighter than its tile top, and an accent band takes its accent. The mill wheel is accent-coloured. Cistern and Scriptorium are procedural (no GLB node).
+- **Material.** Vertex-coloured, roughness `MOTIF.roughness` (0.35) and metalness `MOTIF.metalness` (0.25), with only a low emissive tint (`MOTIF.emissive`), so forms survive bloom.
 - **Strain.** A Spring with share below 1 dims toward `MOTIF.strainTint` (`#6b7388`) and shrinks by `MOTIF.strainShrink` times its shortfall. Its ring is a faint grey, so the state is not carried by colour alone. A Bridge-channelled Spring (fed, share at least 1) gets a bright accent ring at `MOTIF.channelBoost`.
 - **Constellation completion** (`CONSTELLATION_BURST`). Edges trace in order over `drawSeconds`, then member stars flare in turn (`stagger`). A sparkle burst rises for about 1.5 s. Reduced motion skips the trace, the flare and the burst. Burst density follows the quality level.
 

@@ -129,8 +129,11 @@ export const NEXT_SLOT = { base: 0x140e22, border: 0x2e2546 } as const;
 
 /**
  * Material response coefficients for board.ts (multipliers on the tokens above).
- * - sideShade: side faces = base * sideShade. Darker extrusion walls, pinned tiles included.
- * - bevelAccent / bevelLift: glassy edge = base lerped toward accent, then lifted.
+ * - sideShade: flat side wall = base * sideShade (sideColour with no edge; surface-board.ts previews).
+ * - sideTop / sideBottom: placed-tile wall gradient. Top edge = base * sideTop; bottom edge = base * sideBottom,
+ *   mixed sideTableMix toward the table ink (FOG.color). Pinned tiles included.
+ * - bevelWarm / bevelAccent / bevelLift: the enamel rim = base lerped toward accent, then toward warm ivory by bevelWarm.
+ * - hubLift: the top fan's centre vertex lerped toward white, so each face has a soft domed gradient.
  * - faceGlow: emissive on the face as a fraction of base. Small: faces are lit, not lamps.
  * - trimGlowRest..trimGlowMax: token.emissive on the bevel, by output level. Max < BLOOM.threshold.
  * - heightBase + heightPerLevel * L: extrusion, L = outputLevel(output) in 0..1 over heightLogFull decades.
@@ -138,15 +141,18 @@ export const NEXT_SLOT = { base: 0x140e22, border: 0x2e2546 } as const;
  * - pinBorder: bevel lerp toward BOARD.gold on pinned tiles (outline only).
  * - motifScaleMin..Max: motif core scale by output level.
  * - bodyEnv: envMapIntensity on the merged tile body. Low so room reflections don't wash faces pastel; scene env/table unaffected.
+ * - bodyRoughness / bodyMetalness: the merged body's lacquer response (roughness 0.38..0.45, metalness 0.08..0.12).
  */
 export const MATERIAL = {
-  sideShade: 0.32, bevelAccent: 0.18, bevelLift: 1.15,
+  sideShade: 0.32, bevelAccent: 0.18, bevelLift: 1.15, bevelWarm: 0.45,
+  sideTop: 0.62, sideBottom: 0.2, sideTableMix: 0.3,
+  hubLift: 0.12,
   faceGlow: 0.06, trimGlowRest: 0.12, trimGlowMax: 0.55,
   heightBase: 0.34, heightPerLevel: 1.0, heightLogFull: 6,
   slotHeight: 0.015, nextHeight: 0.008,
   hoverLerp: 0.12, hoverTrim: 0.8, pinBorder: 0.75,
   motifScaleMin: 0.85, motifScaleMax: 1.35,
-  bodyEnv: 0.15,
+  bodyEnv: 0.22, bodyRoughness: 0.42, bodyMetalness: 0.1,
 } as const;
 
 /**
@@ -256,11 +262,18 @@ export const tileHeight = (L: number) => MATERIAL.heightBase + MATERIAL.heightPe
 export const trimGlow = (L: number) => MATERIAL.trimGlowRest + (MATERIAL.trimGlowMax - MATERIAL.trimGlowRest) * L;
 /** Motif core scale at level L. */
 export const motifScale = (L: number) => MATERIAL.motifScaleMin + (MATERIAL.motifScaleMax - MATERIAL.motifScaleMin) * L;
-/** Side wall colour: darker than the face for every type, pinned or not. */
-export const sideColour = (base: number) => scaleHex(base, MATERIAL.sideShade);
-/** Glassy bevel colour, and its pinned (gold outline) variant. */
+/**
+ * Side wall colour. With no edge: the flat wall (base * sideShade), used by surface-board.ts. 'top' / 'bottom': the
+ * placed-tile wall gradient, a rich mid tone at the top edge that sinks into the table toward the bottom.
+ */
+export const sideColour = (base: number, edge?: 'top' | 'bottom') => {
+  if (edge === 'top') return scaleHex(base, MATERIAL.sideTop);
+  if (edge === 'bottom') return lerpHex(scaleHex(base, MATERIAL.sideBottom), FOG.color, MATERIAL.sideTableMix);
+  return scaleHex(base, MATERIAL.sideShade);
+};
+/** Enamel bevel colour (a bright warm rim), and its pinned (gold outline) variant. */
 export const bevelColour = (t: MaterialToken, pinned = false) => {
-  const b = scaleHex(lerpHex(t.base, t.accent, MATERIAL.bevelAccent), MATERIAL.bevelLift);
+  const b = lerpHex(lerpHex(t.base, t.accent, MATERIAL.bevelAccent), 0xfff2d8, MATERIAL.bevelWarm);
   return pinned ? lerpHex(b, BOARD.gold, MATERIAL.pinBorder) : b;
 };
 /** Hovered face colour. */
@@ -343,6 +356,8 @@ export const CONSTELLATION_BURST = { seconds: 1.5, drawSeconds: 0.8, stagger: 0.
 export const MOTIF = {
   fill: 0.56, emissive: 0.18, ringInner: 0.42, ringOuter: 0.5, ringLift: 0.012, ringAlpha: 0.55,
   strainDim: 0.55, strainShrink: 0.22, strainTint: 0x6b7388, channelBoost: 1.3,
+  /** Ivory-and-brass pieces: body = tile base lerped toward ivory by ivoryMix; lacquer roughness and a little metal. */
+  ivory: 0xf4ead2, ivoryMix: 0.6, roughness: 0.35, metalness: 0.25,
 } as const;
 
 /** Palette tool-chip fill: tile `base` from TILE_IDENTITIES. */

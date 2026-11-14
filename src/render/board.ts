@@ -24,17 +24,18 @@ const GLOW_STEPS = 8; // output quantisation per decade, so the cache key only c
 
 const col = (hex: number) => new THREE.Color(hex);
 /** Precomputed face / side / bevel colours per type; tokens and coefficients live in palette.ts. */
+type TokColours = 'face' | 'hover' | 'side' | 'sideTop' | 'bevel' | 'bevelPin' | 'faceGlow' | 'emissive';
 const TOK = Object.fromEntries(TILE_TYPES.map((t) => {
   const tk = TILE_IDENTITIES[t];
   return [t, {
-    face: col(tk.base), hover: col(hoverFace(tk.base)), side: col(sideColour(tk.base)),
+    face: col(tk.base), hover: col(hoverFace(tk.base)), side: col(sideColour(tk.base, 'bottom')), sideTop: col(sideColour(tk.base, 'top')),
     bevel: col(bevelColour(tk)), bevelPin: col(bevelColour(tk, true)),
     faceGlow: col(tk.base).multiplyScalar(MATERIAL.faceGlow), emissive: col(tk.emissive),
   }];
-})) as Record<TileType, Record<'face' | 'hover' | 'side' | 'bevel' | 'bevelPin' | 'faceGlow' | 'emissive', THREE.Color>>;
+})) as Record<TileType, Record<TokColours, THREE.Color>>;
 const C = {
   slot: col(EMPTY_SLOT.base), slotGlow: col(EMPTY_SLOT.emissive).multiplyScalar(EMPTY_SLOT.emissiveIntensity),
-  slotBorder: col(EMPTY_SLOT.accent), slotSide: col(sideColour(EMPTY_SLOT.base)),
+  slotBorder: col(EMPTY_SLOT.accent), slotSide: col(sideColour(EMPTY_SLOT.base, 'bottom')), slotSideTop: col(sideColour(EMPTY_SLOT.base, 'top')),
   next: col(NEXT_SLOT.base), nextBorder: col(NEXT_SLOT.border),
   white: col(BOARD.hover), adj: col(BOARD.adjacency), gold: col(BOARD.gold), bridge: col(PREVIEW.bridgeOutline),
   dim: col(EMPTY_SLOT.base), black: col(0),
@@ -151,6 +152,8 @@ export class Board {
   private sc = new THREE.Vector3();
   private c = new THREE.Color();
   private side = new THREE.Color();
+  private sideTop = new THREE.Color();
+  private hub = new THREE.Color();
   private border = new THREE.Color();
   private glow = new THREE.Color();
   private trim = new THREE.Color();
@@ -210,12 +213,11 @@ export class Board {
     for (const name of ['position', 'normal', 'color', 'glow'])
       this.geom.setAttribute(name, new THREE.BufferAttribute(new Float32Array(verts * 3), 3).setUsage(THREE.DynamicDrawUsage));
     // one merged draw call, so roughness/metalness are shared: the mean of the tile tokens
-    const toks = TILE_TYPES.map((t) => TILE_IDENTITIES[t]);
     // explicit envMap: three ignores envMapIntensity when envMap is null and scene.environment is used
     const mat = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: toks.reduce((a, t) => a + t.roughness, 0) / toks.length,
-      metalness: toks.reduce((a, t) => a + t.metalness, 0) / toks.length,
+      roughness: MATERIAL.bodyRoughness,
+      metalness: MATERIAL.bodyMetalness,
       envMap: env, envMapIntensity: MATERIAL.bodyEnv,
     });
     mat.onBeforeCompile = (sh) => {
@@ -516,7 +518,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     const pos = this.geom.attributes.position.array as Float32Array;
     const colA = this.geom.attributes.color.array as Float32Array;
     const glowA = this.geom.attributes.glow.array as Float32Array;
-    const g = GRAPHS[this.geometry], K = this.K, { c, side, border, glow, trim } = this;
+    const g = GRAPHS[this.geometry], K = this.K, { c, side, sideTop, hub, border, glow, trim } = this;
     for (const t of TILE_TYPES) this.motifs[t].count = 0;
     this.rings.count = 0;
     this.pr = prod(s);
@@ -541,6 +543,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         h = tileHeight(L);
         c.copy(i === hover ? tk.hover : tk.face);
         side.copy(tk.side);
+        sideTop.copy(tk.sideTop);
         border.copy(pinned ? tk.bevelPin : tk.bevel);
         glow.copy(tk.faceGlow);
         trim.copy(tk.emissive).multiplyScalar(i === hover ? MATERIAL.hoverTrim : trimGlow(L));
@@ -549,6 +552,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
           const sat = 1 - PREVIEW.inspectSatMul * hl.dim;
           c.lerp(C.dim, d).multiplyScalar(sat);
           side.lerp(C.dim, d * 0.88).multiplyScalar(sat);
+          sideTop.lerp(C.dim, d * 0.88).multiplyScalar(sat);
           border.lerp(C.dim, d * 0.72).multiplyScalar(sat);
           trim.lerp(C.dim, d * 0.78).multiplyScalar(sat);
           glow.multiplyScalar(1 - 0.92 * hl.dim);
@@ -558,6 +562,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         const edge = active ? C.slotBorder : C.nextBorder, face = active ? C.slot : C.next;
         c.copy(face);
         side.copy(C.slotSide);
+        sideTop.copy(C.slotSideTop);
         glow.copy(active ? C.slotGlow : C.black);
         if (i === hover || near) {
           border.copy(edge); trim.copy(glow); // focus or neighbour: the current bright rim at the placed-tile inset
@@ -577,6 +582,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
           const sat = 1 - PREVIEW.inspectSatMul * hl.dim;
           c.lerp(C.dim, d).multiplyScalar(sat);
           side.lerp(C.dim, d * 0.85).multiplyScalar(sat);
+          sideTop.lerp(C.dim, d * 0.85).multiplyScalar(sat);
           border.lerp(C.dim, d * 0.65).multiplyScalar(sat);
           trim.lerp(C.dim, d * 0.7).multiplyScalar(sat);
           glow.multiplyScalar(1 - 0.82 * hl.dim);
@@ -614,6 +620,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         }
       } else this.motifSlot[i] = -1;
       const hidden = o.scale <= 0, hb = h * 0.82;
+      hub.copy(c).lerp(C.white, t ? MATERIAL.hubLift : 0); // domed enamel on placed tiles only; empty slots stay flat and quiet
       let v = i * K * PER_K;
       const put = (x: number, y: number, z: number, cc: THREE.Color, gl: THREE.Color) => {
         const j = v * 3;
@@ -626,11 +633,11 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         // hidden tiles collapse to the centre, giving zero-area triangles
         const [px, pz] = hidden ? o.c : o.pts[k], [qx, qz] = hidden ? o.c : o.pts[(k + 1) % K];
         const ax = cx + (px - cx) * ins, az = cz + (pz - cz) * ins, bx = cx + (qx - cx) * ins, bz = cz + (qz - cz) * ins;
-        put(cx, h, cz, c, glow); put(bx, h, bz, c, glow); put(ax, h, az, c, glow); // inner face (CCW from above)
+        put(cx, h, cz, hub, glow); put(bx, h, bz, c, glow); put(ax, h, az, c, glow); // inner face (CCW from above)
         put(ax, h, az, border, trim); put(bx, h, bz, border, trim); put(qx, hb, qz, border, trim); // bevel / slot border
         put(ax, h, az, border, trim); put(qx, hb, qz, border, trim); put(px, hb, pz, border, trim);
-        put(px, hb, pz, side, C.black); put(qx, hb, qz, side, C.black); put(qx, 0, qz, side, C.black); // side
-        put(px, hb, pz, side, C.black); put(qx, 0, qz, side, C.black); put(px, 0, pz, side, C.black);
+        put(px, hb, pz, sideTop, C.black); put(qx, hb, qz, sideTop, C.black); put(qx, 0, qz, side, C.black); // side wall: top edge
+        put(px, hb, pz, sideTop, C.black); put(qx, 0, qz, side, C.black); put(px, 0, pz, side, C.black);
       }
     }
     this.geom.computeVertexNormals(); // non-indexed: face normals, written in place

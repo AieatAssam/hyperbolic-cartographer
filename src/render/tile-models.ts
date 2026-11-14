@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { TileType } from '../core/tiles';
-import { TILE_IDENTITIES, MOTIF } from '../art/palette';
+import { TILE_IDENTITIES, MOTIF, lerpHex } from '../art/palette';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
@@ -98,10 +98,10 @@ const ACCENT: Record<TileType, (x: number, yn: number) => boolean> = {
   scriptorium: (_, yn) => yn > 0.9,
 };
 
-/** Vertex colours: body = the type's emissive hue (vivid, not pastel), accent band = the type's accent. */
+/** Vertex colours: body = the tile base lerped toward ivory (a light game piece), accent band = the type's brass accent. */
 function paint(g: THREE.BufferGeometry, t: TileType, h: number) {
   const tk = TILE_IDENTITIES[t];
-  const body = new THREE.Color(tk.base), acc = new THREE.Color(tk.accent);
+  const body = new THREE.Color(lerpHex(tk.base, MOTIF.ivory, MOTIF.ivoryMix)), acc = new THREE.Color(tk.accent);
   const pos = g.attributes.position, n = pos.count, out = new Float32Array(n * 3);
   const rule = ACCENT[t];
   for (let i = 0; i < n; i++) {
@@ -120,8 +120,8 @@ export function motifMaterial(t: TileType): THREE.MeshStandardMaterial {
     color: 0xffffff,
     emissive: tk.emissive,
     emissiveIntensity: MOTIF.emissive,
-    roughness: 0.6,
-    metalness: 0,
+    roughness: MOTIF.roughness,
+    metalness: MOTIF.metalness,
   });
 }
 
