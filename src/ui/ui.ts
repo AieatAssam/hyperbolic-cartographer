@@ -768,15 +768,18 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
         sc.why(empty ? 'Place some tiles first. The board is empty.' : null);
         clr.disabled = !bp;
       });
-      const abox = el('input');
-      abox.type = 'checkbox';
-      abox.checked = s.autoBuild;
-      abox.onchange = () => {
-        get().autoBuild = abox.checked;
-      };
-      const alab = el('label', 'check');
-      alab.append(abox, ' Rebuild automatically');
+      // A button, not a checkbox: every control must be a 44px tap target.
+      const alab = btn('', '', () => {
+        const g = get();
+        g.autoBuild = !g.autoBuild;
+      });
+      alab.dataset.qa = 'bp-auto';
       help(alab, 'Rebuild automatically', BUTTON_HELP.blueprintAuto);
+      watch(() => {
+        const on = get().autoBuild;
+        alab.textContent = `Rebuild automatically: ${on ? 'On' : 'Off'}`;
+        alab.setAttribute('aria-pressed', String(on));
+      });
       out.push(
         card(
           title('Blueprint'),

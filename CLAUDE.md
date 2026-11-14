@@ -5,6 +5,7 @@
 - `npm test` — Vitest (core logic only, runs in Node)
 - `npm run pacing` — headless greedy bot; asserts Drift available < 15 min and taken < 30 min, Projection < 90 min (slow, opt-in)
 - `npm run playtest` — headless greedy bot on the fast clock; 120 min game time, prints a timeline, exits 1 if Drift/Projection are late (same limits) (`MIN=60` for less)
+- `npm run playtest:quick` — same bot, 30 min of game time in a few seconds
 - `npm run typecheck`, `npm run build`
 
 ## Design documents
