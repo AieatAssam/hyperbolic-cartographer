@@ -153,7 +153,7 @@ Inspect flow uses one smooth quadratic arch per source–target pair (no hop tru
 | `UI.flash` | `#ffffff` | `--flash` | Prestige flash. |
 | `UI.hudChipBg` | `#0c1220` | (contrast ref) | Solid fill under HUD glass for palette-dot contrast. |
 | `UI.glassRgb` + `glassAlpha` | rgba(12, 18, 32, 0.78) | `--glass` | HUD / toast glass. |
-| `UI.lineRgb` + `lineAlpha` | rgba(95, 212, 255, 0.22) | `--line` | Borders. |
+| `UI.lineRgb` + `lineAlpha` | rgba(232, 200, 114, 0.18) | `--line` | Borders (gold hairline). |
 | `UI.devPanelBg` + alpha | rgba(30, 8, 12, 0.8) | `--dev-bg` | Dev panel fill. |
 
 **Palette tool chips (Wired in `ui.ts`).** Each build-tool button shows an 8×8 px dot filled with `tileChipColour(type)` = `TILE_IDENTITIES[type].base`. When contrast on `UI.hudChipBg` is low, a `--ink` ring is drawn; the fill never substitutes another hue.

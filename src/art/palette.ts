@@ -325,8 +325,8 @@ export const UI = {
   hudChipBg: 0x0c1220,
   glassRgb: [12, 18, 32] as const,
   glassAlpha: 0.78,
-  lineRgb: [95, 212, 255] as const,
-  lineAlpha: 0.22,
+  lineRgb: [232, 200, 114] as const,
+  lineAlpha: 0.18,
   devPanelBg: [30, 8, 12] as const,
   devPanelBgAlpha: 0.8,
 } as const;
