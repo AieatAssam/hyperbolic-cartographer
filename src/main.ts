@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import Decimal from 'break_eternity.js';
 import { config } from './core/config';
+import { ACHIEVEMENTS } from './core/achievements';
 import { initialState, graphOf, GRAPHS, SURFACE_GRAPHS, type GameState, type SurfacePreview } from './core/state';
 import { adjacency, buyChartUpg, buyCurvUpg, catchWind, isActive, maxRing, mods, place, prod, previewDelta, sell, sellValue, survey, tileCost, togglePin } from './core/economy';
 import {
@@ -977,7 +978,7 @@ addEventListener('pagehide', persist);
 
 // ---- loop: fixed 10 Hz simulation, rAF rendering ----
 const STEP = 1 / config.tickRate;
-let acc = 0, last = performance.now(), uiAcc = 0, routeKey = '', routes: Route[] = [], lastRing = s.ring;
+let acc = 0, last = performance.now(), uiAcc = 0, routeKey = '', routes: Route[] = [], lastRing = s.ring, achToasted = s.achievements.length;
 function frame(now: number) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.25, (now - last) / 1000);
@@ -987,6 +988,12 @@ function frame(now: number) {
   let steps = 0;
   while (acc >= STEP && steps++ < 1000) simulate(s, STEP), (acc -= STEP), manifoldPreview === 'off' && tickWindTimer(windT, STEP);
   if (steps >= 1000) acc = 0;
+  // Toast achievements earned since the last frame (covers Drifts made outside the loop too).
+  if (achToasted > s.achievements.length) achToasted = s.achievements.length;
+  for (; achToasted < s.achievements.length; achToasted++) {
+    const a = ACHIEVEMENTS.find((x) => x.id === s.achievements[achToasted]);
+    if (a) audio.cue('upgrade'), ui.toast(`Achievement: ${a.name} (+1% Ink)`);
+  }
 
   if (s.drifts !== lastDriftCount) {
     lastDriftCount = s.drifts;

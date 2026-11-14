@@ -69,6 +69,7 @@ Keys are ignored while focus is in a text field, with Ctrl/Cmd/Alt held, or whil
 - The first run shows a 5-step tutorial above the tools: Ink buys tiles, place your first Spring, save for a Mill, the adjacency boost, and reading the preview. Each step moves on once its goal is met.
 - **Hide** dismisses the card. The **Guide** button reopens it.
 - The Menu's Guide tab has tutorial controls and a reference for every tool and button.
+- The Menu's **Atlas** tab lists 24 permanent achievements (`src/core/achievements.ts`) and lifetime stats. Each earned achievement adds +1% Ink (`achievements.inkPerEach` **0.01**).
 - Tutorial progress is stored in `localStorage` under `hc-tutorial`, separate from your save.
 - The top bar shows **Now** (your next step, with progress and an ETA), a live line about what the board is producing, and the next unlock.
 - Panels scroll. Close them with **Close** or **Menu**.
@@ -173,6 +174,8 @@ tests/           Vitest suites, plus the opt-in pacing bot
 ## Balance
 
 Changes from the original brief (all in `src/core/config.ts`; formulas unchanged):
+
+- Achievements (new): each earned achievement multiplies global Ink output by 1 + `achievements.inkPerEach` (**0.01**), so 24 give +24%. Achievements are permanent and survive Drift and Projection.
 
 - Mill output 5 → 9 Ink/s (pacing: first Drift was ~25 min); now 9 → 18 Ink/s (`tiles.mill.out`) under the spring strain rule below. A Mill counts only its strongest 8 Spring shares (`tiles.mill.maxSprings`), which caps Bridge hubs. Likewise only the strongest 6 Bridge-relayed Beacons count per producer (`tiles.beacon.maxRelayed`), and Vault global bonus now has diminishing returns: the first Vault gives +2%, each further one 0.97x the one before (`tiles.vault.decay`, limit +67%; was a flat +2% each).
 - Spring strain (new, `tiles.spring.strain` **0.33**): a Spring's output is split among the Mills it feeds. With k Mills, each gets share 1/(1 + 0.33·(k−1)): 100%, 75%, 60%, 50%. A Spring touching a Bridge is channelled and gives every Mill full share (the Bridge exception).

@@ -3,6 +3,7 @@ import { chartUpgrades, config, curvatureGain } from './config';
 import { GRAPHS, zeroUpgrades, type GameState } from './state';
 import { has } from './milestones';
 import { maxRing } from './economy';
+import { noteDrift } from './achievements';
 
 export function chartsOnDrift(s: GameState): Decimal {
   if (s.runInk.lt(config.drift.minInk)) return new Decimal(0);
@@ -26,9 +27,11 @@ function resetRun(s: GameState) {
 export function drift(s: GameState): Decimal {
   const gain = chartsOnDrift(s);
   if (gain.lt(1)) return gain;
+  const runTimeBefore = s.runTime;
   s.charts = s.charts.add(gain);
   s.cycleCharts = s.cycleCharts.add(gain);
   s.drifts++;
+  noteDrift(s, runTimeBefore);
   resetRun(s);
   s.constellationKeys = [];
   s.tiles = s.tiles.map((t, i) => (s.pinned.includes(i) ? t : null));

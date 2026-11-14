@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import Decimal from 'break_eternity.js';
 import { config } from '../src/core/config';
+import { ACHIEVEMENTS } from '../src/core/achievements';
 import { initialState, type GameState } from '../src/core/state';
 import { isActive, place, prod } from '../src/core/economy';
 import { fastForward } from '../src/core/tick';
@@ -30,6 +31,8 @@ it('fastForward is deterministic and chunk-independent', () => {
 
 it('fastForward pays the live rate in full (no offline efficiency factor)', () => {
   const s = opening();
+  // Earn every achievement up front so the Ink bonus stays constant while the run earns new ones.
+  s.achievements = ACHIEVEMENTS.map((a) => a.id);
   const rate = prod(s).total;
   const before = s.lifetimeInk.toNumber();
   fastForward(s, 60);

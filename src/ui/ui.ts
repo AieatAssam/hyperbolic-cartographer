@@ -7,6 +7,7 @@ import { autoSurveyOn } from '../core/tick';
 import { blueprintProgress, clearBlueprint, saveBlueprint } from '../core/blueprint';
 import { config, chartUpgrades, curvUpgrades, type ChartUpgradeId, type CurvUpgradeId, type UpgradeDef } from '../core/config';
 import { MILESTONES, has } from '../core/milestones';
+import { ACHIEVEMENTS, achievementBonus } from '../core/achievements';
 import { canProject, chartsOnDrift, curvatureOnProjection } from '../core/prestige';
 import { cellsInRing, isActive, maxPins, maxRing, prod, surveyCost, tileCost } from '../core/economy';
 import { fmt, fmtTime } from './format';
@@ -97,7 +98,7 @@ export interface UI {
 
 type Dec = GameState['ink'];
 const TABS: [Tab, string][] = [
-  ['map', 'Map'], ['constellations', 'Stars'], ['drift', 'Drift'], ['charts', 'Charts'], ['proj', 'Projection'], ['miles', 'Milestones'], ['save', 'Settings'], ['guide', 'Guide'],
+  ['map', 'Map'], ['constellations', 'Stars'], ['drift', 'Drift'], ['charts', 'Charts'], ['proj', 'Projection'], ['miles', 'Milestones'], ['atlas', 'Atlas'], ['save', 'Settings'], ['guide', 'Guide'],
 ];
 const CONST_NAMES: Record<ConstellationId, string> = {
   inkstream: config.constellations.inkstream.name,
@@ -867,6 +868,37 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     }),
   ];
 
+  const atlasTab = (s: GameState): HTMLElement[] => {
+    const count = txt('');
+    const earned = card(title('Achievements'), count);
+    watch(() => {
+      const g = get();
+      count.textContent = `${g.achievements.length} of ${ACHIEVEMENTS.length} earned · +${Math.round((achievementBonus(g) - 1) * 100)}% Ink`;
+    });
+    for (const a of ACHIEVEMENTS) {
+      const c = card(title(a.name), txt(a.desc));
+      c.classList.add(s.achievements.includes(a.id) ? 'done' : 'locked');
+      earned.append(c);
+    }
+    const journey: [string, (g: GameState) => string][] = [
+      ['Lifetime Ink', (g) => fmt(g.lifetimeInk, g.notation)],
+      ['Time played', (g) => fmtTime(g.totalTime)],
+      ['Drifts', (g) => String(g.drifts)],
+      ['Projections', (g) => String(g.projections)],
+      ['Tiles placed', (g) => fmt(g.stats.tilesPlaced, g.notation)],
+      ['Best Ink/s', (g) => fmt(g.stats.bestInkPerSec, g.notation)],
+      ['Winds caught', (g) => String(g.windsCaught)],
+      ['Constellations completed', (g) => String(g.stats.constellations)],
+    ];
+    const lines = el('ul', 'guide-list');
+    for (const [label, f] of journey) {
+      const li = el('li', '', '');
+      watch(() => (li.textContent = `${label}: ${f(get())}`));
+      lines.append(li);
+    }
+    return [earned, card(title('Journey so far'), lines)];
+  };
+
   const saveTab = (s: GameState): HTMLElement[] => {
     const copy = btn('Copy save string', '', async () => {
       const str = ctx.act.exportString();
@@ -951,7 +983,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   };
 
   const tabs: Record<Tab, (s: GameState) => HTMLElement[]> = {
-    map: mapTab, constellations: constellationsTab, drift: driftTab, charts: chartsTab, proj: projTab, miles: milesTab, save: saveTab, guide: guideTab,
+    map: mapTab, constellations: constellationsTab, drift: driftTab, charts: chartsTab, proj: projTab, miles: milesTab, atlas: atlasTab, save: saveTab, guide: guideTab,
   };
 
   // ---- Tooltip / toast / flash ----
@@ -1199,6 +1231,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     const key = [
       tab, s.drifts, s.projections, s.ring, s.geometry, s.curvature.gt(0), canProject(s), autoSurveyOn(s),
       JSON.stringify(s.chartUpg), JSON.stringify(s.curvUpg), MILESTONES.map((m) => (m.req(s) ? 1 : 0)).join(''),
+      s.achievements.length,
     ].join('|');
     if (key !== bodyKey) {
       bodyKey = key;
