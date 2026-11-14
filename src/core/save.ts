@@ -3,7 +3,7 @@ import LZString from 'lz-string';
 import { GRAPHS, initialState, type GameState } from './state';
 import { TILE_TYPES } from './tiles';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 const DECIMAL_KEYS = ['ink', 'runInk', 'lifetimeInk', 'charts', 'cycleCharts', 'curvature'] as const;
 
 export interface SaveFile {
@@ -21,6 +21,14 @@ export const migrations: Record<number, (s: Record<string, unknown>) => Record<s
     constellationLog: Array.isArray(s.constellationLog) ? s.constellationLog : [],
   }),
   2: (s) => ({ ...s, surge: 0, windsCaught: 0 }),
+  3: (s) => ({
+    ...s,
+    surgeMult: 3,
+    blueprints: { square: null, hyper: null },
+    autoBuild: true,
+    achievements: [],
+    stats: { tilesPlaced: 0, bestInkPerSec: 0, constellations: Array.isArray(s.constellationLog) ? s.constellationLog.length : 0 },
+  }),
 };
 
 export function fnv1a(str: string): string {
@@ -85,5 +93,16 @@ function hydrate(raw: Record<string, unknown>): GameState {
   if (!Array.isArray(s.pinned) || s.pinned.some((i) => !s.tiles[i])) throw new Error('bad pins');
   if (!Array.isArray(s.constellationKeys)) s.constellationKeys = [];
   if (!Array.isArray(s.constellationLog)) s.constellationLog = [];
+  if (!Array.isArray(s.achievements) || s.achievements.some((a) => typeof a !== 'string')) s.achievements = [];
+  s.stats = { ...base.stats, ...(raw.stats as object) };
+  if (!(s.surgeMult >= 1)) s.surgeMult = base.surgeMult;
+  s.autoBuild = !!s.autoBuild;
+  // A blueprint must match its geometry's node count and only hold known tiles; otherwise drop it.
+  const bp = (raw.blueprints ?? {}) as Record<string, unknown>;
+  s.blueprints = { ...base.blueprints };
+  for (const geo of ['square', 'hyper'] as const) {
+    const b = bp[geo];
+    if (Array.isArray(b) && b.length === GRAPHS[geo].ring.length && b.every((t) => t === null || TILE_TYPES.includes(t))) s.blueprints[geo] = b;
+  }
   return s;
 }

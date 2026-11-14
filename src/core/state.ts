@@ -40,6 +40,16 @@ export interface GameState {
   /** seconds of Trade Wind surge left (live play only) */
   surge: number;
   windsCaught: number;
+  /** Multiplier of the running surge (set by the kind of wind caught). */
+  surgeMult: number;
+  /** Saved layout per geometry (tile per node index), or null. Survives Drift and Projection. */
+  blueprints: Record<Geometry, (TileType | null)[] | null>;
+  /** Rebuild the current geometry's blueprint automatically as Ink allows (live play only). */
+  autoBuild: boolean;
+  /** Ids of earned achievements (permanent). */
+  achievements: string[];
+  /** Lifetime counters for the Atlas stats card and achievements. */
+  stats: { tilesPlaced: number; bestInkPerSec: number; constellations: number };
 }
 
 // Generated once at max size (hyper radius 4 = 232 tiles).
@@ -84,5 +94,10 @@ export function initialState(): GameState {
     constellationLog: [],
     surge: 0,
     windsCaught: 0,
+    surgeMult: config.wind.surgeMult,
+    blueprints: { square: null, hyper: null },
+    autoBuild: true,
+    achievements: [],
+    stats: { tilesPlaced: 0, bestInkPerSec: 0, constellations: 0 },
   };
 }
