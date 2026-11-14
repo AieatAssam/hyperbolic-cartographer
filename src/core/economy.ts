@@ -17,7 +17,7 @@ export interface Mods {
 
 export function mods(s: GameState): Mods {
   return {
-    global: 2 ** s.chartUpg.global,
+    global: 2 ** s.chartUpg.global * (1 + config.achievements.inkPerEach * s.achievements.length),
     beacon: config.tiles.beacon.mult + 0.25 * s.chartUpg.beacon + (has(s, 'brightBeacons') ? 0.25 : 0),
     beaconPerDegree: 0.05 * s.curvUpg.beaconDegree,
     reach: 1 + s.curvUpg.bridgeReach,
@@ -192,7 +192,7 @@ export function production(g: TileGraph, tiles: (TileType | null)[], m: Mods): P
 let cache: { key: string; p: Production } | null = null;
 /** Cached production for the current state (recomputed only when board or upgrades change). */
 export function prod(s: GameState): Production {
-  const key = s.geometry + s.tiles.join() + JSON.stringify(s.chartUpg) + JSON.stringify(s.curvUpg) + s.drifts + s.projections;
+  const key = s.geometry + s.tiles.join() + JSON.stringify(s.chartUpg) + JSON.stringify(s.curvUpg) + s.drifts + s.projections + s.achievements.length;
   if (cache?.key !== key) cache = { key, p: production(graphOf(s), s.tiles, mods(s)) };
   return cache.p;
 }
@@ -241,6 +241,7 @@ export function place(s: GameState, i: number, t: TileType): boolean {
   const first = owned(s, t) === 0;
   s.ink = s.ink.sub(cost);
   s.tiles[i] = t;
+  s.stats.tilesPlaced++;
   if (first && t === 'mill' && config.rewards?.firstMillInk)
     s.ink = s.ink.add(config.rewards.firstMillInk);
   if (first && t === 'bridge' && config.rewards?.firstBridgeInk)

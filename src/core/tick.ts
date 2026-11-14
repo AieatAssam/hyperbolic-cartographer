@@ -4,6 +4,7 @@ import { graphOf, type GameState } from './state';
 import { isActive, offlineCapSec, offlineEff, place, prod, surgeMult, survey } from './economy';
 import { chartsOnDrift, drift } from './prestige';
 import { has } from './milestones';
+import { checkAchievements } from './achievements';
 
 export const autoSurveyOn = (s: GameState) => s.chartUpg.autoSurvey > 0 || has(s, 'autoSurvey');
 export const autoSpringsOn = (s: GameState) => s.chartUpg.autoSprings > 0 || has(s, 'autoSprings');
@@ -18,6 +19,10 @@ export function simulate(s: GameState, dt: number, eff = 1, offline = false): Ga
   s.lifetimeInk = s.lifetimeInk.add(gain);
   s.runTime += dt;
   s.totalTime += dt;
+  if (Math.floor(s.totalTime) !== Math.floor(s.totalTime - dt)) {
+    s.stats.bestInkPerSec = Math.max(s.stats.bestInkPerSec, prod(s).total);
+    checkAchievements(s);
+  }
 
   if (autoSurveyOn(s)) survey(s);
   // Board is static offline: auto-Springs only run live.

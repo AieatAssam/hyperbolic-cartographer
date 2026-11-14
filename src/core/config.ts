@@ -18,6 +18,8 @@ export const config = {
     scriptorium: { cost: 8000, out: 15 },
   },
   costGrowth: 1.12,
+  /** Each earned achievement adds this much to global Ink output (see achievementBonus). */
+  achievements: { inkPerEach: 0.01 },
   sellRefund: 0.5,
   square: { startRing: 1, maxRing: 5, surveyBase: 50, surveyGrowth: 6 },
   hyper: { startRing: 2, maxRing: 3, surveyBase: 2e5, surveyGrowth: 12 },

@@ -11,7 +11,7 @@ import { fmt } from './format';
  */
 
 export type Tool = TileType | 'sell' | 'pin';
-export type Tab = 'map' | 'constellations' | 'drift' | 'charts' | 'proj' | 'miles' | 'save' | 'guide';
+export type Tab = 'map' | 'constellations' | 'drift' | 'charts' | 'proj' | 'miles' | 'atlas' | 'save' | 'guide';
 type Dec = GameState['ink'];
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -51,6 +51,7 @@ export const TAB_HELP: Record<Tab, string> = {
   charts: 'Charts buy permanent upgrades. Each upgrade has levels, and the button shows the cost of the next one.',
   proj: 'Projection is the next step after Drift. It spends this cycle\'s Charts on Curvature, moves you to the hyperbolic board, and resets the run.',
   miles: 'Milestones unlock as you Drift and Project. Each one changes how the game plays, so check here when a new feature appears.',
+  atlas: 'Achievements and lifetime numbers. Each achievement adds +1% Ink.',
   save: 'Sound and music volume, the number format, and your save: export, import or wipe it. Save strings include a checksum, so edits are rejected.',
   guide: 'A short guide to tiles, Survey, Drift and Projection. Open it any time from the Guide button.',
 };
