@@ -13,16 +13,16 @@
 /** Scene lights. Consumed by scene.ts: hemisphere + three directional lights + environment. */
 export const LIGHTS = {
   /** Hemisphere sky colour (warm-violet ambient from above). */
-  hemiSky: 0xd9c4ff, hemiGround: 0x1f4a52, hemiIntensity: 0.6,
-  /** Warm key light, the only shadow caster (high quality only, see QUALITY_PROFILES.shadows in scene.ts). */
-  key: 0xffd9a8, keyIntensity: 2.0, keyPos: [6, 12, 5] as [number, number, number],
+  hemiSky: 0xd9c4ff, hemiGround: 0x1f4a52, hemiIntensity: 0.42,
+  /** Warm key light, the only shadow caster (high quality only, see QUALITY_PROFILES.shadows in scene.ts). Lower and more raking so tile tops and sides separate. */
+  key: 0xffd9a8, keyIntensity: 2.3, keyPos: [7, 9, 5] as [number, number, number],
   /** Key shadow map: size, ortho half-width (covers the table disk, radius 9.55, plus margin), near/far, bias. */
   shadowMapSize: 2048, shadowExtent: 11, shadowNear: 1, shadowFar: 30, shadowRadius: 3,
   shadowBias: -0.0005, shadowNormalBias: 0.02,
   /** Cool fill light from the left, softens key shadows. */
-  fill: 0x7fc8ff, fillIntensity: 0.7, fillPos: [-9, 6, -2] as [number, number, number],
-  /** Magenta rim light from behind, separates tiles from the backdrop. */
-  rim: 0xff7ad9, rimIntensity: 1.3, rimPos: [-2, 5, -12] as [number, number, number],
+  fill: 0x7fc8ff, fillIntensity: 0.45, fillPos: [-9, 6, -2] as [number, number, number],
+  /** Magenta-violet rim light from behind, separates tiles from the dark backdrop. */
+  rim: 0xd28bff, rimIntensity: 1.5, rimPos: [-2, 5, -12] as [number, number, number],
   /** scene.environmentIntensity for the procedural RoomEnvironment reflections. */
   envIntensity: 0.35,
   /** renderer.toneMappingExposure. */
@@ -35,22 +35,22 @@ export const LIGHTS = {
  * `drift` scales the backdrop animation speed (1 = normal).
  */
 export const BACKDROP = {
-  top: 0x2a1850, horizon: 0x6a3a78, bottom: 0x14343e,
-  nebulaA: 0x3fb8c4, nebulaB: 0xd0709a, star: 0xfff0d0,
-  vignette: 0.35, grain: 0.004, drift: 1.0,
+  top: 0x0a0c1f, horizon: 0x231640, bottom: 0x07151c,
+  nebulaA: 0x3fb8c4, nebulaB: 0xd0709a, star: 0xdfe8ff,
+  vignette: 0.55, grain: 0.004, drift: 1.0,
 } as const;
 
 /**
  * Exponential fog. Consumed as scene.fog = FogExp2(color, density) and as the
  * scene.background fallback colour. Board tiles fade toward `color` with distance.
  */
-export const FOG = { color: 0x3a2350, density: 0.012 } as const;
+export const FOG = { color: 0x1a1233, density: 0.012 } as const;
 
 /**
  * UnrealBloomPass parameters: new UnrealBloomPass(res, strength, radius, threshold).
  * threshold is the luminance cut-off; only emissive surfaces above it bloom.
  */
-export const BLOOM = { strength: 0.22, radius: 0.4, threshold: 1.4 } as const;
+export const BLOOM = { strength: 0.32, radius: 0.55, threshold: 1.4 } as const;
 
 /**
  * A material token for a tile or slot. Face colour and emissive glow are separate on purpose:

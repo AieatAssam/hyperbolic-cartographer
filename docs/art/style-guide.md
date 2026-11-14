@@ -16,15 +16,15 @@ All colours are sRGB hex. three converts them to linear when it builds `Color` o
 |---|---|---|
 | `hemiSky` | `#d9c4ff` | Hemisphere sky colour: warm-violet ambient from above. |
 | `hemiGround` | `#1f4a52` | Hemisphere ground colour: deep teal bounce from below. |
-| `hemiIntensity` | 0.6 | Hemisphere strength. |
+| `hemiIntensity` | 0.42 | Hemisphere strength. Lower, so shadows keep depth. |
 | `key` | `#ffd9a8` | Warm key light, main directional. |
-| `keyIntensity` | 2.0 | Key strength. |
-| `keyPos` | [6, 12, 5] | Key position. |
+| `keyIntensity` | 2.3 | Key strength. |
+| `keyPos` | [7, 9, 5] | Key position. Lower and more raking than before, so tile tops and sides separate. |
 | `fill` | `#7fc8ff` | Cool fill from the left, softens key falloff. |
-| `fillIntensity` | 0.7 | Fill strength. |
+| `fillIntensity` | 0.45 | Fill strength. |
 | `fillPos` | [-9, 6, -2] | Fill position. |
-| `rim` | `#ff7ad9` | Magenta rim from behind, separates tiles from the backdrop. |
-| `rimIntensity` | 1.3 | Rim strength. |
+| `rim` | `#d28bff` | Magenta-violet rim from behind, separates tiles from the dark backdrop. |
+| `rimIntensity` | 1.5 | Rim strength. |
 | `rimPos` | [-2, 5, -12] | Rim position. |
 | `envIntensity` | 0.35 | `scene.environmentIntensity` for procedural reflections. |
 | `exposure` | 1.05 | `renderer.toneMappingExposure`. |
@@ -35,13 +35,13 @@ Shadow maps are off.
 
 | Token | Hex / value | Meaning |
 |---|---|---|
-| `top` | `#2a1850` | Sky gradient top (deep purple). |
-| `horizon` | `#6a3a78` | Plum horizon band. |
-| `bottom` | `#14343e` | Deep teal floor. |
+| `top` | `#0a0c1f` | Sky gradient top (night indigo). |
+| `horizon` | `#231640` | Dark violet horizon band. |
+| `bottom` | `#07151c` | Near-black teal floor. |
 | `nebulaA` | `#3fb8c4` | Teal nebula layer. |
 | `nebulaB` | `#d0709a` | Rose nebula layer. |
-| `star` | `#fff0d0` | Sparse ink-speck stars. |
-| `vignette` | 0.35 | Screen-space vignette strength. |
+| `star` | `#dfe8ff` | Crisp cool-white stars, one per lit cell of a direction grid, with slow twinkle driven by `drift`. |
+| `vignette` | 0.55 | Screen-space vignette strength. Corners about 45% darker, centre untouched. |
 | `grain` | 0.004 | Parchment grain amplitude. Lowered from 0.02 to remove visible static. |
 | `drift` | 1 | Backdrop animation speed multiplier. |
 
@@ -49,15 +49,15 @@ Shadow maps are off.
 
 | Token | Hex / value | Meaning |
 |---|---|---|
-| `color` | `#3a2350` | Plum fog. Distant tiles fade into colour, not black. Also the background fallback. |
+| `color` | `#1a1233` | Dark violet fog. Distant board edges melt into the night, not into haze. Also the background fallback. |
 | `density` | 0.012 | `FogExp2` density. |
 
 ### BLOOM (Wired)
 
 | Token | Value | Meaning |
 |---|---|---|
-| `strength` | 0.22 | UnrealBloomPass strength. |
-| `radius` | 0.4 | Bloom spread. |
+| `strength` | 0.32 | UnrealBloomPass strength. |
+| `radius` | 0.55 | Bloom spread. |
 | `threshold` | 1.4 | Linear luminance cut-off. Only surfaces above this glow. |
 
 ### Materials & bloom (pass 3A) (Wired in `board.ts`)
