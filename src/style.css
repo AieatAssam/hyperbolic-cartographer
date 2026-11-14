@@ -811,3 +811,11 @@ button.sound-toggle[aria-pressed="true"] { color: var(--muted); }
 }
 
 .value, .cost, .hud-seg { font-variant-numeric: tabular-nums; }
+
+/* Atlas: compact achievement rows */
+.ach-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; font-size: 12px; }
+.ach-list li { display: flex; flex-direction: column; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08); }
+.ach-list li span { color: var(--muted); }
+.ach-list li.done { border-color: rgba(127, 217, 160, 0.6); }
+.ach-list li.done b { color: var(--gold); }
+.ach-list li.locked { opacity: 0.55; }

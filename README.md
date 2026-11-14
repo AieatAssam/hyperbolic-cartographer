@@ -57,7 +57,7 @@ Hover is never required: everything it shows is also available by tapping.
 
 **Keyboard**
 
-- **1-5**: select a tile tool.
+- **1-8**: select a tile tool.
 - **S**: Sell tool. **P**: Pin tool. Then click or tap a cell.
 - **Esc**: closes an open dialog, or cancels the current preview. On small screens it also closes the side panel.
 - **`** (backtick): toggles the dev panel, where enabled (see below).

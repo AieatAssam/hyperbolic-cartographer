@@ -328,6 +328,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
         || (t === 'charts' && (k.startsWith('chart-') || k.startsWith('curv-')))) menuAttSeen.add(k);
     }
     update();
+    tabBtns.get(t)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   };
   const head = el('div', 'panel-head');
   head.append(
@@ -875,11 +876,14 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       const g = get();
       count.textContent = `${g.achievements.length} of ${ACHIEVEMENTS.length} earned · +${Math.round((achievementBonus(g) - 1) * 100)}% Ink`;
     });
+    const grid = el('ul', 'ach-list');
     for (const a of ACHIEVEMENTS) {
-      const c = card(title(a.name), txt(a.desc));
-      c.classList.add(s.achievements.includes(a.id) ? 'done' : 'locked');
-      earned.append(c);
+      const got = s.achievements.includes(a.id);
+      const li = el('li', got ? 'done' : 'locked');
+      li.append(el('b', '', `${got ? '★' : '☆'} ${a.name}`), el('span', '', a.desc));
+      grid.append(li);
     }
+    earned.append(grid);
     const journey: [string, (g: GameState) => string][] = [
       ['Lifetime Ink', (g) => fmt(g.lifetimeInk, g.notation)],
       ['Time played', (g) => fmtTime(g.totalTime)],
@@ -978,7 +982,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
           ['Greyed-out buttons', 'A red line under a disabled button says exactly what is missing.'],
         ]),
       ),
-      card(title('Keyboard'), txt('1-5 pick tiles, S Sell, P Pin, Esc cancels a preview or closes a window. Tab moves between buttons; focused buttons show their help in the card above the tools.')),
+      card(title('Keyboard'), txt('1-8 pick tiles, S Sell, P Pin, Esc cancels a preview or closes a window. Tab moves between buttons; focused buttons show their help in the card above the tools.')),
     ];
   };
 
