@@ -5,7 +5,7 @@
 import { chartUpgrades, config, curvUpgrades } from './config';
 import { graphOf, initialState, type GameState } from './state';
 import { buyChartUpg, buyCurvUpg, deltaScan, isActive, maxRing, place, prod, scanDelta, sell, survey, surveyCost, tileCost, type DeltaScan } from './economy';
-import { canProject, chartsOnDrift, drift, project } from './prestige';
+import { canProject, chartsOnDrift, curvatureOnProjection, drift, project } from './prestige';
 import { fastForward } from './tick';
 import { TILE_TYPES, type TileType } from './tiles';
 
@@ -76,7 +76,7 @@ export function playGreedy(
 ): { log: GreedyLog; s: GameState } {
   const s = initialState();
   const log: GreedyLog = {};
-  let target = bestGreedyBuy(s), bestChartRate = 0;
+  let target = bestGreedyBuy(s), bestChartRate = 0, driftsAtProjection = 0;
   for (let sec = 0; sec < limitMin * 60; sec++) {
     fastForward(s, 1);
     const sc = surveyCost(s).toNumber();
@@ -102,13 +102,21 @@ export function playGreedy(
         target = bestGreedyBuy(s);
       } else bestChartRate = Math.max(bestChartRate, rate);
     }
-    if (canProject(s) && s.projections === 0) {
-      log.projection = sec / 60;
-      log.curvature = project(s).toNumber();
+    // Again once the cycle has built curvature >= 4 and the bot has Drifted 3 times since the last Projection.
+    const again = s.projections > 0 && s.drifts - driftsAtProjection >= 3 && curvatureOnProjection(s).gte(4);
+    if (canProject(s) && (s.projections === 0 || again)) {
+      if (s.projections === 0) {
+        log.projection = sec / 60;
+        log.curvature = curvatureOnProjection(s).toNumber();
+      } else log.projection2 ??= sec / 60;
+      project(s);
+      driftsAtProjection = s.drifts;
       for (const u of curvUpgrades) buyCurvUpg(s, u.id);
       target = bestGreedyBuy(s);
     }
-    if (s.projections > 0 && s.ring === maxRing(s) && !target && !log.hyperFull) log.hyperFull = sec / 60;
+    // Hyperbolic "full": past the first Projection, at max ring, with every active cell holding a tile.
+    const boardFull = graphOf(s).ring.every((_, i) => !isActive(s, i) || s.tiles[i]);
+    if (s.projections > 0 && s.ring === maxRing(s) && boardFull && !log.hyperFull) log.hyperFull = sec / 60;
     onSecond?.(s, sec, log);
   }
   return { log, s };

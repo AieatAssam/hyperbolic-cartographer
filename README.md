@@ -118,7 +118,7 @@ npm run layout      # layout QA; after npm run build and npx playwright install 
 Two ways to see a whole run quickly, both on the same simulation rules as live play:
 
 - **Live, in the browser (dev only):** `npm run dev`, then open the app with `?dev&speed=N` (N from 1 to 1000; `speed` is clamped and ignored in production builds). Economy and Trade Winds run N times faster. From the console, `window.game` exposes `setSpeed(x)`, `pause()`, `resume()`, `step(seconds)` (advance simulated time at once), `snapshot()`, `cells()`, `place(i, t)`, `sell(i)`, `survey()`, `catchWind()`, `drift()` and `project()`. Add `qa` (`?dev&qa`) to keep the run out of localStorage.
-- **Headless:** `npm run playtest` runs the greedy bot for 120 minutes of game time (`MIN=60 npm run playtest` for less), prints a timeline with milestones, wall time and peak heap, and exits 1 on the same limits as `npm run pacing`.
+- **Headless:** `npm run playtest` runs the greedy bot for 120 minutes of game time (`MIN=60 npm run playtest` for less), prints a timeline with milestones, wall time and peak heap, and exits 1 on the same limits as `npm run pacing`. `npm run playtest:quick` runs the first 30 minutes for a fast check of the early game.
 
 Trade Winds come up on the simulated clock, so a fast run sees the same wind schedule per game minute. The core pieces are `fastForward` in `src/core/tick.ts` and the timer in `src/core/wind.ts`; `tests/fast-clock.test.ts` covers them.
 
