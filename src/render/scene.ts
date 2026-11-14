@@ -70,7 +70,7 @@ uniform float uTime;
 uniform vec2 uRes;
 uniform vec3 uTop, uHorizon, uBottom, uNebulaA, uNebulaB, uStar;
 uniform float uVignette, uGrain;
-uniform float uFocus; // 0 = default look, 1 = manifold on stage (calmer grid and nebula, darker corners)
+uniform float uFocus; // 0 = default look, 1 = manifold on stage (calmer grid, slightly brighter nebula)
 varying vec3 vDir;
 
 float hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -90,13 +90,13 @@ float hairline(float x) {
   return (1.0 - smoothstep(hw * 0.3, hw, dist)) * (1.0 - smoothstep(0.1, 0.2, w));
 }
 
-// Crisp stars: one hashed star per cell of a 40-cell direction grid, about 7% of cells lit.
+// Crisp stars: one hashed star per cell of a 40-cell direction grid, about 14% of cells lit.
 // Sizes and halos are in screen pixels (fwidth). Twinkle uses t, so drift 0 freezes it.
 float stars(vec3 d, float t) {
   vec3 p = d * 40.0;
   vec3 cell = floor(p);
   vec4 r = vec4(hash(cell), hash(cell + 17.3), hash(cell + 41.7), hash(cell + 73.1));
-  float present = step(0.93, r.x);
+  float present = step(0.86, r.x);
   vec3 sp = cell + 0.2 + 0.6 * vec3(hash(cell + 3.1), hash(cell + 7.7), hash(cell + 11.9));
   float px = length(fwidth(p));
   float dist = length(p - sp);
@@ -105,7 +105,7 @@ float stars(vec3 d, float t) {
   float core = 1.0 - smoothstep(px * size * 0.5, px * size, dist);
   float halo = big * exp(-dist / (px * 5.0)) * 0.3;
   float tw = 0.85 + 0.15 * sin(t * (0.5 + 1.5 * r.z) + r.w * 6.2831);
-  float b = 0.35 + 0.65 * r.w * r.w;
+  float b = 0.5 + 0.5 * r.w * r.w;
   return present * (core + halo) * b * tw;
 }
 
@@ -118,9 +118,9 @@ void main() {
   float t = uTime;
   float n1 = fbm(d * 2.2 + vec3(t * 0.012, 0.0, t * 0.008));
   float n2 = fbm(d * 3.2 + vec3(0.0, -t * 0.010, 0.0) + n1 * 1.5);
-  float nebulaK = 1.0 - 0.3 * uFocus;
-  col += uNebulaA * smoothstep(0.42, 0.82, n1) * 0.22 * nebulaK;
-  col += uNebulaB * smoothstep(0.48, 0.88, n2) * 0.17 * nebulaK;
+  float nebulaK = 1.0 + 0.25 * uFocus; // the sky is dark already: lift the clouds a little behind a manifold
+  col += uNebulaA * smoothstep(0.42, 0.82, n1) * 0.3 * nebulaK;
+  col += uNebulaB * smoothstep(0.48, 0.88, n2) * 0.24 * nebulaK;
 
   // Crisp stars, kept under the bloom threshold.
   col += uStar * stars(d, t) * smoothstep(-0.1, 0.3, h);
@@ -142,7 +142,7 @@ void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
   col += (hash(vec3(gl_FragCoord.xy, 0.0)) - 0.5) * uGrain;
   // Corners ~45% darker at focus 0 (uVignette 0.55); focus adds 0.1 more. Centre untouched.
-  col *= mix(1.0 - (uVignette + uFocus * 0.1), 1.0, smoothstep(0.92, 0.18, length(uv - 0.5)));
+  col *= mix(1.0 - uVignette, 1.0, smoothstep(0.92, 0.18, length(uv - 0.5)));
   col = max(col, uBottom * 0.32);
 
   gl_FragColor = vec4(col, 1.0);
@@ -290,7 +290,7 @@ export function createScene(canvas: HTMLCanvasElement, opts: { preserveDrawingBu
   let focusTarget = 0;
   let focus = 0;
   const FOCUS_TAU_S = 0.2;
-  /** 0 = default backdrop, 1 = manifold on stage (grid x0.12, nebula x0.7, corners ~25% darker). Clamped to 0..1. */
+  /** 0 = default backdrop, 1 = manifold on stage (grid x0.12, nebula x1.25). Clamped to 0..1. */
   const setStageFocus = (target: number) => { focusTarget = Math.min(1, Math.max(0, target)); };
   /** Call once per rAF with frame delta in seconds. Replaces renderer.render(scene, camera). */
   const renderFrame = (dt: number) => {
