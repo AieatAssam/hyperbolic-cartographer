@@ -279,10 +279,12 @@ export function scanDelta(sc: DeltaScan, i: number, type: TileType | null): numb
   const tiles = sc.scratch;
   const old = tiles[i];
   tiles[i] = type;
-  // The relay depends only on the bridge/occupancy pattern, so a change that keeps cell i's pattern keeps the base relay.
+  // The relay depends only on bridge positions and on occupied cells next to a bridge. So a change keeps the base
+  // relay when the cell's pattern is unchanged, or when neither side is a bridge and no bridge touches the cell.
   const st = cellState(type);
   let relay: Relay | null;
-  if (cellState(sc.tiles[i]) === st) relay = sc.relay;
+  const bridgeFree = st !== 'b' && cellState(sc.tiles[i]) !== 'b' && !sc.g.neighbours[i].some((n) => sc.tiles[n] === 'bridge');
+  if (cellState(sc.tiles[i]) === st || bridgeFree) relay = sc.relay;
   else {
     const key = i * 3 + 'bo.'.indexOf(st);
     if (!sc.changed.has(key)) sc.changed.set(key, tiles.includes('bridge') ? relayAdjacency(sc.g, tiles, sc.m.reach) : null);
