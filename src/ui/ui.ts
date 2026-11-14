@@ -11,6 +11,7 @@ import { ACHIEVEMENTS, achievementBonus } from '../core/achievements';
 import { canProject, chartsOnDrift, curvatureOnProjection } from '../core/prestige';
 import { cellsInRing, isActive, maxPins, maxRing, prod, surveyCost, tileCost } from '../core/economy';
 import { fmt, fmtTime } from './format';
+import { icon, type IconName } from './icons';
 import {
   BUTTON_HELP, DRIFT_EXPLAIN, DRIFT_KEEPS, DRIFT_RESETS, PROJECTION_KEEPS, PROJECTION_RESETS, SURVEY_EXPLAIN, TAB_HELP, TOOL_EFFECT, TOOL_HELP,
   driftBlocked, placeBlocked, projectBlocked, projectionCompare, surveyBlocked, upgradeBlocked,
@@ -158,10 +159,17 @@ const ctl = (b: HTMLElement, name: string, text: string) => {
 const clamp = (x: number) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0);
 const hex = hexString;
 
-/** 8×8 px tool chip: tile `base` fill; ring when base contrast on HUD glass is low. */
-const paletteDot = (base: number) => {
-  const dot = el('span', 'palette-dot');
-  dot.style.background = hex(base);
+/**
+ * Tool chip badge: a round gem tinted with the tile colour (22% alpha fill, 1px border), holding the tile's icon.
+ * Without an icon name it stays the plain colour dot. A ring is added when the colour is low-contrast on the glass.
+ */
+const paletteDot = (base: number, name?: IconName) => {
+  const dot = el('span', name ? 'palette-dot palette-gem' : 'palette-dot');
+  const rgb = [(base >> 16) & 255, (base >> 8) & 255, base & 255];
+  dot.style.background = name ? `rgba(${rgb.join(', ')}, 0.22)` : hex(base);
+  dot.style.borderColor = hex(base);
+  dot.style.setProperty('--gem', hex(base));
+  if (name) dot.append(icon(name, 11));
   if (contrastRatio(base, UI.hudChipBg) < 2.8) dot.classList.add('palette-dot--ring');
   return dot;
 };
@@ -198,20 +206,23 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   // ---- HUD ----
   const topbar = el('div', 'topbar');
   const hud = el('div', 'hud');
-  const stat = (label: string) => {
+  const stat = (label: string, glyph?: IconName) => {
     const box = el('div', 'stat');
     const v = el('span', 'value');
     const sub = el('span', 'muted');
-    box.append(el('span', 'label', label), v, sub);
+    const lab = el('span', 'label');
+    if (glyph) lab.append(icon(glyph, 12));
+    lab.append(label);
+    box.append(lab, v, sub);
     hud.append(box);
     return { box, v, sub };
   };
-  const sInk = stat('Ink');
+  const sInk = stat('Ink', 'ink');
   sInk.box.id = 'ink-counter';
   sInk.box.dataset.fxTarget = 'ink';
   const sRate = stat('Ink/s');
-  const sCharts = stat('Charts');
-  const sCurv = stat('Curvature');
+  const sCharts = stat('Charts', 'charts');
+  const sCurv = stat('Curvature', 'curvature');
   const sCod = stat('Charts on Drift');
   // Phone portrait collapses these to the compact row (CSS: .hud:not(.hud-open) .hud-detail).
   sCharts.box.classList.add('hud-detail');
@@ -273,7 +284,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     b.setAttribute('aria-label', `${TOOL_NAME[t]}, key ${key}. ${desc}`);
     const n = el('span', 'name');
     if (tile !== undefined) {
-      n.append(paletteDot(tileChipColour(tile)));
+      n.append(paletteDot(tileChipColour(tile), tile));
     }
     n.append(TOOL_NAME[t]);
     const cost = el('span', 'cost');
@@ -634,21 +645,41 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     bank: (s: GameState) => Dec,
     buy: (id: Id) => void,
   ) => {
-    const lv = txt('');
+    // Level pips on the right of the title row; the "Lv n/max" text stays for assistive tech (sr-only).
+    const lv = el('span', 'sr-only');
+    const pips = el('span', 'pips');
+    pips.setAttribute('role', 'img');
+    const pipEls: HTMLElement[] = [];
+    for (let i = 0; i < d.max; i++) {
+      const p = el('span', 'pip');
+      pips.append(p);
+      pipEls.push(p);
+    }
+    const check = icon('check', 14);
+    check.classList.add('up-check');
+    check.style.display = 'none';
+    const head = el('div', 'up-head');
+    const rank = el('span', 'up-rank');
+    rank.append(pips, lv, check);
+    head.append(title(d.name), rank);
     const b = btn('', 'buy', () => buy(d.id));
-    const c = ctl(b, d.name, `${d.desc} ${unit === 'Charts' ? BUTTON_HELP.buyChart : BUTTON_HELP.buyCurv}`);
-    const box = card(title(d.name), lv, c.box);
+    const c = ctl(b, d.name, unit === 'Charts' ? BUTTON_HELP.buyChart : BUTTON_HELP.buyCurv);
+    const box = card(head, el('p', 'up-effect', d.desc), c.box);
     watch(() => {
       const g = get();
       const l = levels(g)[d.id];
       const maxed = l >= d.max;
       const cost = d.cost(l);
       lv.textContent = `Lv ${l}/${d.max}`;
+      pips.setAttribute('aria-label', `Level ${l} of ${d.max}`);
+      pipEls.forEach((p, i) => p.classList.toggle('on', i < l));
+      check.style.display = maxed ? '' : 'none';
       b.textContent = maxed ? 'Maxed' : `Buy · ${fmt(cost, g.notation)} ${unit}`;
       const why = upgradeBlocked(l, d.max, new Decimal(cost), bank(g), unit, g.notation);
       b.disabled = why !== null;
       c.why(maxed ? null : why);
       box.classList.toggle('done', maxed);
+      box.classList.toggle('maxed', maxed);
     });
     return box;
   };
@@ -670,7 +701,15 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       const seen = new Set(g.constellationLog.map((r) => r.id));
       discoveredLine.textContent = `Discovered ${seen.size} of ${CONST_DEFS.length} shapes`;
       shapeList.replaceChildren(
-        ...CONST_DEFS.map(([id, d]) => el('li', seen.has(id) ? '' : 'muted', `${d.name}: ${d.blurb} (+${d.bonusInk} Ink)`)),
+        ...CONST_DEFS.map(([id, d]) => {
+          const found = seen.has(id);
+          const li = el('li', found ? 'found' : 'muted');
+          const star = icon('star', 12);
+          if (found) star.setAttribute('fill', 'currentColor');
+          star.classList.add('ico-star');
+          li.append(star, `${d.name}: ${d.blurb} (+${d.bonusInk} Ink)`);
+          return li;
+        }),
       );
       logList.replaceChildren();
       if (!g.constellationLog.length) {
@@ -867,8 +906,12 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const milesTab = (s: GameState): HTMLElement[] => [
     txt(`Drifts: ${s.drifts} · Projections: ${s.projections}`),
     ...MILESTONES.map((m) => {
-      const c = card(title(m.name), txt(m.desc));
-      c.classList.add(m.req(s) ? 'done' : 'locked');
+      const got = m.req(s);
+      const h = title('');
+      h.append(icon(got ? 'check' : 'lock', 14), m.name);
+      h.classList.add('ms-title');
+      const c = card(h, txt(m.desc));
+      c.classList.add(got ? 'done' : 'locked');
       return c;
     }),
   ];
@@ -884,7 +927,11 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     for (const a of ACHIEVEMENTS) {
       const got = s.achievements.includes(a.id);
       const li = el('li', got ? 'done' : 'locked');
-      li.append(el('b', '', `${got ? '★' : '☆'} ${a.name}`), el('span', '', a.desc));
+      const name = el('b');
+      const star = icon('star', 12);
+      if (got) star.setAttribute('fill', 'currentColor');
+      name.append(star, a.name);
+      li.append(name, el('span', '', a.desc));
       grid.append(li);
     }
     earned.append(grid);
