@@ -65,8 +65,8 @@ export interface UICtx {
   dev: boolean;
   /** Sound settings, credits and the header mute button appear only when provided. */
   audio?: AudioApi;
-  /** Trade Wind: `left` seconds a wind is catchable (0 when none), `surge` seconds of boosted output left. */
-  wind(): { left: number; surge: number; mult: number };
+  /** Trade Wind: `left` seconds a wind is catchable (0 when none), `surge` seconds of boosted output left; `kind` and `name` of the current wind. */
+  wind(): { left: number; surge: number; mult: number; kind: string; name: string };
   catchWind(): void;
 }
 export interface UI {
@@ -1145,9 +1145,10 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     windBtn.style.display = windShow ? '' : 'none';
     if (windShow) {
       const label = w.left > 0
-        ? `Trade Wind ${Math.ceil(w.left)}s`
+        ? `${w.name} ${Math.ceil(w.left)}s`
         : `Surge x${w.mult} ${Math.ceil(w.surge)}s`;
       if (windBtn.textContent !== label) windBtn.textContent = label;
+      if (windBtn.dataset.kind !== w.kind) windBtn.dataset.kind = w.kind;
       windBtn.disabled = w.left <= 0;
       windBtn.classList.toggle('wind-live', w.left > 0);
     }
