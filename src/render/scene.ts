@@ -250,7 +250,9 @@ export function createScene(canvas: HTMLCanvasElement, opts: { preserveDrawingBu
   controls.maxDistance = 40;
 
   // Post: Render -> UnrealBloom -> Output (tone mapping + sRGB happen once, in OutputPass).
-  const composer = new EffectComposer(renderer);
+  // The composer draws into its own targets, so the canvas `antialias` flag does nothing here: MSAA must be on the target.
+  // ponytail: 4 samples at every quality level; drop to 0 at level 0 if a slow phone shows it in the frame time.
+  const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), BLOOM.strength, BLOOM.radius, BLOOM.threshold);
   composer.addPass(bloom);
