@@ -12,6 +12,7 @@ import {
   networkLinkEdges,
 } from './core/constellations';
 import { playChime } from './ui/chime';
+import { celebrateAchievement, celebrateBig, celebrateConstellation, celebrateDrift, celebrateProjection } from './ui/celebrate';
 import { AUDIO_KEY, initAudio } from './audio';
 import { placementImpactState, tileInfluenceState } from './core/placement-impact';
 import { flowLinksForState } from './render/flow-links';
@@ -484,8 +485,8 @@ function applyTool(i: number): boolean {
   if (events.length) {
     applyConstellationRewards(s, events);
     for (const e of events) {
-      ui.toast(`★ ${e.name}: +${fmt(e.bonusInk, s.notation)} Ink`);
       ui.lump(`+${fmt(e.bonusInk, s.notation)} Ink`);
+      celebrateConstellation({ id: e.id, name: e.name, bonusText: `+${fmt(e.bonusInk, s.notation)} Ink` });
       constellationBurstEdges = e.edges;
       constellationPermanent = mergeEdges(constellationPermanent, e.edges);
       constellationPulseUntil = performance.now() / 1000 + 1.5;
@@ -521,9 +522,9 @@ function catchWindNow(): boolean {
   const k = config.wind.kinds[kind];
   audio.cue('upgrade');
   ui.lump(`+${fmt(gain, s.notation)} Ink`);
-  ui.toast(kind === 'monsoon'
-    ? `Monsoon! +${fmt(gain, s.notation)} Ink (${k.burstSec / 60} minutes of rain)`
-    : `${k.name} caught! +${fmt(gain, s.notation)} Ink and x${k.surgeMult} Ink/s for ${k.surgeSec}s`);
+  celebrateBig(kind === 'monsoon'
+    ? { title: 'Monsoon', subtitle: `+${fmt(gain, s.notation)} Ink · ${k.burstSec / 60} minutes of rain` }
+    : { title: `${k.name} caught`, subtitle: `+${fmt(gain, s.notation)} Ink · x${k.surgeMult} Ink/s for ${k.surgeSec}s` });
   return true;
 }
 
@@ -692,7 +693,8 @@ function stepTransition(dt: number) {
     prevTiles = s.tiles.slice(), prevRing = s.ring; // reset tiles are not sells, and reset rings are not surveys
     pendingReveal = s.ring; // rise and wave are queued until board.update and fx.prepare bind the new embedding
     fx.prestige(trans.kind, 'in', total, rm); // screen-space only, so it needs no embedding
-    ui.toast(trans.kind === 'drift' ? `Drifted for ${fmt(g)} Charts` : `Projected! +${fmt(g)} Curvature. The map is now hyperbolic.`);
+    if (trans.kind === 'drift') celebrateDrift({ charts: g.toNumber() });
+    else celebrateProjection({ curvature: fmt(g), name: 'The map is now hyperbolic' });
   }
   const warp = trans.kind === 'projection' && !rm;
   // One fade value for the board and the anchored FX, so their opacity cannot disagree (fx: setAnchorFade)
@@ -995,7 +997,7 @@ function frame(now: number) {
   if (achToasted > s.achievements.length) achToasted = s.achievements.length;
   for (; achToasted < s.achievements.length; achToasted++) {
     const a = ACHIEVEMENTS.find((x) => x.id === s.achievements[achToasted]);
-    if (a) audio.cue('upgrade'), ui.toast(`Achievement: ${a.name} (+1% Ink)`);
+    if (a) audio.cue('upgrade'), celebrateAchievement({ name: a.name, bonusText: '+1% Ink' });
   }
 
   if (s.drifts !== lastDriftCount) {

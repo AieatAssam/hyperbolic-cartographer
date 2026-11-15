@@ -12,6 +12,7 @@ import { canProject, chartsOnDrift, curvatureOnProjection } from '../core/presti
 import { cellsInRing, isActive, maxPins, maxRing, prod, surveyCost, tileCost } from '../core/economy';
 import { fmt, fmtTime } from './format';
 import { icon, type IconName } from './icons';
+import { constellationFigure } from './constellation-art';
 import {
   BUTTON_HELP, DRIFT_EXPLAIN, DRIFT_KEEPS, DRIFT_RESETS, PROJECTION_KEEPS, PROJECTION_RESETS, SURVEY_EXPLAIN, TAB_HELP, TOOL_EFFECT, TOOL_HELP,
   driftBlocked, placeBlocked, projectBlocked, projectionCompare, surveyBlocked, upgradeBlocked,
@@ -699,23 +700,61 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     );
     const shapeCard = card(title('Shapes'));
     const discoveredLine = el('p', 'muted', '');
-    const shapeList = el('ul', 'guide-list');
-    shapeCard.append(discoveredLine, shapeList);
+    const shapeGrid = el('ul', 'cst-grid');
+    shapeCard.append(discoveredLine, shapeGrid);
     const logCard = card(title('Completed this journey'));
     const logList = el('ul', 'guide-list');
     logCard.append(logList);
+    // One card per shape, built once. The figure is rebuilt only when discovered-state flips, so a tap-to-replay
+    // is not undone by the next state update.
+    const cards = new Map<ConstellationId, { el: HTMLElement; key: 'found' | 'hidden'; fig: HTMLElement; name: HTMLElement; blurb: HTMLElement; stats: HTMLElement }>();
+    const cardFor = (id: ConstellationId) => {
+      let c = cards.get(id);
+      if (c) return c;
+      const box = el('div', 'cst-card');
+      const fig = el('div', 'cst-fig');
+      const name = el('div', 'cst-name');
+      const blurb = el('div', 'cst-blurb');
+      const stats = el('div', 'cst-stats');
+      box.append(fig, name, blurb, stats);
+      const replay = () => {
+        if (box.classList.contains('found')) fig.replaceChildren(constellationFigure(id, 112, { animate: true }));
+      };
+      box.addEventListener('click', replay);
+      box.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') (e.preventDefault(), replay());
+      });
+      c = { el: box, key: 'hidden', fig, name, blurb, stats };
+      cards.set(id, c);
+      return c;
+    };
     watch(() => {
       const g = get();
-      const seen = new Set(g.constellationLog.map((r) => r.id));
-      discoveredLine.textContent = `Discovered ${seen.size} of ${CONST_DEFS.length} shapes`;
-      shapeList.replaceChildren(
+      const rows = new Map<ConstellationId, number[]>();
+      for (const r of g.constellationLog) rows.set(r.id, [...(rows.get(r.id) ?? []), r.bonusInk]);
+      discoveredLine.textContent = `Discovered ${rows.size} of ${CONST_DEFS.length} shapes`;
+      shapeGrid.replaceChildren(
         ...CONST_DEFS.map(([id, d]) => {
-          const found = seen.has(id);
-          const li = el('li', found ? 'found' : 'muted');
-          const star = icon('star', 12);
-          if (found) star.setAttribute('fill', 'currentColor');
-          star.classList.add('ico-star');
-          li.append(star, `${d.name}: ${d.blurb} (+${d.bonusInk} Ink)`);
+          const c = cardFor(id);
+          const hits = rows.get(id) ?? [];
+          const found = hits.length > 0;
+          const key = found ? 'found' : 'hidden';
+          if (c.key !== key) {
+            c.key = key;
+            c.fig.replaceChildren(constellationFigure(id, 112, { dim: !found }));
+          }
+          c.el.classList.toggle('found', found);
+          c.el.classList.toggle('hidden-shape', !found);
+          c.el.tabIndex = found ? 0 : -1;
+          c.el.setAttribute('role', found ? 'button' : 'group');
+          c.el.setAttribute('aria-label', found ? `${d.name}, tap to replay` : 'Unknown shape');
+          c.name.textContent = found ? d.name : 'Unknown shape';
+          c.blurb.textContent = found ? d.blurb : `Hint: ${d.blurb}`;
+          c.stats.innerHTML = found
+            ? `Formed <b>${hits.length}</b>× · best <b>+${fmt(Math.max(...hits), g.notation)}</b> Ink`
+            : `Not yet formed · +${d.bonusInk} Ink`;
+          const li = el('li');
+          li.append(c.el);
           return li;
         }),
       );
