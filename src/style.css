@@ -1007,6 +1007,7 @@ button.sound-toggle[aria-pressed="true"] { color: var(--muted); }
 .juice-milestone {
   position: fixed; left: 50%; top: 164px; transform: translateX(-50%);
   display: flex; align-items: center; gap: 10px; max-width: min(calc(100% - 32px), 480px);
+  margin-top: 58px; /* below the achievement pill's slot */
   padding: 9px 16px 9px 12px; border-radius: var(--radius-xl); border: 1px solid rgb(232 200 114 / .45);
   background: var(--glass-surface); box-shadow: var(--surface-shadow); color: var(--ink);
   font: 400 13.5px/1.35 var(--font-ui); opacity: 0; visibility: hidden;
@@ -1164,7 +1165,7 @@ button.sound-toggle[aria-pressed="true"] { color: var(--muted); }
 
 /* Queue summary */
 .cel-more {
-  position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 12px); transform: translateX(-50%);
+  position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 218px); transform: translateX(-50%);
   font: 600 11px/1 var(--font-ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold);
   padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--glass);
 }

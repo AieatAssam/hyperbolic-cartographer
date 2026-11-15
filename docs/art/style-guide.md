@@ -374,8 +374,8 @@ These works inform readability and framing. They are **not** sources to copy or 
 
 | Token | Hex | Meaning |
 |---|---|---|
-| `SURFACE.uncharted` | `#1b1530` | Dark-glass cells beyond the survey on a stage surface. |
-| `SURFACE.unchartedEdge` | `#4b3f78` | Faint outline of the next ring Survey will chart. |
+| `SURFACE.uncharted` | `#2a2148` | Dark-glass cells beyond the survey on a stage surface. |
+| `SURFACE.unchartedEdge` | `#6a5aa8` | Faint outline of the next ring Survey will chart. |
 | `SURFACE.loopGold` | `#ffcf6a` | Closed loop: the gold band that races around it, then the loop's permanent glow. |
 | `SURFACE.surveyFlash` | `#7fe0ff` | Rim flash on cells as the survey ripple reaches them. |
 

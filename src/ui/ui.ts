@@ -1437,7 +1437,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     for (const f of live) f();
     updateDock(s);
     const facts = milestoneFacts(s);
-    announceMilestones(milestoneEvents(prevFacts, facts), !tutVisible());
+    announceMilestones(milestoneEvents(prevFacts, facts), !tutVisible() && s.drifts === 0 && s.projections === 0); // first session only
     prevFacts = facts;
   }
 

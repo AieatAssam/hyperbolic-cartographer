@@ -309,9 +309,9 @@ export const SURFACE = {
   skinInk: 0x8b6cc4,
   skinGrid: 0x5fd4ff,
   /** Stage cells beyond the survey: dark glass, uncharted. */
-  uncharted: 0x1b1530,
+  uncharted: 0x2a2148,
   /** Rim of the next ring to survey (faint outline). */
-  unchartedEdge: 0x4b3f78,
+  unchartedEdge: 0x6a5aa8,
   /** Closed-loop band: racing gold, then a permanent glow on the loop's tiles. */
   loopGold: 0xffcf6a,
   /** Survey ripple flash on newly charted cells. */
