@@ -99,7 +99,7 @@ function flyTarget(): { x: number; y: number } {
 }
 
 /** Figure edge in CSS px: fits both the phone portrait and the short landscape phone. */
-const figSize = () => Math.round(Math.max(96, Math.min(innerWidth * 0.62, innerHeight * 0.28, 300)));
+const figSize = () => Math.round(Math.max(96, Math.min(innerWidth * 0.62, innerHeight * (innerWidth > 700 ? 0.38 : 0.28), 340)));
 
 /** Sky dims under the stage; it fades back out over the whole run. */
 function veil(wrap: HTMLElement, ms: number): void {
@@ -126,7 +126,7 @@ export function celebrateConstellation({ id, name, bonusText }: ConstellationCel
       wrap.append(stage);
       return 1500;
     }
-    const total = 3300;
+    const total = 4200;
     veil(wrap, total);
     const stage = make('div', 'cel-stage cel-constellation');
     const size = figSize();
@@ -151,7 +151,7 @@ export function celebrateConstellation({ id, name, bonusText }: ConstellationCel
         { transform: 'translate(-50%, -50%) scale(1)', opacity: 1 },
         { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.14)`, opacity: 0 },
       ],
-      { delay: 2600, duration: 700, easing: 'cubic-bezier(.55,0,.8,.4)', fill: 'forwards' },
+      { delay: 3500, duration: 700, easing: 'cubic-bezier(.55,0,.8,.4)', fill: 'forwards' },
     );
     return total;
   });

@@ -707,7 +707,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     logCard.append(logList);
     // One card per shape, built once. The figure is rebuilt only when discovered-state flips, so a tap-to-replay
     // is not undone by the next state update.
-    const cards = new Map<ConstellationId, { el: HTMLElement; key: 'found' | 'hidden'; fig: HTMLElement; name: HTMLElement; blurb: HTMLElement; stats: HTMLElement }>();
+    const cards = new Map<ConstellationId, { el: HTMLElement; key: 'found' | 'hidden' | ''; fig: HTMLElement; name: HTMLElement; blurb: HTMLElement; stats: HTMLElement }>();
     const cardFor = (id: ConstellationId) => {
       let c = cards.get(id);
       if (c) return c;
@@ -724,7 +724,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       box.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') (e.preventDefault(), replay());
       });
-      c = { el: box, key: 'hidden', fig, name, blurb, stats };
+      c = { el: box, key: '', fig, name, blurb, stats };
       cards.set(id, c);
       return c;
     };
