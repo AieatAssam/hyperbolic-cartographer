@@ -644,10 +644,13 @@ ul.reset li::before {
     padding: 2px 6px;
   }
   .hud:not(.hud-open) > #ink-counter .value { font-size: 15px; }
-  .hud:not(.hud-open) > .stat { padding: 2px 9px; }
+  /* Stats give way before the goal/toggle segment does: wide numbers (500.00M) or wider fallback fonts must not clip the toggle. */
+  .hud:not(.hud-open) > .stat { padding: 2px 7px; min-width: 0; flex: 0 1 auto; overflow: hidden; }
+  .hud:not(.hud-open) .hud-seg:has(.wind-chip:not([style*="none"])) .goal { display: none; }
+  .hud:not(.hud-open) .hud-seg .wind-chip { flex: 1 1 0; min-width: 0; overflow: hidden; }
   .hud:not(.hud-open) .stat .muted { display: none; }
   .hud:not(.hud-open) .hud-seg {
-    display: flex; flex: 1 1 0; min-width: 72px; height: var(--control-h); gap: 0;
+    display: flex; flex: 1 0 0; min-width: calc(var(--control-h) * 2 + 2px); height: var(--control-h); gap: 0;
     border: 1px solid var(--line); border-radius: var(--control-r);
     overflow: hidden; background: var(--glass-surface); align-items: stretch;
     box-shadow: none;
@@ -733,8 +736,8 @@ ul.reset li::before {
       font-size: 15px;
     }
     .hud:not(.hud-open) .hud-seg {
-      min-width: 0;
-      flex: 1 1 0;
+      min-width: calc(var(--control-h) + 30px);
+      flex: 1 0 0;
     }
     .hud:not(.hud-open) .goal {
       min-width: 0;
