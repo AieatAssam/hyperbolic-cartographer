@@ -1207,6 +1207,67 @@ export const CASES = [
       return (r?.failures ?? [`manifoldProjectFit failed: ${JSON.stringify(r)}`]).slice(0, 5);
     },
   },
+  {
+    name: 'manifold-mobius-lit',
+    setup: async (p) => {
+      await qa(p, 'seed', 'midgame');
+      await qa(p, 'dismissTutorial');
+      await qa(p, 'manifold', 'mobius');
+      await waitManifoldSurface(p, 'mobius');
+      await rafTwice(p);
+    },
+    expect: async (p) => {
+      const s = await qa(p, 'canvasSample');
+      return s?.ok ? [] : [`mobius canvas blank: ${JSON.stringify(s)}`];
+    },
+  },
+  // Surface stages (a real run on a closed surface): the 3D shape fits, the side bar's targets are 44px, and the
+  // 2D chart keeps every cell on screen.
+  ...['mobius', 'torus', 'klein'].map((surf) => ({
+    name: `stage-${surf}`,
+    setup: async (p) => {
+      await qa(p, 'seed', `surface-${surf}`);
+      await qa(p, 'setChart', false);
+      await waitManifoldSurface(p, surf);
+      await rafTwice(p);
+    },
+    expect: async (p) => {
+      const errs = [];
+      const s = await qa(p, 'canvasSample');
+      if (!s?.ok) errs.push(`${surf} stage canvas blank: ${JSON.stringify(s)}`);
+      const fit = await qa(p, 'manifoldProjectFit');
+      if (!fit?.ok) errs.push(...(fit?.failures ?? [`manifoldProjectFit failed: ${JSON.stringify(fit)}`]).slice(0, 3));
+      const small = await p.evaluate(() => [...document.querySelectorAll('.manifold-bar.stage button')]
+        .filter((b) => b.offsetParent)
+        .map((b) => b.getBoundingClientRect())
+        .filter((r) => r.width < 44 || r.height < 44).length);
+      if (small) errs.push(`${small} stage bar buttons under 44px`);
+      const bar = await p.locator('.manifold-bar.stage:not(.hidden)').count();
+      if (!bar) errs.push('stage bar not visible');
+      return errs;
+    },
+  })),
+  {
+    name: 'stage-chart-onscreen',
+    setup: async (p) => {
+      await qa(p, 'seed', 'surface-torus');
+      await qa(p, 'setChart', true);
+      await rafTwice(p);
+    },
+    expect: async (p) => {
+      const W = await p.evaluate(() => innerWidth), H = await p.evaluate(() => innerHeight);
+      const off = await p.evaluate(([w, h]) => {
+        const info = window.game.qa.surfaceInfo();
+        let n = 0;
+        for (let i = 0; i < info.cells; i++) {
+          const c = window.game.qa.cellScreen(i);
+          if (!c || c.x < 0 || c.x > w || c.y < 0 || c.y > h) n++;
+        }
+        return n;
+      }, [W, H]);
+      return off ? [`${off} chart cells off screen`] : [];
+    },
+  },
   // Harness self-check for the board band: a tall dock must be reported on phone portrait.
   calibrationCase('dock-tall', 'midgame', null, /^board free height/, boardScan, phonePortrait),
   {

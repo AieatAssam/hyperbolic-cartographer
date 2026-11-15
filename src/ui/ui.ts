@@ -1,5 +1,5 @@
 import Decimal from 'break_eternity.js';
-import type { GameState, SurfacePreview } from '../core/state';
+import { SURFACES, isSurface, type GameState, type Geometry, type Surface } from '../core/state';
 import { TILE_INFO, TILE_TYPES, type TileType } from '../core/tiles';
 import type { ImportResult } from '../core/save';
 import type { OfflineReport } from '../core/tick';
@@ -8,7 +8,7 @@ import { blueprintProgress, clearBlueprint, saveBlueprint } from '../core/bluepr
 import { config, chartUpgrades, curvUpgrades, type ChartUpgradeId, type CurvUpgradeId, type UpgradeDef } from '../core/config';
 import { MILESTONES, has } from '../core/milestones';
 import { ACHIEVEMENTS, achievementBonus } from '../core/achievements';
-import { canProject, chartsOnDrift, curvatureOnProjection } from '../core/prestige';
+import { canFold, canProject, chartsOnDrift, curvatureOnProjection, foldCost, nextFold, projectionTargets } from '../core/prestige';
 import { cellsInRing, isActive, maxPins, maxRing, prod, surveyCost, tileCost } from '../core/economy';
 import { fmt, fmtTime } from './format';
 import { icon, type IconName } from './icons';
@@ -48,7 +48,8 @@ export interface UICtx {
   flowRateLabels?(): readonly { x: number; y: number; text: string }[];
   tutorial: { load(): string | null; save(v: string): void }; // stored apart from the game save
   act: {
-    survey(): void; drift(): void; project(): void;
+    survey(): void; drift(): void; project(target?: Geometry): void;
+    fold(): void; // spend Curvature on the next closed surface
     buyChart(id: ChartUpgradeId): void; buyCurv(id: CurvUpgradeId): void;
     exportString(): string; // returns compressed save string
     exportFile(): void; // triggers the .json download
@@ -60,14 +61,16 @@ export interface UICtx {
     recenter(): void; // reset camera / hyperbolic view
     confirmPlace(): void; // apply the current tool to the selected cell
     cancelPlace(): void; // clear the selected cell
-    centreSelected(): void; // move the selected cell to the disk centre (hyperbolic only; keeps selection and zoom)
-    enterManifoldPreview?(which: 'torus' | 'klein'): void;
+    centreSelected(): void; // bring the selected (or inspected) cell to the middle / facing the viewer; keeps selection and zoom
+    enterManifoldPreview?(which: Surface): void;
     exitManifoldPreview?(): void;
     toggleSurfaceChart?(): void;
     toggleSeamView?(): void;
     toggleKleinImmersion?(): void;
-    switchManifold?(which: 'torus' | 'klein'): void;
-    manifoldPreview?(): SurfacePreview;
+    switchManifold?(which: Surface): void;
+    manifoldPreview?(): 'off' | Surface;
+    /** Surface stage or preview: true while the flat chart is on show. */
+    surfaceChart?(): boolean;
   };
   dev: boolean;
   /** Sound settings, credits and the header mute button appear only when provided. */
@@ -95,7 +98,7 @@ export interface UI {
   /** Plain-words goal override while a prestige transition plays; null restores the normal goal. `short` is its compact chip label, `icon` its glyph (default 'project'). */
   setTransition(text: string | null, short?: string, icon?: GoalIcon): void;
   /** Manifold preview: hide the panel and show the floating surface toolbar. */
-  setManifoldPreview(on: boolean, surface?: SurfacePreview): void;
+  setManifoldPreview(on: boolean, surface?: Surface): void;
   /** Dev/QA hooks (main.ts exposes them only under ?dev&qa). Each one calls an existing internal. */
   qa: {
     tab(id: string): void; openImport(text?: string): void; checkImport(): void; showExport(): void; openReset(): void;
@@ -164,6 +167,12 @@ const ctl = (b: HTMLElement, name: string, text: string) => {
   help(b, name, text).setAttribute('aria-describedby', `${h.id} ${why.id}`);
   box.append(b, why, h);
   return { box, why: (reason: string | null) => ((why.hidden = !reason), (why.textContent = reason ?? '')) };
+};
+const GEO_NAME: Record<Geometry, string> = { square: 'Square grid', hyper: 'Hyperbolic disk', mobius: 'Möbius strip', torus: 'Torus', klein: 'Klein bottle' };
+const FOLD_BLURB: Record<Surface, string> = {
+  mobius: 'A band with one twist: walk once round and the map comes back mirrored, twice and it is home.',
+  torus: 'A ring: walk off any edge and you come back on the opposite one.',
+  klein: 'A bottle with no inside: one way round wraps, the other comes back flipped.',
 };
 const clamp = (x: number) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0);
 const hex = hexString;
@@ -390,35 +399,44 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     b.dataset.qa = qaId;
     return b;
   };
+  // Preview: surface switches, seams, 2D/3D and Exit. Surface stage (no preview): a slim side bar with 2D/3D and Centre.
+  let barKey = '';
   const barSync = () => {
     const mp = ctx.act.manifoldPreview?.() ?? 'off';
-    manifoldBar.classList.toggle('hidden', mp === 'off');
+    const stage = mp === 'off' && isSurface(get().geometry);
+    const chart = ctx.act.surfaceChart?.() ?? false;
+    const key = `${mp}|${stage}|${chart}`;
+    if (key === barKey) return;
+    barKey = key;
+    manifoldBar.classList.toggle('hidden', mp === 'off' && !stage);
+    manifoldBar.classList.toggle('stage', stage);
+    manifoldBar.setAttribute('aria-label', stage ? 'Surface view' : 'Manifold preview');
     root.classList.toggle('manifold-preview', mp !== 'off');
     if (mp !== 'off') setPanel(false);
-    torusBtn.classList.toggle('active', mp === 'torus');
-    kleinBtn.classList.toggle('active', mp === 'klein');
-    chartBtn.style.display = mp === 'klein' ? 'none' : '';
-    immBtn.style.display = mp === 'klein' ? '' : 'none';
-    chartBtn.textContent = '2D chart';
-    immBtn.textContent = '3D';
+    for (const [k, b] of surfBtns) (b.classList.toggle('active', mp === k), (b.style.display = stage ? 'none' : ''));
+    seamBtn.style.display = exitBtn.style.display = stage ? 'none' : '';
+    centreBarBtn.style.display = stage ? '' : 'none';
+    // Klein keeps its own 3D button and QA id; the others share the chart toggle.
+    const klein = mp === 'klein' || (stage && get().geometry === 'klein');
+    chartBtn.style.display = klein ? 'none' : '';
+    immBtn.style.display = klein ? '' : 'none';
+    chartBtn.textContent = chart ? '3D surface' : '2D chart';
+    immBtn.textContent = chart ? '3D' : '2D chart';
+    chartBtn.setAttribute('aria-pressed', String(chart));
+    immBtn.setAttribute('aria-pressed', String(!chart));
   };
-  const torusBtn = mBtn('Torus', 'mf-torus', () => ctx.act.switchManifold?.('torus') ?? ctx.act.enterManifoldPreview?.('torus'));
-  const kleinBtn = mBtn('Klein', 'mf-klein', () => ctx.act.switchManifold?.('klein') ?? ctx.act.enterManifoldPreview?.('klein'));
+  const SURF_LABEL: Record<Surface, string> = { mobius: 'Möbius', torus: 'Torus', klein: 'Klein' };
+  const surfBtns = SURFACES.map((k) => [k, mBtn(SURF_LABEL[k], `mf-${k}`, () => ctx.act.switchManifold?.(k) ?? ctx.act.enterManifoldPreview?.(k))] as const);
   const seamBtn = mBtn('Seams', 'mf-seams', () => ctx.act.toggleSeamView?.());
   const chartBtn = mBtn('2D chart', 'mf-chart', () => ctx.act.toggleSurfaceChart?.());
   const immBtn = mBtn('3D', 'mf-immersion', () => ctx.act.toggleKleinImmersion?.());
+  const centreBarBtn = mBtn('Centre', 'mf-centre', () => ctx.act.centreSelected());
+  help(centreBarBtn, 'Centre', 'Turns the surface so the selected cell faces you. With nothing selected, resets the view.');
   const exitBtn = mBtn('Exit', 'mf-exit', () => ctx.act.exitManifoldPreview?.());
-  manifoldBar.append(torusBtn, kleinBtn, seamBtn, chartBtn, immBtn, exitBtn);
-  const setManifoldPreview = (on: boolean, surface?: SurfacePreview) => {
-    root.classList.toggle('manifold-preview', on);
-    manifoldBar.classList.toggle('hidden', !on);
-    if (on) {
-      setPanel(false);
-      torusBtn.classList.toggle('active', surface === 'torus');
-      kleinBtn.classList.toggle('active', surface === 'klein');
-      chartBtn.style.display = surface === 'klein' ? 'none' : '';
-      immBtn.style.display = surface === 'klein' ? '' : 'none';
-    }
+  manifoldBar.append(...surfBtns.map(([, b]) => b), seamBtn, chartBtn, immBtn, centreBarBtn, exitBtn);
+  const setManifoldPreview = (on: boolean, _surface?: Surface) => {
+    if (on) setPanel(false);
+    barKey = '';
     barSync();
   };
 
@@ -633,15 +651,34 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const confirmProject = () => {
     const g = get();
     const why = projectBlocked(g);
+    const targets = projectionTargets(g);
+    let target: Geometry = targets[targets.length - 1];
     const go = help(btn('Confirm Projection', 'primary', () => {
       closeModal();
       setPanel(false);
-      ctx.act.project();
+      ctx.act.project(target);
     }), 'Confirm Projection', BUTTON_HELP.project);
     go.disabled = why !== null;
     const content = el('div');
     content.append(txt(`Payoff: +${fmt(curvatureOnProjection(g), g.notation)} Curvature.`));
     if (why) content.append(el('p', 'neg', why));
+    if (targets.length > 1) {
+      const pick = el('div', 'proj-targets');
+      pick.setAttribute('role', 'radiogroup');
+      pick.setAttribute('aria-label', 'Project onto');
+      const opts = targets.map((t) => {
+        const b = btn(GEO_NAME[t], 'proj-target', () => {
+          target = t;
+          for (const o of opts) o.setAttribute('aria-checked', String(o === b));
+        });
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', String(t === target));
+        b.dataset.qa = `proj-target-${t}`;
+        return b;
+      });
+      pick.append(...opts);
+      content.append(title('Project onto'), pick);
+    }
     content.append(title('Resets'), list('reset', PROJECTION_RESETS), title('Keeps'), list('keep', PROJECTION_KEEPS));
     openModal('Projection?', content, [closeBtn('Cancel'), go]);
   };
@@ -795,7 +832,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       const g = get();
       const active = g.tiles.filter((_, i) => isActive(g, i)).length;
       const placed = g.tiles.filter((t) => t).length;
-      const geo = g.geometry === 'square' ? 'Square grid' : 'Hyperbolic {7,3}';
+      const geo = g.geometry === 'square' ? 'Square grid' : g.geometry === 'hyper' ? 'Hyperbolic {7,3}' : GEO_NAME[g.geometry];
       boardP.textContent = `${geo}: ${active} active cells, ${placed} tiles placed, ${g.pinned.length}/${maxPins(g)} pins.`;
     });
     const board = card(title('Board'), boardP, ctl(btn('Recenter view', '', () => ctx.act.recenter()), 'Recenter view', BUTTON_HELP.recenter).box);
@@ -804,7 +841,10 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       list('guide-list', [
         'Mouse: click a cell to use the tool at once; hover shows cost and Ink/s change.',
         'Touch: tap a cell to preview it, then tap it again or press Place to buy.',
-        'Drag to pan, pinch or scroll to zoom, right-drag to tilt. Dragging never buys.',
+        isSurface(s.geometry)
+          ? 'Drag to slide the tiles round the surface, pinch or scroll to zoom, right-drag or two fingers to turn it. Arrow keys slide too. Dragging never buys.'
+          : 'Drag to pan, pinch or scroll to zoom, right-drag to tilt. Dragging never buys.',
+        ...(isSurface(s.geometry) ? ['2D chart shows the whole surface flat: arrows on matching edges are glued together; gold arrows that point opposite ways mean the edge is glued flipped.'] : []),
       ]),
     );
     return [survey, board, how];
@@ -905,6 +945,29 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       ? [card(title('Locked until your first Drift'), txt(`Drift (at ${fmt(config.drift.minInk)} run Ink) to earn Charts. Charts buy permanent upgrades that survive every Drift.`))]
       : chartUpgrades.map((d) => upgCard(d, 'Charts', (g) => g.chartUpg, (g) => g.charts, (id) => ctx.act.buyChart(id)));
 
+  /** Fold the map: spend Curvature to unlock the next closed surface as a Projection target. */
+  const foldCard = () => {
+    const head = title('');
+    const body = txt('');
+    const fb = btn('', 'primary', () => ctx.act.fold());
+    fb.dataset.qa = 'fold-buy';
+    const fc = ctl(fb, 'Fold the map', 'Spends Curvature. The new surface becomes a place your next Projection can land. Permanent.');
+    watch(() => {
+      const g = get();
+      const f = nextFold(g);
+      head.textContent = f ? `Fold the map: ${GEO_NAME[f]}` : 'Fold the map: every surface unlocked';
+      body.textContent = f
+        ? `${FOLD_BLURB[f]} Loops of tiles around it multiply Ink by ${config.surfaces[f].loopMult}.`
+        : 'Pick any unlocked surface when you Project.';
+      fb.textContent = f ? `Fold for ${fmt(foldCost(g), g.notation)} Curvature` : 'All folded';
+      fb.disabled = !canFold(g);
+      fc.why(!f ? null : canFold(g) ? null : `Needs ${fmt(foldCost(g), g.notation)} Curvature (you have ${fmt(g.curvature, g.notation)}).`);
+    });
+    const c = card(head, body, fc.box);
+    c.classList.add('fold-card');
+    return c;
+  };
+
   const projTab = (s: GameState): HTMLElement[] => {
     const cmp = projectionCompare();
     const box = (head: string, n: number, mill: number) => {
@@ -932,6 +995,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       card(title(lead), compare, list('guide-list', cmp.lines), req, curvP, pc.box),
       card(title('Projection resets'), list('reset', PROJECTION_RESETS), title('Projection keeps'), list('keep', PROJECTION_KEEPS)),
     ];
+    if (s.projections > 0) out.unshift(foldCard());
     if (s.projections > 0 || s.curvature.gt(0))
       out.push(...curvUpgrades.map((d) => upgCard(d, 'Curvature', (g) => g.curvUpg, (g) => g.curvature, (id) => ctx.act.buyCurv(id))));
     const mp = ctx.act.manifoldPreview?.() ?? 'off';
@@ -940,11 +1004,11 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       txt('Layer 3 surfaces: orbit a 3D torus or study the Klein bottle fundamental square with coloured seams. Controls move to a floating bar on the board. No Handles currency or Loops scoring yet.'),
     );
     const row = el('div', 'row');
-    const torusB = btn(mp === 'torus' ? 'Torus (active)' : 'Open torus preview', mp === 'torus' ? 'primary' : '', () => ctx.act.enterManifoldPreview?.('torus'));
-    const kleinB = btn(mp === 'klein' ? 'Klein (active)' : 'Open Klein preview', mp === 'klein' ? 'primary' : '', () => ctx.act.enterManifoldPreview?.('klein'));
-    torusB.dataset.qa = 'open-torus-preview';
-    kleinB.dataset.qa = 'open-klein-preview';
-    row.append(torusB, kleinB);
+    for (const k of SURFACES) {
+      const b = btn(mp === k ? `${GEO_NAME[k]} (active)` : `Preview ${GEO_NAME[k]}`, mp === k ? 'primary' : '', () => ctx.act.enterManifoldPreview?.(k));
+      b.dataset.qa = `open-${k}-preview`;
+      row.append(b);
+    }
     prev.append(row);
     if (mp !== 'off') prev.append(txt('Preview is open — use the floating toolbar on the board.'));
     out.push(prev);
@@ -1215,7 +1279,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       const why = placeBlocked(s, sel, tl);
       placeBtn.disabled = why !== null;
       placeBtn.textContent = tl === 'sell' ? 'Sell' : tl === 'pin' ? (s.pinned.includes(sel) ? 'Unpin' : 'Pin') : `Place ${TOOL_NAME[tl]}`;
-      centreBtn.hidden = s.geometry !== 'hyper';
+      centreBtn.hidden = s.geometry !== 'hyper' && !isSurface(s.geometry);
       infoActs.hidden = false;
     } else {
       const isTile = tl !== 'sell' && tl !== 'pin';
@@ -1286,6 +1350,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
 
   function update() {
     const s = get();
+    barSync();
     sInk.v.textContent = fmt(s.ink, s.notation);
     const rate = prod(s).total;
     if (rateFlashed(prevRate, rate)) {

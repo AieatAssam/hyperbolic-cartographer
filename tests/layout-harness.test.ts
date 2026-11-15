@@ -9,11 +9,11 @@ import { CASES, VIEWPORTS } from '../scripts/layout.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('layout harness', () => {
-  it('keeps six viewports and 49 cases (no coverage drop)', () => {
+  it('keeps six viewports and 54 cases (no coverage drop)', () => {
     expect(VIEWPORTS.map((v: { name: string }) => v.name)).toEqual([
       '360x640', '390x844', '430x932', '844x390', '932x430', '1280x800',
     ]);
-    expect(CASES).toHaveLength(49);
+    expect(CASES).toHaveLength(54);
     const names = CASES.map((c: { name: string }) => c.name);
     for (const need of [
       'firstload', 'hud-control-rhythm', 'bridge-gain-label',
