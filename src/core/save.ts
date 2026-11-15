@@ -3,7 +3,7 @@ import LZString from 'lz-string';
 import { GEOMETRIES, GRAPHS, SURFACES, initialState, type GameState } from './state';
 import { TILE_TYPES } from './tiles';
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 const DECIMAL_KEYS = ['ink', 'runInk', 'lifetimeInk', 'charts', 'cycleCharts', 'curvature'] as const;
 
 export interface SaveFile {
@@ -30,6 +30,7 @@ export const migrations: Record<number, (s: Record<string, unknown>) => Record<s
     stats: { tilesPlaced: 0, bestInkPerSec: 0, constellations: Array.isArray(s.constellationLog) ? s.constellationLog.length : 0 },
   }),
   4: (s) => ({ ...s, folds: 0 }),
+  5: (s) => ({ ...s, cycleLoops: 0 }),
 };
 
 export function fnv1a(str: string): string {
@@ -90,6 +91,7 @@ function hydrate(raw: Record<string, unknown>): GameState {
   if (!GEOMETRIES.includes(s.geometry)) throw new Error('bad geometry');
   s.folds = Math.min(SURFACES.length, Math.max(0, Math.floor(Number(raw.folds) || 0)));
   if (SURFACES.indexOf(s.geometry as never) >= s.folds) throw new Error('bad geometry');
+  s.cycleLoops = Math.min(2, Math.max(0, Math.floor(Number(raw.cycleLoops) || 0)));
   const n = GRAPHS[s.geometry].ring.length;
   if (!Array.isArray(s.tiles) || s.tiles.length !== n || s.tiles.some((t) => t !== null && !TILE_TYPES.includes(t)))
     throw new Error('bad tiles');

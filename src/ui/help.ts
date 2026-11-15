@@ -1,6 +1,6 @@
 import { config } from '../core/config';
-import { GRAPHS, graphOf, type GameState } from '../core/state';
-import { isActive, maxPins, maxRing, springShare, surveyCost, tileCost } from '../core/economy';
+import { GRAPHS, graphOf, isSurface, type GameState } from '../core/state';
+import { closedLoopCount, isActive, maxPins, maxRing, springShare, surgeMult, surveyCost, tileCost, vaultBonus } from '../core/economy';
 import { canDrift, canProject } from '../core/prestige';
 import type { TileType } from '../core/tiles';
 import { fmt } from './format';
@@ -53,7 +53,7 @@ export const TAB_HELP: Record<Tab, string> = {
   miles: 'Milestones unlock as you Drift and Project. Each one changes how the game plays, so check here when a new feature appears.',
   atlas: 'Achievements and lifetime numbers. Each achievement adds +1% Ink.',
   save: 'Sound and music volume, the number format, and your save: export, import or wipe it. Save strings include a checksum, so edits are rejected.',
-  guide: 'A short guide to tiles, Survey, Drift and Projection. Open it any time from the Guide button.',
+  guide: 'A guide to tiles, bonuses, Survey, Drift, Projection and the closed surfaces. Open it any time from the Guide button.',
 };
 
 export const BUTTON_HELP: Record<
@@ -63,11 +63,11 @@ export const BUTTON_HELP: Record<
   string
 > = {
   menu: 'Open or close the side panel with the Drift, Charts, Projection and Settings tabs.',
-  guide: 'Open the guide. It explains tiles, Survey, Drift and Projection.',
+  guide: 'Open the guide. It explains tiles, bonuses, Survey, Drift, Projection and the closed surfaces.',
   survey: 'Add the next ring of cells to the board. Costs Ink, and each ring costs more.',
   recenter: 'Reset the camera to the start view, centred on the board.',
   drift: 'End this run and turn its Ink into Charts. Pinned tiles stay; the rest of the board is cleared.',
-  project: 'Spend this cycle\'s Charts on Curvature, move to the hyperbolic board, and reset the run.',
+  project: 'Spend this cycle\'s Charts on Curvature, move to the hyperbolic board or a surface you have folded, and reset the run.',
   buyChart: 'Spend Charts to raise this upgrade by one level.',
   buyCurv: 'Spend Curvature to raise this upgrade by one level.',
   autoDrift: 'Drift automatically once run Charts reach the number you set.',
@@ -91,6 +91,55 @@ export const BUTTON_HELP: Record<
   close: 'Close this window and go back to the game.',
   sound: 'Mute or restore all music and sound effects. Volume sliders are in Menu > Settings.',
 };
+
+const W = config.wind.kinds;
+const SURF = config.surfaces;
+/** Every source of extra Ink or Curvature that is not a tile, for the Guide. Numbers come from config. */
+export const BONUS_HELP: [string, string][] = [
+  ['Constellations', `Build a named pattern (see the Stars tab) for a lump of Ink: its listed amount or ${config.constellationScale.sec} s of your Ink/s, whichever is larger. Repeating the same pattern in one run pays less each time.`],
+  ['Trade Winds', `Every ${config.wind.minGap}-${config.wind.maxGap} s a wind chip appears in the top bar for ${config.wind.life} s. Tap it. ${W.trade.name}: ${W.trade.burstSec} s of Ink/s at once, then all output x${W.trade.surgeMult} for ${W.trade.surgeSec} s. ${W.gale.name}: ${W.gale.burstSec} s of Ink/s, then x${W.gale.surgeMult} for ${W.gale.surgeSec} s. ${W.monsoon.name} (rare): ${W.monsoon.burstSec} s of Ink/s at once. Winds only come while the game is open.`],
+  ['Achievements', `Each one adds +${pct(config.achievements.inkPerEach)} Ink for good. The Atlas tab lists them.`],
+  ['Chart and Curvature upgrades', 'Permanent. Charts come from Drift, Curvature from Projection; each upgrade row says what one more level does.'],
+  ['Milestones', 'Unlock new features (pins, blueprints, auto-Drift and more) as you Drift and Project. The Milestones tab says what each one does and what unlocks it.'],
+  ['Offline', `While the game is closed you earn ${pct(config.offline.baseEff)} of your Ink/s for up to ${config.offline.capHours} hours. Vaults raise that share.`],
+  ['Surface multiplier', `Every closed surface multiplies all Ink: ${SURF.mobius.name} x${SURF.mobius.inkMult}, ${SURF.torus.name} x${SURF.torus.inkMult}, ${SURF.klein.name} x${SURF.klein.inkMult}.`],
+  ['Closed loops', `On a surface, put a tile on every cell of a path that runs all the way round and meets itself. While it stays closed, all Ink is multiplied (${SURF.mobius.name} x${SURF.mobius.loopMult}, ${SURF.torus.name} x${SURF.torus.loopMult} per loop, ${SURF.klein.name} x${SURF.klein.loopMult} per loop). It also adds Curvature to your next Projection (+${SURF.mobius.loopCurvature}, +${SURF.torus.loopCurvature} per loop, +${SURF.klein.loopCurvature} per loop), even if a Drift clears the tiles afterwards.`],
+];
+
+/** What each top-bar number means, for the Guide and the top-bar tooltips. */
+export const STAT_HELP: Record<'ink' | 'rate' | 'charts' | 'curvature' | 'chartsOnDrift', [string, string]> = {
+  ink: ['Ink', 'What tiles make and what tiles and Survey cost. A Drift resets it.'],
+  rate: ['Ink/s', 'Ink your board makes each second, after every multiplier. Menu > Map lists the multipliers.'],
+  charts: ['Charts', 'Earned by Drifting. Spend them in the Charts tab on permanent upgrades; a Projection resets them.'],
+  curvature: ['Curvature', 'Earned by Projecting (more Charts this cycle and closed loops give more). Buys Curvature upgrades and Folds, and is never reset.'],
+  chartsOnDrift: ['Charts on Drift', 'Charts you would get if you Drifted now, and how fast that number is growing.'],
+};
+
+/**
+ * Multipliers that apply to all Ink right now, with the reason for each (those at x1 are left out).
+ * Their product is the whole-board multiplier that production() applies.
+ */
+export function multiplierLines(s: GameState): { name: string; mult: number; why: string }[] {
+  const vaults = s.tiles.filter((t) => t === 'vault').length;
+  const loops = isSurface(s.geometry) ? closedLoopCount(GRAPHS[s.geometry], s.tiles) : 0;
+  const surf = isSurface(s.geometry) ? config.surfaces[s.geometry] : null;
+  return [
+    { name: 'Better Instruments', mult: 2 ** s.chartUpg.global, why: `Chart upgrade, level ${s.chartUpg.global}` },
+    { name: 'Achievements', mult: 1 + config.achievements.inkPerEach * s.achievements.length, why: `${s.achievements.length} earned, +${pct(config.achievements.inkPerEach)} each` },
+    { name: 'Vaults', mult: 1 + vaultBonus(vaults), why: `${vaults} on the board` },
+    { name: surf?.name ?? '', mult: surf?.inkMult ?? 1, why: 'this surface' },
+    { name: 'Closed loops', mult: (surf?.loopMult ?? 1) ** loops, why: `${loops} closed, x${surf?.loopMult} each` },
+    { name: 'Wind surge', mult: surgeMult(s), why: `${Math.ceil(s.surge)} s left` },
+  ].filter((l) => l.mult > 1);
+}
+
+/** How the closed-surface stages work, for the Guide. */
+export const SURFACE_HELP: string[] = [
+  `After your first Projection, the Projection tab offers a Fold: spend Curvature once to unlock the next surface (${SURF.mobius.name} ${SURF.mobius.foldCost}, ${SURF.torus.name} ${SURF.torus.foldCost}, ${SURF.klein.name} ${SURF.klein.foldCost}). Then pick it as the target of your next Projection.`,
+  'Survey grows a charted patch from the middle until the whole surface is open. Glass cells are not surveyed yet.',
+  'Drag to slide the tiles round the surface, so cells on the far side or inside come to you. Pinch or scroll to zoom; arrow keys slide too. Centre turns the selected cell to face you.',
+  '2D chart lays the whole surface out flat. Edges with matching arrows are glued together; gold arrows pointing opposite ways mean the edge is glued with a flip.',
+];
 
 export const SURVEY_EXPLAIN =
   `Survey adds one ring of cells to the board, so you have more places to build. Each ring costs more Ink than the last; the cost grows ${config.square.surveyGrowth}x per ring on the square board.`;

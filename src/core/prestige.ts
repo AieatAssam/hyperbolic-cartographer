@@ -41,7 +41,9 @@ export function drift(s: GameState): Decimal {
   return gain;
 }
 
-export const curvatureOnProjection = (s: GameState) => new Decimal(curvatureGain(s.cycleCharts.toNumber()));
+/** Curvature banked by loops closed this Projection cycle (surface stages only). */
+export const loopCurvature = (s: GameState) => (isSurface(s.geometry) ? s.cycleLoops * config.surfaces[s.geometry].loopCurvature : 0);
+export const curvatureOnProjection = (s: GameState) => new Decimal(curvatureGain(s.cycleCharts.toNumber()) + loopCurvature(s));
 export const canProject = (s: GameState) => s.cycleCharts.gte(config.projection.minCharts);
 
 /** The next closed surface to unlock, or null when all are. */
@@ -94,6 +96,7 @@ export function project(s: GameState, target?: Geometry): Decimal {
   const gain = curvatureOnProjection(s);
   s.curvature = s.curvature.add(gain);
   s.projections++;
+  s.cycleLoops = 0;
   s.charts = new Decimal(0);
   s.cycleCharts = new Decimal(0);
   const kept = s.curvUpg.keepUpgrades;

@@ -4,10 +4,12 @@ import { config } from '../src/core/config';
 import { mobiusGraph, kleinGraph, stageGraph, torusGraph } from '../src/core/geometry/quotient';
 import { GRAPHS, SURFACE_GRAPHS, initialState, type Geometry } from '../src/core/state';
 import { closedLoopCount, mods, prod, production } from '../src/core/economy';
-import { canFold, closedLoops, fold, foldCost, loopStatus, nextFold, project, projectionTargets } from '../src/core/prestige';
+import { canFold, closedLoops, curvatureOnProjection, fold, foldCost, loopStatus, nextFold, project, projectionTargets } from '../src/core/prestige';
+import { simulate } from '../src/core/tick';
 import { ACHIEVEMENTS, checkAchievements } from '../src/core/achievements';
 import { fnv1a, importSave, makeSave, toJson } from '../src/core/save';
 import type { TileType } from '../src/core/tiles';
+import { multiplierLines } from '../src/ui/help';
 
 const symmetric = (n: number[][]) => n.every((ns, i) => ns.every((j) => n[j].includes(i)));
 const adjacent = (n: number[][], a: number, b: number) => n[a].includes(b);
@@ -151,6 +153,23 @@ describe('closed loops and production', () => {
     expect(closedLoops(s)).toHaveLength(1);
     expect(loopStatus(s)).toHaveLength(1);
     expect(loopStatus(s)[0]).toMatchObject({ filled: loopStatus(s)[0].cells.length, closed: true });
+  });
+  it('a closed loop banks Curvature for the next Projection, even after the tiles are cleared', () => {
+    const s = withTiles('mobius', (cells) => cells);
+    s.cycleCharts = new Decimal(1024);
+    const base = curvatureOnProjection(s).toNumber();
+    simulate(s, 0.1);
+    expect(s.cycleLoops).toBe(1);
+    s.tiles = s.tiles.map(() => null); // a Drift
+    simulate(s, 0.1);
+    expect(curvatureOnProjection(s).toNumber()).toBe(base + config.surfaces.mobius.loopCurvature);
+    expect(project(s, 'mobius').toNumber()).toBe(base + config.surfaces.mobius.loopCurvature);
+    expect(s.cycleLoops).toBe(0);
+  });
+  it('multiplierLines lists the surface and closed-loop multipliers', () => {
+    expect(multiplierLines(initialState())).toEqual([]);
+    const lines = multiplierLines(withTiles('torus', (cells) => cells));
+    expect(lines.map((l) => [l.name, l.mult])).toEqual([['Torus', config.surfaces.torus.inkMult], ['Closed loops', config.surfaces.torus.loopMult]]);
   });
   it('loopStatus is empty off-surface and open when partly filled', () => {
     expect(loopStatus(initialState())).toEqual([]);

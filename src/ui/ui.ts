@@ -8,14 +8,14 @@ import { blueprintProgress, clearBlueprint, saveBlueprint } from '../core/bluepr
 import { config, chartUpgrades, curvUpgrades, type ChartUpgradeId, type CurvUpgradeId, type UpgradeDef } from '../core/config';
 import { MILESTONES, has } from '../core/milestones';
 import { ACHIEVEMENTS, achievementBonus } from '../core/achievements';
-import { canFold, canProject, chartsOnDrift, curvatureOnProjection, foldCost, nextFold, projectionTargets } from '../core/prestige';
+import { canFold, canProject, chartsOnDrift, curvatureOnProjection, foldCost, loopCurvature, nextFold, projectionTargets } from '../core/prestige';
 import { cellsInRing, isActive, maxPins, maxRing, prod, surveyCost, tileCost } from '../core/economy';
 import { fmt, fmtTime } from './format';
 import { icon, type IconName } from './icons';
 import { constellationFigure } from './constellation-art';
 import {
-  BUTTON_HELP, DRIFT_EXPLAIN, DRIFT_KEEPS, DRIFT_RESETS, PROJECTION_KEEPS, PROJECTION_RESETS, SURVEY_EXPLAIN, TAB_HELP, TOOL_EFFECT, TOOL_HELP,
-  driftBlocked, placeBlocked, projectBlocked, projectionCompare, surveyBlocked, upgradeBlocked,
+  BONUS_HELP, BUTTON_HELP, STAT_HELP, DRIFT_EXPLAIN, DRIFT_KEEPS, DRIFT_RESETS, PROJECTION_KEEPS, PROJECTION_RESETS, SURFACE_HELP, SURVEY_EXPLAIN, TAB_HELP, TOOL_EFFECT, TOOL_HELP,
+  driftBlocked, multiplierLines, placeBlocked, projectBlocked, projectionCompare, surveyBlocked, upgradeBlocked,
   type Tab, type Tool,
 } from './help';
 import { attentionCleared, menuAttention } from '../core/menu-attention';
@@ -233,6 +233,8 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     lab.append(label);
     box.append(lab, v, sub);
     hud.append(box);
+    const h = Object.values(STAT_HELP).find(([n]) => n === label);
+    if (h) help(box, h[0], h[1]);
     return { box, v, sub };
   };
   const sInk = stat('Ink', 'ink');
@@ -382,7 +384,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     BUTTON_HELP.guide,
   );
   // Trade Wind chip: shown only while a wind is catchable or a surge is running.
-  const windBtn = btn('', 'wind-chip', () => ctx.catchWind());
+  const windBtn = help(btn('', 'wind-chip', () => ctx.catchWind()), 'Wind', 'Tap before it blows past: a lump of Ink now, and most winds then multiply all output for a few seconds. The Guide lists each kind.');
   windBtn.dataset.qa = 'wind-chip';
   windBtn.style.display = 'none';
   const actions = el('div', 'top-actions');
@@ -847,7 +849,23 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
         ...(isSurface(s.geometry) ? ['2D chart shows the whole surface flat: arrows on matching edges are glued together; gold arrows that point opposite ways mean the edge is glued flipped.'] : []),
       ]),
     );
-    return [survey, board, how];
+    const multP = el('ul', 'guide-list');
+    let multKey = '';
+    watch(() => {
+      const g = get();
+      const lines = multiplierLines(g);
+      const key = lines.map((l) => `${l.name}${l.mult.toFixed(2)}${l.why}`).join();
+      if (key === multKey) return;
+      multKey = key;
+      const total = lines.reduce((a, l) => a * l.mult, 1);
+      multP.replaceChildren(...(lines.length ? [...lines, { name: 'Together', mult: total, why: 'applies to every tile' }] : [{ name: 'None yet', mult: 1, why: 'upgrades, achievements, Vaults, winds and surfaces add them' }]).map((l) => {
+        const li = el('li');
+        li.append(el('b', '', `${l.name} x${l.mult < 1000 ? +l.mult.toFixed(2) : fmt(l.mult, g.notation)}`), ` (${l.why})`);
+        return li;
+      }));
+    });
+    const mult = card(title('Ink multipliers now'), txt('These multiply every tile\'s output. Beacons, Lighthouses and Cisterns boost only the tiles near them.'), multP);
+    return [survey, board, mult, how];
   };
 
   const driftTab = (s: GameState): HTMLElement[] => {
@@ -957,7 +975,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       const f = nextFold(g);
       head.textContent = f ? `Fold the map: ${GEO_NAME[f]}` : 'Fold the map: every surface unlocked';
       body.textContent = f
-        ? `${FOLD_BLURB[f]} Loops of tiles around it multiply Ink by ${config.surfaces[f].loopMult}.`
+        ? `${FOLD_BLURB[f]} Loops of tiles around it multiply Ink by ${config.surfaces[f].loopMult} and add ${config.surfaces[f].loopCurvature} Curvature to the next Projection.`
         : 'Pick any unlocked surface when you Project.';
       fb.textContent = f ? `Fold for ${fmt(foldCost(g), g.notation)} Curvature` : 'All folded';
       fb.disabled = !canFold(g);
@@ -984,7 +1002,8 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     watch(() => {
       const g = get();
       req.textContent = `Requires ${config.projection.minCharts} Charts this cycle (${fmt(g.cycleCharts, g.notation)}/${config.projection.minCharts}).`;
-      curvP.textContent = `Curvature on projection: ${fmt(curvatureOnProjection(g), g.notation)}.`;
+      const lc = loopCurvature(g);
+      curvP.textContent = `Curvature on projection: ${fmt(curvatureOnProjection(g), g.notation)}${lc ? ` (includes +${lc} from closed loops)` : isSurface(g.geometry) ? `. Close a loop for +${config.surfaces[g.geometry].loopCurvature}` : ''}.`;
       pb.textContent = `Project for ${fmt(curvatureOnProjection(g), g.notation)} Curvature`;
       const why = projectBlocked(g);
       pb.disabled = why !== null;
@@ -1130,9 +1149,12 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
         txt('The top bar always shows "Now", your next concrete step, a live line about what your board is doing, and the next big unlock with its progress bar.'),
       ),
       card(title('Tools'), named([...TILE_TYPES.map((t, i) => [`${TILE_INFO[t].name} (${i + 1})`, TOOL_HELP[t]] as [string, string]), ['Sell (S)', TOOL_HELP.sell], ['Pin (P)', TOOL_HELP.pin]])),
+      card(title('Numbers'), named(Object.values(STAT_HELP))),
+      card(title('Bonuses'), named(BONUS_HELP)),
       card(title('Survey'), txt(SURVEY_EXPLAIN)),
       card(title('Drift'), txt(DRIFT_EXPLAIN), list('reset', DRIFT_RESETS), list('keep', DRIFT_KEEPS)),
       card(title('Projection'), list('guide-list', projectionCompare().lines)),
+      card(title('Closed surfaces'), list('guide-list', SURFACE_HELP)),
       card(
         title('Buttons'),
         named([
@@ -1437,7 +1459,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     for (const f of live) f();
     updateDock(s);
     const facts = milestoneFacts(s);
-    announceMilestones(milestoneEvents(prevFacts, facts), !tutVisible() && s.drifts === 0 && s.projections === 0); // first session only
+    announceMilestones(milestoneEvents(prevFacts, facts), !tutVisible() && !root.classList.contains('panel-open') && s.drifts === 0 && s.projections === 0); // first session only, never over the open menu
     prevFacts = facts;
   }
 

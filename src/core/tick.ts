@@ -2,7 +2,7 @@ import Decimal from 'break_eternity.js';
 import { config } from './config';
 import { graphOf, type GameState } from './state';
 import { isActive, offlineCapSec, offlineEff, place, prod, surgeMult, survey } from './economy';
-import { chartsOnDrift, drift } from './prestige';
+import { chartsOnDrift, closedLoops, drift } from './prestige';
 import { has } from './milestones';
 import { blueprintReserves, blueprintStep } from './blueprint';
 import { checkAchievements } from './achievements';
@@ -20,6 +20,7 @@ export function simulate(s: GameState, dt: number, eff = 1, offline = false): Ga
   s.lifetimeInk = s.lifetimeInk.add(gain);
   s.runTime += dt;
   s.totalTime += dt;
+  s.cycleLoops = Math.max(s.cycleLoops, closedLoops(s).length);
   if (Math.floor(s.totalTime) !== Math.floor(s.totalTime - dt)) {
     s.stats.bestInkPerSec = Math.max(s.stats.bestInkPerSec, prod(s).total);
     checkAchievements(s);
