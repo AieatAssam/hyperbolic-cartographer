@@ -5,9 +5,14 @@ import type { ConstellationId } from './constellations';
 import { squareGraph } from './geometry/square';
 import { hyperGraph } from './geometry/hyperbolic';
 import type { TileGraph } from './geometry/graph';
-import { torusGraph, kleinGraph } from './geometry/quotient';
+import { torusGraph, kleinGraph, mobiusGraph, stageGraph } from './geometry/quotient';
 
-export type Geometry = 'square' | 'hyper';
+/** Stage order: flat, hyperbolic, then the closed surfaces (unlocked one at a time; see GameState.folds). */
+export const GEOMETRIES = ['square', 'hyper', 'mobius', 'torus', 'klein'] as const;
+export type Geometry = (typeof GEOMETRIES)[number];
+export const SURFACES = ['mobius', 'torus', 'klein'] as const;
+export type Surface = (typeof SURFACES)[number];
+export const isSurface = (g: Geometry): g is Surface => (SURFACES as readonly string[]).includes(g);
 export type SurfacePreview = 'off' | 'torus' | 'klein';
 
 export interface GameState {
@@ -28,6 +33,8 @@ export interface GameState {
   curvUpg: Record<CurvUpgradeId, number>;
   drifts: number;
   projections: number;
+  /** Closed surfaces unlocked so far, in SURFACES order (0..3). Permanent. */
+  folds: number;
   autoDrift: { on: boolean; at: number };
   runTime: number;
   totalTime: number;
@@ -52,17 +59,21 @@ export interface GameState {
   stats: { tilesPlaced: number; bestInkPerSec: number; constellations: number };
 }
 
-// Generated once at max size (hyper radius 4 = 232 tiles).
-export const GRAPHS: Record<Geometry, TileGraph> = {
-  square: squareGraph(config.square.maxRing),
-  hyper: hyperGraph(config.hyper.maxRing + 1),
-};
-
-/** Manifold preview quotient graphs (sizes from config.manifold). */
+/** Manifold quotient graphs (sizes from config.manifold); `ring` here is distance from the chart edge. */
 export const SURFACE_GRAPHS = {
+  mobius: mobiusGraph(config.manifold.mobiusWidth, config.manifold.mobiusHeight),
   torus: torusGraph(config.manifold.torusWidth, config.manifold.torusHeight),
   klein: kleinGraph(config.manifold.kleinWidth, config.manifold.kleinHeight),
 } as const;
+
+// Generated once at max size (hyper radius 4 = 232 tiles). Surface stages share SURFACE_GRAPHS' cells with a Survey ring order.
+export const GRAPHS: Record<Geometry, TileGraph> = {
+  square: squareGraph(config.square.maxRing),
+  hyper: hyperGraph(config.hyper.maxRing + 1),
+  mobius: stageGraph(SURFACE_GRAPHS.mobius, config.surfaces.mobius.maxRing),
+  torus: stageGraph(SURFACE_GRAPHS.torus, config.surfaces.torus.maxRing),
+  klein: stageGraph(SURFACE_GRAPHS.klein, config.surfaces.klein.maxRing),
+};
 
 export const graphOf = (s: GameState) => GRAPHS[s.geometry];
 
@@ -85,6 +96,7 @@ export function initialState(): GameState {
     curvUpg: zeroUpgrades(curvUpgrades),
     drifts: 0,
     projections: 0,
+    folds: 0,
     autoDrift: { on: false, at: 10 },
     runTime: 0,
     totalTime: 0,
@@ -95,7 +107,7 @@ export function initialState(): GameState {
     surge: 0,
     windsCaught: 0,
     surgeMult: config.wind.surgeMult,
-    blueprints: { square: null, hyper: null },
+    blueprints: { square: null, hyper: null, mobius: null, torus: null, klein: null },
     autoBuild: true,
     achievements: [],
     stats: { tilesPlaced: 0, bestInkPerSec: 0, constellations: 0 },

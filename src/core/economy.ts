@@ -379,11 +379,14 @@ export function togglePin(s: GameState, i: number): boolean {
   return true;
 }
 
-export const maxRing = (s: GameState) =>
-  s.geometry === 'square' ? config.square.maxRing : config.hyper.maxRing + s.curvUpg.extraRing;
+/** Survey numbers (startRing, maxRing, surveyBase, surveyGrowth) for a geometry. */
+export const stageConfig = (g: GameState['geometry']) =>
+  g === 'square' ? config.square : g === 'hyper' ? config.hyper : config.surfaces[g];
+
+export const maxRing = (s: GameState) => stageConfig(s.geometry).maxRing + (s.geometry === 'hyper' ? s.curvUpg.extraRing : 0);
 
 export function surveyCost(s: GameState): Decimal {
-  const c = s.geometry === 'square' ? config.square : config.hyper;
+  const c = stageConfig(s.geometry);
   return new Decimal(c.surveyBase).mul(Decimal.pow(c.surveyGrowth, s.ring + 1));
 }
 

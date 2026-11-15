@@ -23,6 +23,17 @@ export const config = {
   sellRefund: 0.5,
   square: { startRing: 1, maxRing: 5, surveyBase: 50, surveyGrowth: 6 },
   hyper: { startRing: 2, maxRing: 3, surveyBase: 2e5, surveyGrowth: 12 },
+  /**
+   * Closed-surface stages (after the hyperbolic board), in order. Each is unlocked once with Curvature (foldCost),
+   * then chosen as the Projection target. Survey grows a patch from the chart's middle until the surface closes
+   * (ring 0..maxRing). inkMult multiplies all Ink output on that surface; every closed loop of tiles around the
+   * surface (graph cycleBasis) multiplies it by loopMult again.
+   */
+  surfaces: {
+    mobius: { name: 'Möbius strip', startRing: 1, maxRing: 5, surveyBase: 5e6, surveyGrowth: 14, foldCost: 6, inkMult: 4, loopMult: 3 },
+    torus: { name: 'Torus', startRing: 1, maxRing: 4, surveyBase: 5e7, surveyGrowth: 16, foldCost: 16, inkMult: 12, loopMult: 2.5 },
+    klein: { name: 'Klein bottle', startRing: 1, maxRing: 4, surveyBase: 5e8, surveyGrowth: 18, foldCost: 40, inkMult: 40, loopMult: 3 },
+  },
   drift: { minInk: 2.42e5, divisor: 2.5e5, exponent: 0.5 },
   projection: { minCharts: 25 },
   offline: { baseEff: 0.5, capHours: 8 },
@@ -67,6 +78,8 @@ export const config = {
   autoSpringInterval: 1, // seconds between auto-placed Springs
   /** Manifold preview (Layer 3): grid sizes, framing, skin. */
   manifold: {
+    mobiusWidth: 24,
+    mobiusHeight: 4,
     torusWidth: 16,
     torusHeight: 8,
     kleinWidth: 8,

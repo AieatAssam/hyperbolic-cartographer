@@ -93,6 +93,48 @@ export function kleinGraph(width: number, height: number): SurfaceGraph {
   return { ring, neighbours, width, height, xy, seamEdge, flipEdge, cycleBasis };
 }
 
+/**
+ * Möbius strip: a W×H band whose short ends are glued with a flip (row y meets row height-1-y). The long edges are
+ * a real boundary (one edge, in fact), so edge cells have three neighbours. Its one loop runs the centre line twice.
+ */
+export function mobiusGraph(width: number, height: number): SurfaceGraph {
+  const n = width * height;
+  const xy: [number, number][] = Array.from({ length: n }, (_, i) => [i % width, Math.floor(i / width)]);
+  const ring = xy.map(([x, y]) => Math.min(Math.min(x, width - 1 - x), Math.min(y, height - 1 - y)));
+  const neighbours: number[][] = xy.map(([x, y]) => {
+    const ns = [
+      x === 0 ? idx(width, width - 1, height - 1 - y) : idx(width, x - 1, y),
+      x === width - 1 ? idx(width, 0, height - 1 - y) : idx(width, x + 1, y),
+    ];
+    if (y > 0) ns.push(idx(width, x, y - 1));
+    if (y < height - 1) ns.push(idx(width, x, y + 1));
+    return [...new Set(ns)].filter((j) => j !== idx(width, x, y)).sort((a, b) => a - b);
+  });
+  const seamEdge = (a: number, b: number) => {
+    const ax = xy[a][0], bx = xy[b][0];
+    return (ax === 0 && bx === width - 1) || (ax === width - 1 && bx === 0);
+  };
+  // One lap along row r comes back on row height-1-r; the second lap closes the loop.
+  const r = Math.floor((height - 1) / 2);
+  const loop = [
+    ...Array.from({ length: width }, (_, x) => idx(width, x, r)),
+    ...(height - 1 - r !== r ? Array.from({ length: width }, (_, x) => idx(width, x, height - 1 - r)) : []),
+  ];
+  loop.push(loop[0]);
+  return { ring, neighbours, width, height, xy, seamEdge, flipEdge: seamEdge, cycleBasis: [loop] };
+}
+
+/**
+ * The same surface as a playable stage: `ring` becomes a Survey order that grows as a patch from the middle of the
+ * chart until it closes on itself (0..rings). Neighbours and everything else are shared with `g`.
+ */
+export function stageGraph(g: SurfaceGraph, rings: number): SurfaceGraph {
+  const cx = (g.width - 1) / 2, cy = (g.height - 1) / 2;
+  const ring = g.xy.map(([x, y]) =>
+    Math.min(rings, Math.floor(Math.max(Math.abs(x - cx) / (g.width / 2), Math.abs(y - cy) / (g.height / 2)) * (rings + 1))));
+  return { ...g, ring };
+}
+
 /** Euler characteristic V − E + F for a cell complex where F = V (each node is one tile face). */
 export function eulerCharacteristic(g: TileGraph): number {
   const V = g.ring.length;

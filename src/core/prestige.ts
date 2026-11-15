@@ -2,7 +2,7 @@ import Decimal from 'break_eternity.js';
 import { chartUpgrades, config, curvatureGain } from './config';
 import { GRAPHS, zeroUpgrades, type GameState } from './state';
 import { has } from './milestones';
-import { maxRing } from './economy';
+import { maxRing, stageConfig } from './economy';
 import { noteDrift } from './achievements';
 
 export function chartsOnDrift(s: GameState): Decimal {
@@ -14,7 +14,7 @@ export function chartsOnDrift(s: GameState): Decimal {
 export const canDrift = (s: GameState) => chartsOnDrift(s).gte(1);
 
 function startRing(s: GameState) {
-  const base = s.geometry === 'square' ? config.square.startRing : config.hyper.startRing;
+  const base = stageConfig(s.geometry).startRing;
   return Math.min(maxRing(s), base + s.chartUpg.startRings + (has(s, 'keepSurvey') ? 1 : 0));
 }
 
