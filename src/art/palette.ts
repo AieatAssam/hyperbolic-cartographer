@@ -13,16 +13,16 @@
 /** Scene lights. Consumed by scene.ts: hemisphere + three directional lights + environment. */
 export const LIGHTS = {
   /** Hemisphere sky colour (warm-violet ambient from above). */
-  hemiSky: 0xd9c4ff, hemiGround: 0x1f4a52, hemiIntensity: 0.6,
-  /** Warm key light, the only shadow caster (high quality only, see QUALITY_PROFILES.shadows in scene.ts). */
-  key: 0xffd9a8, keyIntensity: 2.0, keyPos: [6, 12, 5] as [number, number, number],
+  hemiSky: 0xd9c4ff, hemiGround: 0x1f4a52, hemiIntensity: 0.42,
+  /** Warm key light, the only shadow caster (high quality only, see QUALITY_PROFILES.shadows in scene.ts). Lower and more raking so tile tops and sides separate. */
+  key: 0xffd9a8, keyIntensity: 2.3, keyPos: [7, 9, 5] as [number, number, number],
   /** Key shadow map: size, ortho half-width (covers the table disk, radius 9.55, plus margin), near/far, bias. */
   shadowMapSize: 2048, shadowExtent: 11, shadowNear: 1, shadowFar: 30, shadowRadius: 3,
   shadowBias: -0.0005, shadowNormalBias: 0.02,
   /** Cool fill light from the left, softens key shadows. */
-  fill: 0x7fc8ff, fillIntensity: 0.7, fillPos: [-9, 6, -2] as [number, number, number],
-  /** Magenta rim light from behind, separates tiles from the backdrop. */
-  rim: 0xff7ad9, rimIntensity: 1.3, rimPos: [-2, 5, -12] as [number, number, number],
+  fill: 0x7fc8ff, fillIntensity: 0.45, fillPos: [-9, 6, -2] as [number, number, number],
+  /** Magenta-violet rim light from behind, separates tiles from the dark backdrop. */
+  rim: 0xd28bff, rimIntensity: 1.5, rimPos: [-2, 5, -12] as [number, number, number],
   /** scene.environmentIntensity for the procedural RoomEnvironment reflections. */
   envIntensity: 0.35,
   /** renderer.toneMappingExposure. */
@@ -35,22 +35,22 @@ export const LIGHTS = {
  * `drift` scales the backdrop animation speed (1 = normal).
  */
 export const BACKDROP = {
-  top: 0x2a1850, horizon: 0x6a3a78, bottom: 0x14343e,
-  nebulaA: 0x3fb8c4, nebulaB: 0xd0709a, star: 0xfff0d0,
-  vignette: 0.35, grain: 0.004, drift: 1.0,
+  top: 0x0a0c1f, horizon: 0x231640, bottom: 0x07151c,
+  nebulaA: 0x3fb8c4, nebulaB: 0xd0709a, star: 0xdfe8ff,
+  vignette: 0.55, grain: 0.004, drift: 1.0,
 } as const;
 
 /**
  * Exponential fog. Consumed as scene.fog = FogExp2(color, density) and as the
  * scene.background fallback colour. Board tiles fade toward `color` with distance.
  */
-export const FOG = { color: 0x3a2350, density: 0.012 } as const;
+export const FOG = { color: 0x1a1233, density: 0.012 } as const;
 
 /**
  * UnrealBloomPass parameters: new UnrealBloomPass(res, strength, radius, threshold).
  * threshold is the luminance cut-off; only emissive surfaces above it bloom.
  */
-export const BLOOM = { strength: 0.22, radius: 0.4, threshold: 1.4 } as const;
+export const BLOOM = { strength: 0.32, radius: 0.55, threshold: 1.4 } as const;
 
 /**
  * A material token for a tile or slot. Face colour and emissive glow are separate on purpose:
@@ -94,7 +94,7 @@ export const TILE_IDENTITIES = {
 } as const satisfies Record<'spring' | 'mill' | 'beacon' | 'bridge' | 'vault' | 'lighthouse' | 'cistern' | 'scriptorium', MaterialToken>;
 
 /**
- * Empty board slot: a dark recessed well with a subdued violet border (accent), never near-white.
+ * Empty board slot: a shallow glass well, a touch lighter than the table, with a cool thin rim (accent), never near-white.
  * emissive is a faint inner breath, well below bloom.
  * At rest (not hovered, not a neighbour of the focus) the rim is quiet: restInset leaves a thin bevel band,
  * the border is mixed toward the face by restRimMix, and the trim is restTrim of the slot glow.
@@ -110,7 +110,7 @@ export interface EmptySlotToken extends MaterialToken {
   restTrim: number;
 }
 export const EMPTY_SLOT: EmptySlotToken = {
-  base: 0x1c1430, emissive: 0x3a2e60, emissiveIntensity: 0.2, roughness: 0.9, metalness: 0, accent: 0x54467a,
+  base: 0x28204a, emissive: 0x5a6ab8, emissiveIntensity: 0.1, roughness: 0.9, metalness: 0, accent: 0x4e5c94,
   restInset: 0.88, restRimMix: 0.28, restTrim: 0.55,
 };
 
@@ -129,8 +129,11 @@ export const NEXT_SLOT = { base: 0x140e22, border: 0x2e2546 } as const;
 
 /**
  * Material response coefficients for board.ts (multipliers on the tokens above).
- * - sideShade: side faces = base * sideShade. Darker extrusion walls, pinned tiles included.
- * - bevelAccent / bevelLift: glassy edge = base lerped toward accent, then lifted.
+ * - sideShade: flat side wall = base * sideShade (sideColour with no edge; surface-board.ts previews).
+ * - sideTop / sideBottom: placed-tile wall gradient. Top edge = base * sideTop; bottom edge = base * sideBottom,
+ *   mixed sideTableMix toward the table ink (FOG.color). Pinned tiles included.
+ * - bevelWarm / bevelAccent / bevelLift: the enamel rim = base lerped toward accent, then toward warm ivory by bevelWarm.
+ * - hubLift: the top fan's centre vertex lerped toward white, so each face has a soft domed gradient.
  * - faceGlow: emissive on the face as a fraction of base. Small: faces are lit, not lamps.
  * - trimGlowRest..trimGlowMax: token.emissive on the bevel, by output level. Max < BLOOM.threshold.
  * - heightBase + heightPerLevel * L: extrusion, L = outputLevel(output) in 0..1 over heightLogFull decades.
@@ -138,15 +141,18 @@ export const NEXT_SLOT = { base: 0x140e22, border: 0x2e2546 } as const;
  * - pinBorder: bevel lerp toward BOARD.gold on pinned tiles (outline only).
  * - motifScaleMin..Max: motif core scale by output level.
  * - bodyEnv: envMapIntensity on the merged tile body. Low so room reflections don't wash faces pastel; scene env/table unaffected.
+ * - bodyRoughness / bodyMetalness: the merged body's lacquer response (roughness 0.38..0.45, metalness 0.08..0.12).
  */
 export const MATERIAL = {
-  sideShade: 0.32, bevelAccent: 0.18, bevelLift: 1.15,
+  sideShade: 0.32, bevelAccent: 0.18, bevelLift: 1.15, bevelWarm: 0.45,
+  sideTop: 0.62, sideBottom: 0.2, sideTableMix: 0.3,
+  hubLift: 0.12,
   faceGlow: 0.06, trimGlowRest: 0.12, trimGlowMax: 0.55,
   heightBase: 0.34, heightPerLevel: 1.0, heightLogFull: 6,
   slotHeight: 0.015, nextHeight: 0.008,
   hoverLerp: 0.12, hoverTrim: 0.8, pinBorder: 0.75,
   motifScaleMin: 0.85, motifScaleMax: 1.35,
-  bodyEnv: 0.15,
+  bodyEnv: 0.22, bodyRoughness: 0.42, bodyMetalness: 0.1,
 } as const;
 
 /**
@@ -169,7 +175,7 @@ export const PREVIEW = {
 } as const;
 
 export const BOARD = {
-  table: 0x3b2a4f, tableEdge: 0x7a5a3a,
+  tableCentre: 0x2a1d4a, table: 0x1a1233, tableEdge: 0x0d0a1e,
   rim: 0x5fd4ff, gold: 0xe8c872, hover: 0xffffff, adjacency: 0x5fd4ff,
   glowAccentIntensity: 2.4,
 } as const;
@@ -256,11 +262,18 @@ export const tileHeight = (L: number) => MATERIAL.heightBase + MATERIAL.heightPe
 export const trimGlow = (L: number) => MATERIAL.trimGlowRest + (MATERIAL.trimGlowMax - MATERIAL.trimGlowRest) * L;
 /** Motif core scale at level L. */
 export const motifScale = (L: number) => MATERIAL.motifScaleMin + (MATERIAL.motifScaleMax - MATERIAL.motifScaleMin) * L;
-/** Side wall colour: darker than the face for every type, pinned or not. */
-export const sideColour = (base: number) => scaleHex(base, MATERIAL.sideShade);
-/** Glassy bevel colour, and its pinned (gold outline) variant. */
+/**
+ * Side wall colour. With no edge: the flat wall (base * sideShade), used by surface-board.ts. 'top' / 'bottom': the
+ * placed-tile wall gradient, a rich mid tone at the top edge that sinks into the table toward the bottom.
+ */
+export const sideColour = (base: number, edge?: 'top' | 'bottom') => {
+  if (edge === 'top') return scaleHex(base, MATERIAL.sideTop);
+  if (edge === 'bottom') return lerpHex(scaleHex(base, MATERIAL.sideBottom), FOG.color, MATERIAL.sideTableMix);
+  return scaleHex(base, MATERIAL.sideShade);
+};
+/** Enamel bevel colour (a bright warm rim), and its pinned (gold outline) variant. */
 export const bevelColour = (t: MaterialToken, pinned = false) => {
-  const b = scaleHex(lerpHex(t.base, t.accent, MATERIAL.bevelAccent), MATERIAL.bevelLift);
+  const b = lerpHex(lerpHex(t.base, t.accent, MATERIAL.bevelAccent), 0xfff2d8, MATERIAL.bevelWarm);
   return pinned ? lerpHex(b, BOARD.gold, MATERIAL.pinBorder) : b;
 };
 /** Hovered face colour. */
@@ -295,6 +308,14 @@ export const SURFACE = {
   skin: 0x4a3568,
   skinInk: 0x8b6cc4,
   skinGrid: 0x5fd4ff,
+  /** Stage cells beyond the survey: dark glass, uncharted. */
+  uncharted: 0x2a2148,
+  /** Rim of the next ring to survey (faint outline). */
+  unchartedEdge: 0x6a5aa8,
+  /** Closed-loop band: racing gold, then a permanent glow on the loop's tiles. */
+  loopGold: 0xffcf6a,
+  /** Survey ripple flash on newly charted cells. */
+  surveyFlash: 0x7fe0ff,
 } as const;
 
 /** sRGB hex as `#rrggbb` for DOM / CSS. */
@@ -325,8 +346,8 @@ export const UI = {
   hudChipBg: 0x0c1220,
   glassRgb: [12, 18, 32] as const,
   glassAlpha: 0.78,
-  lineRgb: [95, 212, 255] as const,
-  lineAlpha: 0.22,
+  lineRgb: [232, 200, 114] as const,
+  lineAlpha: 0.18,
   devPanelBg: [30, 8, 12] as const,
   devPanelBgAlpha: 0.8,
 } as const;
@@ -341,8 +362,10 @@ export const UI = {
 export const CONSTELLATION_BURST = { seconds: 1.5, drawSeconds: 0.8, stagger: 0.12, bump: 0.5 } as const;
 
 export const MOTIF = {
-  fill: 0.56, emissive: 0.18, ringInner: 0.42, ringOuter: 0.5, ringLift: 0.012, ringAlpha: 0.55,
+  fill: 0.66, emissive: 0.05, ringInner: 0.42, ringOuter: 0.5, ringLift: 0.012, ringAlpha: 0.55,
   strainDim: 0.55, strainShrink: 0.22, strainTint: 0x6b7388, channelBoost: 1.3,
+  /** Ivory-and-brass pieces: body = tile base lerped toward ivory by ivoryMix; lacquer roughness and a little metal. */
+  ivory: 0xf4ead2, ivoryMix: 0.6, roughness: 0.5, metalness: 0.05,
 } as const;
 
 /** Palette tool-chip fill: tile `base` from TILE_IDENTITIES. */

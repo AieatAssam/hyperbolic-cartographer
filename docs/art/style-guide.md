@@ -16,15 +16,15 @@ All colours are sRGB hex. three converts them to linear when it builds `Color` o
 |---|---|---|
 | `hemiSky` | `#d9c4ff` | Hemisphere sky colour: warm-violet ambient from above. |
 | `hemiGround` | `#1f4a52` | Hemisphere ground colour: deep teal bounce from below. |
-| `hemiIntensity` | 0.6 | Hemisphere strength. |
+| `hemiIntensity` | 0.42 | Hemisphere strength. Lower, so shadows keep depth. |
 | `key` | `#ffd9a8` | Warm key light, main directional. |
-| `keyIntensity` | 2.0 | Key strength. |
-| `keyPos` | [6, 12, 5] | Key position. |
+| `keyIntensity` | 2.3 | Key strength. |
+| `keyPos` | [7, 9, 5] | Key position. Lower and more raking than before, so tile tops and sides separate. |
 | `fill` | `#7fc8ff` | Cool fill from the left, softens key falloff. |
-| `fillIntensity` | 0.7 | Fill strength. |
+| `fillIntensity` | 0.45 | Fill strength. |
 | `fillPos` | [-9, 6, -2] | Fill position. |
-| `rim` | `#ff7ad9` | Magenta rim from behind, separates tiles from the backdrop. |
-| `rimIntensity` | 1.3 | Rim strength. |
+| `rim` | `#d28bff` | Magenta-violet rim from behind, separates tiles from the dark backdrop. |
+| `rimIntensity` | 1.5 | Rim strength. |
 | `rimPos` | [-2, 5, -12] | Rim position. |
 | `envIntensity` | 0.35 | `scene.environmentIntensity` for procedural reflections. |
 | `exposure` | 1.05 | `renderer.toneMappingExposure`. |
@@ -35,13 +35,13 @@ Shadow maps are off.
 
 | Token | Hex / value | Meaning |
 |---|---|---|
-| `top` | `#2a1850` | Sky gradient top (deep purple). |
-| `horizon` | `#6a3a78` | Plum horizon band. |
-| `bottom` | `#14343e` | Deep teal floor. |
+| `top` | `#0a0c1f` | Sky gradient top (night indigo). |
+| `horizon` | `#231640` | Dark violet horizon band. |
+| `bottom` | `#07151c` | Near-black teal floor. |
 | `nebulaA` | `#3fb8c4` | Teal nebula layer. |
 | `nebulaB` | `#d0709a` | Rose nebula layer. |
-| `star` | `#fff0d0` | Sparse ink-speck stars. |
-| `vignette` | 0.35 | Screen-space vignette strength. |
+| `star` | `#dfe8ff` | Crisp cool-white stars, one per lit cell of a direction grid, with slow twinkle driven by `drift`. |
+| `vignette` | 0.55 | Screen-space vignette strength. Corners about 45% darker, centre untouched. |
 | `grain` | 0.004 | Parchment grain amplitude. Lowered from 0.02 to remove visible static. |
 | `drift` | 1 | Backdrop animation speed multiplier. |
 
@@ -49,15 +49,15 @@ Shadow maps are off.
 
 | Token | Hex / value | Meaning |
 |---|---|---|
-| `color` | `#3a2350` | Plum fog. Distant tiles fade into colour, not black. Also the background fallback. |
+| `color` | `#1a1233` | Dark violet fog. Distant board edges melt into the night, not into haze. Also the background fallback. |
 | `density` | 0.012 | `FogExp2` density. |
 
 ### BLOOM (Wired)
 
 | Token | Value | Meaning |
 |---|---|---|
-| `strength` | 0.22 | UnrealBloomPass strength. |
-| `radius` | 0.4 | Bloom spread. |
+| `strength` | 0.32 | UnrealBloomPass strength. |
+| `radius` | 0.55 | Bloom spread. |
 | `threshold` | 1.4 | Linear luminance cut-off. Only surfaces above this glow. |
 
 ### Materials & bloom (pass 3A) (Wired in `board.ts`)
@@ -88,11 +88,11 @@ Shadow maps are off.
 | `cistern` | basin (primitive) |
 | `scriptorium` | book block (primitive) |
 
-**Empty slot.** `EMPTY_SLOT`: `base` `#1c1430` (dark recessed well), `accent` `#54467a` (subdued violet border), `emissive` `#3a2e60` at `emissiveIntensity` 0.2, `roughness` 0.9, `metalness` 0.
+**Empty slot.** `EMPTY_SLOT`: `base` `#28204a` (shallow glass well, a touch lighter than the table), `accent` `#4e5c94` (cool thin rim), `emissive` `#5a6ab8` at `emissiveIntensity` 0.1 (faint glow), `roughness` 0.9, `metalness` 0.
 
 **Next ring.** `NEXT_SLOT`: `base` `#140e22`, `border` `#2e2546`. Darker than the empty slot.
 
-**Board chrome.** `BOARD`: `table` `#3b2a4f`, `tableEdge` `#7a5a3a`, `rim` `#5fd4ff`, `gold` `#e8c872` (pin outline and reward highlight), `hover` `#ffffff`, `adjacency` `#5fd4ff`, `glowAccentIntensity` 2.4 (the accent cap; motif cores sit just under it).
+**Board chrome.** `BOARD`: `tableCentre` `#2a1d4a` → `table` `#1a1233` → `tableEdge` `#0d0a1e` (the tabletop gradient and dark side walls), `rim` `#5fd4ff` (UI `--cyan`; the 3D rim is brass, see Hyperbolic disk), `gold` `#e8c872` (pin outline and reward highlight), `hover` `#ffffff`, `adjacency` `#5fd4ff`, `glowAccentIntensity` 2.4 (the accent cap; motif cores sit just under it).
 
 **Constellation ink (Wired in `board.ts`).** Ribbons use saturated golds; no bloom.
 
@@ -153,7 +153,7 @@ Inspect flow uses one smooth quadratic arch per source–target pair (no hop tru
 | `UI.flash` | `#ffffff` | `--flash` | Prestige flash. |
 | `UI.hudChipBg` | `#0c1220` | (contrast ref) | Solid fill under HUD glass for palette-dot contrast. |
 | `UI.glassRgb` + `glassAlpha` | rgba(12, 18, 32, 0.78) | `--glass` | HUD / toast glass. |
-| `UI.lineRgb` + `lineAlpha` | rgba(95, 212, 255, 0.22) | `--line` | Borders. |
+| `UI.lineRgb` + `lineAlpha` | rgba(232, 200, 114, 0.18) | `--line` | Borders (gold hairline). |
 | `UI.devPanelBg` + alpha | rgba(30, 8, 12, 0.8) | `--dev-bg` | Dev panel fill. |
 
 **Palette tool chips (Wired in `ui.ts`).** Each build-tool button shows an 8×8 px dot filled with `tileChipColour(type)` = `TILE_IDENTITIES[type].base`. When contrast on `UI.hudChipBg` is low, a `--ink` ring is drawn; the fill never substitutes another hue.
@@ -162,8 +162,11 @@ Inspect flow uses one smooth quadratic arch per source–target pair (no hop tru
 
 | Field | Value | Meaning |
 |---|---|---|
-| `sideShade` | 0.32 | Side walls = `base * sideShade`. |
-| `bevelAccent` / `bevelLift` | 0.18 / 1.15 | Glassy bevel: base lerped toward accent, then lifted. |
+| `sideShade` | 0.32 | Flat side wall = `base * sideShade` (surface previews). |
+| `sideTop` / `sideBottom` / `sideTableMix` | 0.62 / 0.2 / 0.3 | Placed-tile wall gradient: top edge = `base * 0.62`, bottom edge = `base * 0.2` mixed 30% toward the table ink (`#1a1233`). |
+| `bevelAccent` / `bevelLift` / `bevelWarm` | 0.18 / 1.15 / 0.45 | Enamel rim: base lerped toward accent, then 45% toward warm ivory (`#fff2d8`). |
+| `hubLift` | 0.12 | Placed tiles only: the top fan centre is lerped toward white, so each face has a soft domed gradient. Empty slots stay flat. |
+| `bodyRoughness` / `bodyMetalness` | 0.42 / 0.1 | Lacquer response of the merged tile body. |
 | `faceGlow` | 0.06 | Emissive on the face, as a fraction of base. |
 | `trimGlowRest` / `trimGlowMax` | 0.12 / 0.55 | Bevel emissive by output level. Max is below the bloom threshold. |
 | `heightBase` / `heightPerLevel` / `heightLogFull` | 0.34 / 1.0 / 6 | Extrusion: `tileHeight = 0.34 + 1.0 * L`, where `L = min(1, log10(1 + output) / 6)`. |
@@ -171,7 +174,7 @@ Inspect flow uses one smooth quadratic arch per source–target pair (no hop tru
 | `hoverLerp` / `hoverTrim` | 0.12 / 0.8 | Face lerp toward white on hover, and bevel glow on hover. |
 | `pinBorder` | 0.75 | Bevel lerp toward `BOARD.gold` on pinned tiles. |
 | `motifScaleMin` / `motifScaleMax` | 0.85 / 1.35 | Motif core scale by output level. |
-| `bodyEnv` | 0.15 | `envMapIntensity` on the merged tile body. Low so room reflections don't wash faces pastel; scene env/table unaffected. |
+| `bodyEnv` | 0.22 | `envMapIntensity` on the merged tile body. Low so room reflections don't wash faces pastel; the soft sheen comes from this; scene env/table unaffected. |
 
 ## 3. Colour pipeline (Wired)
 
@@ -188,20 +191,22 @@ Inspect flow uses one smooth quadratic arch per source–target pair (no hop tru
 
 Empty slots are dark recessed wells, not grey slabs:
 
-- The base is `EMPTY_SLOT.base`, very dark violet. The border is `EMPTY_SLOT.accent`, subdued and never near-white.
-- The next ring (one step out, preview only) is darker still, with a barely visible border (`NEXT_SLOT`).
-- Grey reads as disabled. Keep slots dark and matte (roughness 0.9), with a faint inner emissive (0.2).
+- The base is `EMPTY_SLOT.base`, a shallow glass well a little lighter than the table. The border is `EMPTY_SLOT.accent`, a cool thin rim, never near-white.
+- The next ring (one step out, preview only) is clearly dimmer than an active slot, with a barely visible border (`NEXT_SLOT`).
+- Grey reads as disabled. Keep slots dark and matte (roughness 0.9), with a faint cool inner emissive (0.1).
+- Tile faces must keep a WCAG contrast of at least 2.0 against `EMPTY_SLOT.base` (`tests/palette.test.ts`), which caps how light the slot can be.
 
 ### Tabletop (Wired)
 
-- A procedural `CanvasTexture` drawn at startup. It holds a radial violet-to-table gradient, parchment grain, a gold graticule, cyan rhumb lines, rose wobbly contours, and seven ink constellations. No image files.
-- Square board: a bevelled slab (`tableEdge` sides, textured top) with a lip beneath.
+- A procedural 2048 `CanvasTexture` drawn at startup, `tex.anisotropy` 8. It is a dark lacquer: a radial gradient from `tableCentre` to `table` to `tableEdge`, a vignette that sinks the outer quarter into the edge colour, fine parchment grain, a brass graticule (every 4th ring stronger), 16 brass rhumb lines (8 principal), a small compass rose at the centre, ruler ticks on the 4th and 8th rings, and five small cream constellations. No image files.
+- The table material is lacquer: roughness 0.55, metalness 0.15, so the key light gives a soft sheen.
+- Square board: a bevelled slab with dark `tableEdge` sides (roughness 0.55, metalness 0.15) and a lip beneath.
 - Hyperbolic board: a round slab with the same texture and a bevelled edge.
 
 ### Hyperbolic disk (Wired)
 
 - Same ink-map language as the square tabletop, with a circular texture.
-- A luminous cyan rim (`BOARD.rim`). It is a deliberate bloom accent, capped at `BOARD.glowAccentIntensity`.
+- A double brass rim: a bright gold line (`BOARD.gold`, just over `BLOOM.threshold`) on a faint wide halo. The texture carries the same double line on the table.
 
 ### Backdrop (Wired)
 
@@ -219,7 +224,7 @@ An inverted sphere (radius 100) that follows the camera, drawn first with no dep
 - **Faces get only `MATERIAL.faceGlow`.** The face never blooms.
 - **Bloom is for motif cores and the table rim only.** Motif cores have `emissiveIntensity` above `BLOOM.threshold` (1.4), up to `BOARD.glowAccentIntensity` (2.4).
 - **Trim glow stays below the threshold.** Bevel emissive runs from `trimGlowRest` to `trimGlowMax` (0.55) with output level, so it never blooms.
-- **Side walls** are `base * sideShade` for every tile, pinned tiles included. Pins are a gold bevel outline only (`pinBorder`), not a change to the walls.
+- **Side walls** run from `base * sideTop` at the top edge down to a deep, table-tinted `sideBottom` at the base, for every tile, pinned tiles included. Pins are a gold bevel outline only (`pinBorder`), not a change to the walls.
 - **Hover.** The face lerps 0.12 toward white (`hoverLerp`) so the hue survives. The bevel glow rises by `hoverTrim`.
 - **Caching.** Output is quantised to 8 steps per decade (`round(L * 8)`) for each tile. The board rebuilds only when that quantised signature, tiles, ring, pins, hover, hovered neighbours or view change. It does not rebuild every frame, and sub-step output changes do not trigger a rebuild.
 
@@ -309,8 +314,8 @@ The particle mechanics are specified in `particle-language.md`. This section lis
 
 ### Tile models and strain (Wired in `tile-models.ts`, `board.ts`, `surface-board.ts`)
 
-- **Models.** Each type's model is fitted so its footprint is 0.56 of its cell (`MOTIF.fill`). Body vertices take the type's base colour (`TILE_IDENTITIES.base`) and an accent band takes its accent. The mill wheel is accent-coloured. Cistern and Scriptorium are procedural (no GLB node).
-- **Material.** Vertex-coloured, with only a low emissive tint (`MOTIF.emissive`), so forms survive bloom.
+- **Models.** Each type's model is fitted so its footprint is 0.66 of its cell (`MOTIF.fill`). The nine models in `public/models/tiles.glb` (built in Blender) carry their own baked vertex colours (stone, timber, terracotta, brass, water, flame), which the game keeps as authored; the tile underneath carries the type's identifying colour. Only the procedural fallbacks, used when the GLB fails to load, are painted from the type's base lerped 60% toward ivory `#f4ead2` (`MOTIF.ivoryMix`) with an accent band.
+- **Material.** Vertex-coloured, roughness `MOTIF.roughness` (0.35) and metalness `MOTIF.metalness` (0.25), with only a low emissive tint (`MOTIF.emissive`), so forms survive bloom.
 - **Strain.** A Spring with share below 1 dims toward `MOTIF.strainTint` (`#6b7388`) and shrinks by `MOTIF.strainShrink` times its shortfall. Its ring is a faint grey, so the state is not carried by colour alone. A Bridge-channelled Spring (fed, share at least 1) gets a bright accent ring at `MOTIF.channelBoost`.
 - **Constellation completion** (`CONSTELLATION_BURST`). Edges trace in order over `drawSeconds`, then member stars flare in turn (`stagger`). A sparkle burst rises for about 1.5 s. Reduced motion skips the trace, the flare and the burst. Burst density follows the quality level.
 
@@ -364,3 +369,14 @@ These works inform readability and framing. They are **not** sources to copy or 
 | `config.manifold.kleinSkinAlpha` | Klein immersion glass (~32%); torus uses `skinAlpha` (~50%). |
 | `config.manifold.kleinTileAlpha` | Opaque tile patches over Klein glass; back faces dimmed via `kleinBackfaceDim`. |
 | Manifold placed `inset` 0.66 / empty ~0.9 | Active versus inactive rim weight on 3D surfaces. |
+
+### Surface stages (Wired in `surface-board.ts`)
+
+| Token | Hex | Meaning |
+|---|---|---|
+| `SURFACE.uncharted` | `#2a2148` | Dark-glass cells beyond the survey on a stage surface. |
+| `SURFACE.unchartedEdge` | `#6a5aa8` | Faint outline of the next ring Survey will chart. |
+| `SURFACE.loopGold` | `#ffcf6a` | Closed loop: the gold band that races around it, then the loop's permanent glow. |
+| `SURFACE.surveyFlash` | `#7fe0ff` | Rim flash on cells as the survey ripple reaches them. |
+
+A tile that has flowed once around the Möbius strip or Klein bottle sits on the other face and is drawn mirrored, with a `SURFACE.seamFlip` rim. Two laps bring it home.

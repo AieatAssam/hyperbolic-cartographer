@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { SURFACE } from '../art/palette';
+import { STAGE, SURFACE } from '../art/palette';
+import { shapeFrame } from './surface-shape';
 import { config } from '../core/config';
 import { KLEIN_U_MAX, KLEIN_V_MAX, KLEIN_SELF_INTERSECT_U } from './klein-bottle';
 import {
@@ -223,5 +224,57 @@ export function buildSelfIntersectionLine(scale = KLEIN_SCALE()): THREE.Group {
   const grp = new THREE.Group();
   grp.name = 'klein-self-intersection';
   grp.add(line, beads);
+  return grp;
+}
+
+/**
+ * Möbius strip: a thin glass slab (two sheets config.manifold.mobiusSlab apart) with a brass rim along its single
+ * boundary curve, which runs twice around before it closes.
+ */
+export function buildMobiusSkin(env: THREE.Texture | null): THREE.Group {
+  const W = config.manifold.mobiusWidth, H = config.manifold.mobiusHeight, U = 192, V = 8;
+  const half = config.manifold.mobiusSlab / 2;
+  const p = new Float64Array(9);
+  const pos = new Float32Array((U + 1) * (V + 1) * 3 * 2);
+  const idx: number[] = [];
+  const row = U + 1, layer = row * (V + 1);
+  for (let side = 0; side < 2; side++) {
+    for (let yi = 0; yi <= V; yi++) {
+      for (let xi = 0; xi <= U; xi++) {
+        shapeFrame('mobius', (xi / U) * W, (yi / V) * H, W, H, 1, p);
+        const k = (side * layer + yi * row + xi) * 3, o = side ? -half : half;
+        pos[k] = p[0] + p[3] * o; pos[k + 1] = p[1] + p[4] * o; pos[k + 2] = p[2] + p[5] * o;
+      }
+    }
+    for (let yi = 0; yi < V; yi++) {
+      for (let xi = 0; xi < U; xi++) {
+        const a = side * layer + yi * row + xi, b = a + 1, c = a + row, d = c + 1;
+        if (side) idx.push(a, b, c, b, d, c);
+        else idx.push(a, c, b, b, c, d);
+      }
+    }
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geom.setIndex(idx);
+  geom.computeVertexNormals();
+  const glass = new THREE.Mesh(geom, torusSkinMaterial(env));
+  glass.name = 'mobius-skin';
+  glass.renderOrder = -6;
+  const rim: THREE.Vector3[] = [];
+  for (let i = 0; i < 2 * U; i++) {
+    shapeFrame('mobius', (i / U) * W, 0, W, H, 1, p);
+    rim.push(new THREE.Vector3(p[0], p[1], p[2]));
+  }
+  const tube = new THREE.Mesh(
+    new THREE.TubeGeometry(new THREE.CatmullRomCurve3(rim, true), 2 * U, half * 1.15, 6, true),
+    new THREE.MeshStandardMaterial({
+      color: col(STAGE.brass), emissive: col(STAGE.brass), emissiveIntensity: 0.35, metalness: 0.85, roughness: 0.3, envMap: env,
+    }),
+  );
+  tube.name = 'mobius-rim';
+  const grp = new THREE.Group();
+  grp.name = 'mobius-skin';
+  grp.add(glass, tube);
   return grp;
 }

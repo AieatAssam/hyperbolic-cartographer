@@ -12,21 +12,46 @@ export const config = {
     /** global: the first Vault's bonus; each further Vault adds `decay` times the one before (limit global/(1-decay)). */
     vault: { cost: 25000, offline: 0.1, global: 0.02, decay: 0.97 },
     lighthouse: { cost: 50000, mult: 1.25 },
-    /** Each Spring adjacent to a Cistern multiplies its own output by mult (per Cistern). */
-    cistern: { cost: 2500, mult: 3 },
+    /** Each Spring adjacent to a Cistern multiplies its own output by mult and its flow to Mills by millFlow (per Cistern). */
+    cistern: { cost: 1200, mult: 3, millFlow: 1.5 },
     /** Output = out x number of distinct other tile types adjacent to it. */
-    scriptorium: { cost: 8000, out: 15 },
+    scriptorium: { cost: 8000, out: 40 },
   },
   costGrowth: 1.12,
+  /** Each earned achievement adds this much to global Ink output (see achievementBonus). */
+  achievements: { inkPerEach: 0.01 },
   sellRefund: 0.5,
   square: { startRing: 1, maxRing: 5, surveyBase: 50, surveyGrowth: 6 },
   hyper: { startRing: 2, maxRing: 3, surveyBase: 2e5, surveyGrowth: 12 },
+  /**
+   * Closed-surface stages (after the hyperbolic board), in order. Each is unlocked once with Curvature (foldCost),
+   * then chosen as the Projection target. Survey grows a patch from the chart's middle until the surface closes
+   * (ring 0..maxRing). inkMult multiplies all Ink output on that surface; every closed loop of tiles around the
+   * surface (graph cycleBasis) multiplies it by loopMult again.
+   */
+  surfaces: {
+    mobius: { name: 'Möbius strip', startRing: 1, maxRing: 5, surveyBase: 5e6, surveyGrowth: 14, foldCost: 40, inkMult: 4, loopMult: 3 },
+    torus: { name: 'Torus', startRing: 1, maxRing: 4, surveyBase: 5e7, surveyGrowth: 16, foldCost: 80, inkMult: 12, loopMult: 2.5 },
+    klein: { name: 'Klein bottle', startRing: 1, maxRing: 4, surveyBase: 5e8, surveyGrowth: 18, foldCost: 130, inkMult: 40, loopMult: 3 },
+  },
   drift: { minInk: 2.42e5, divisor: 2.5e5, exponent: 0.5 },
   projection: { minCharts: 25 },
   offline: { baseEff: 0.5, capHours: 8 },
   startInk: 22,
-  /** Trade Wind: a timed chance to catch a burst of Ink plus a production surge (live play only). */
-  wind: { minGap: 40, maxGap: 80, life: 14, burstSec: 30, minInk: 25, surgeSec: 20, surgeMult: 3 },
+  /**
+   * Trade Winds (live play only): a catchable wind every minGap..maxGap s, lasting `life` s.
+   * Each wind is one of `kinds` by weight. Catching pays max(kind.burstSec of Ink/s, minInk)
+   * and, if kind.surgeSec > 0, a surge of kind.surgeMult for that long.
+   * `surgeMult` is the default for state.surgeMult (read by state.ts and save.ts); catchWind overwrites it.
+   */
+  wind: {
+    minGap: 40, maxGap: 80, life: 14, minInk: 25, surgeMult: 3,
+    kinds: {
+      trade: { name: 'Trade Wind', weight: 75, burstSec: 30, surgeSec: 20, surgeMult: 3 },
+      gale: { name: 'Gale', weight: 20, burstSec: 10, surgeSec: 12, surgeMult: 7 },
+      monsoon: { name: 'Monsoon', weight: 5, burstSec: 240, surgeSec: 0, surgeMult: 1 },
+    },
+  },
   /** One-time run rewards (first placement of each kind). */
   rewards: { firstMillInk: 35, firstBridgeInk: 120 },
   /** Named shape bonuses (graph adjacency; once per unique instance per run). */
@@ -34,7 +59,14 @@ export const config = {
     inkstream: { name: 'Inkstream', bonusInk: 55, blurb: 'A line of three Springs.' },
     millwheel: { name: 'Millwheel', bonusInk: 80, blurb: 'A Mill ringed by Springs on three sides.' },
     twinmills: { name: 'Twin Mills', bonusInk: 150, blurb: 'A Bridge linking two Mills.' },
+    watergarden: { name: 'Water Garden', bonusInk: 400, blurb: 'A Cistern feeding three Springs.' },
+    crown: { name: 'Crown of Light', bonusInk: 600, blurb: 'A Beacon lighting four producers.' },
+    library: { name: 'Grand Library', bonusInk: 2500, blurb: 'A Scriptorium beside four different kinds of tile.' },
+    longspan: { name: 'Long Span', bonusInk: 4000, blurb: 'A line of three Bridges.' },
+    harbour: { name: 'Safe Harbour', bonusInk: 20000, blurb: 'A Lighthouse beside a Bridge and a Vault.' },
   },
+  /** Repeat patterns of one kind pay max(bonusInk, sec s of Ink/s / (1 + earlier repeats in the run)). */
+  constellationScale: { sec: 20 },
   camera: {
     polarY: 13, polarZ: 9, margin: 12, phoneFill: 1.0, desktopFill: 1.0,
     /** Portrait playable board: polar from +Y (smaller = more overhead). ~32°. */
@@ -46,12 +78,18 @@ export const config = {
   autoSpringInterval: 1, // seconds between auto-placed Springs
   /** Manifold preview (Layer 3): grid sizes, framing, skin. */
   manifold: {
+    mobiusWidth: 24,
+    mobiusHeight: 4,
     torusWidth: 16,
     torusHeight: 8,
     kleinWidth: 8,
     kleinHeight: 8,
     torusMajorR: 6.1,
     torusMinorR: 1.65,
+    /** Möbius stage (render only): centre-line radius, half band width and glass slab thickness. */
+    mobiusMajorR: 4.6,
+    mobiusHalfWidth: 2.1,
+    mobiusSlab: 0.14,
     chartSpan: 8.8,
     chartFill: 0.82,
     boardFillTarget: 0.8,

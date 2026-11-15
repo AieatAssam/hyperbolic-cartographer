@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import Decimal from 'break_eternity.js';
 import { config } from '../src/core/config';
+import { ACHIEVEMENTS, achievementBonus } from '../src/core/achievements';
 import { GRAPHS, initialState } from '../src/core/state';
 import { mods, place, production, springShare, vaultBonus } from '../src/core/economy';
 import { applyOffline } from '../src/core/tick';
@@ -204,8 +205,10 @@ describe('offline + prestige', () => {
     const s = initialState();
     s.tiles[0] = 'mill';
     for (const n of GRAPHS.square.neighbours[0]) s.tiles[n] = 'spring';
+    // Earn every achievement up front so the Ink bonus stays constant during the offline run.
+    s.achievements = ACHIEVEMENTS.map((a) => a.id);
     const before = s.ink;
-    const rate = config.tiles.mill.out * 5 + 4 * config.tiles.spring.out;
+    const rate = (config.tiles.mill.out * 5 + 4 * config.tiles.spring.out) * achievementBonus(s);
     const expected = rate * 3600 * config.offline.baseEff;
     const r = applyOffline(s, 3600);
     expect(r.ink.toNumber()).toBeCloseTo(expected, 6);

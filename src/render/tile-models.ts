@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import type { TileType } from '../core/tiles';
-import { TILE_IDENTITIES, MOTIF } from '../art/palette';
+import { TILE_IDENTITIES, MOTIF, lerpHex } from '../art/palette';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /** Node names in public/models/tiles.glb (one mesh per node, authored at world scale). */
-export const MODEL_NAMES = ['spring', 'mill', 'mill_wheel', 'beacon', 'bridge', 'vault', 'lighthouse'] as const;
+export const MODEL_NAMES = ['spring', 'mill', 'mill_wheel', 'beacon', 'bridge', 'vault', 'lighthouse', 'cistern', 'scriptorium'] as const;
 export type ModelName = (typeof MODEL_NAMES)[number];
 /** Keyed by GLB node name; tile types without a node (cistern, scriptorium) keep their primitive motif. */
 export type TileModels = Partial<Record<ModelName | TileType, THREE.BufferGeometry>>;
@@ -98,10 +98,19 @@ const ACCENT: Record<TileType, (x: number, yn: number) => boolean> = {
   scriptorium: (_, yn) => yn > 0.9,
 };
 
-/** Vertex colours: body = the type's emissive hue (vivid, not pastel), accent band = the type's accent. */
+/** The GLB's own baked colours as a plain 3-float attribute (the exporter may give 4 normalised components). */
+function ownColours(g: THREE.BufferGeometry) {
+  const c = g.attributes.color, out = new Float32Array(c.count * 3);
+  for (let i = 0; i < c.count; i++) { out[i * 3] = c.getX(i); out[i * 3 + 1] = c.getY(i); out[i * 3 + 2] = c.getZ(i); }
+  g.setAttribute('color', new THREE.BufferAttribute(out, 3));
+  return g;
+}
+
+/** Vertex colours for primitives only (models keep their own): body = the tile base lerped toward ivory (a light game piece), accent band = the type's brass accent. */
 function paint(g: THREE.BufferGeometry, t: TileType, h: number) {
+  if (g.attributes.color) return ownColours(g);
   const tk = TILE_IDENTITIES[t];
-  const body = new THREE.Color(tk.base), acc = new THREE.Color(tk.accent);
+  const body = new THREE.Color(lerpHex(tk.base, MOTIF.ivory, MOTIF.ivoryMix)), acc = new THREE.Color(tk.accent);
   const pos = g.attributes.position, n = pos.count, out = new Float32Array(n * 3);
   const rule = ACCENT[t];
   for (let i = 0; i < n; i++) {
@@ -120,8 +129,8 @@ export function motifMaterial(t: TileType): THREE.MeshStandardMaterial {
     color: 0xffffff,
     emissive: tk.emissive,
     emissiveIntensity: MOTIF.emissive,
-    roughness: 0.6,
-    metalness: 0,
+    roughness: MOTIF.roughness,
+    metalness: MOTIF.metalness,
   });
 }
 
@@ -156,7 +165,7 @@ export function prepareMotifs(models: TileModels): MotifSet {
   const k = 0.21 / Math.max(r, 1e-6);
   w.translate(-(wb.max.x + wb.min.x) / 2, -(wb.max.y + wb.min.y) / 2, -(wb.max.z + wb.min.z) / 2).scale(k, k, k);
   const wheel = plain(w), acc = new THREE.Color(TILE_IDENTITIES.mill.accent);
-  wheel.setAttribute('color', new THREE.BufferAttribute(new Float32Array(wheel.attributes.position.count * 3), 3));
-  for (let i = 0; i < wheel.attributes.position.count; i++) wheel.attributes.color.setXYZ(i, acc.r, acc.g, acc.b);
+  if (wheel.attributes.color) ownColours(wheel);
+  else wheel.setAttribute('color', new THREE.BufferAttribute(new Float32Array(wheel.attributes.position.count * 3).map((_, i) => acc.toArray()[i % 3]), 3));
   return { geos, wheel, wheelAt };
 }

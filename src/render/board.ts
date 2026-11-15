@@ -24,76 +24,108 @@ const GLOW_STEPS = 8; // output quantisation per decade, so the cache key only c
 
 const col = (hex: number) => new THREE.Color(hex);
 /** Precomputed face / side / bevel colours per type; tokens and coefficients live in palette.ts. */
+type TokColours = 'face' | 'hover' | 'side' | 'sideTop' | 'bevel' | 'bevelPin' | 'faceGlow' | 'emissive';
 const TOK = Object.fromEntries(TILE_TYPES.map((t) => {
   const tk = TILE_IDENTITIES[t];
   return [t, {
-    face: col(tk.base), hover: col(hoverFace(tk.base)), side: col(sideColour(tk.base)),
+    face: col(tk.base), hover: col(hoverFace(tk.base)), side: col(sideColour(tk.base, 'bottom')), sideTop: col(sideColour(tk.base, 'top')),
     bevel: col(bevelColour(tk)), bevelPin: col(bevelColour(tk, true)),
     faceGlow: col(tk.base).multiplyScalar(MATERIAL.faceGlow), emissive: col(tk.emissive),
   }];
-})) as Record<TileType, Record<'face' | 'hover' | 'side' | 'bevel' | 'bevelPin' | 'faceGlow' | 'emissive', THREE.Color>>;
+})) as Record<TileType, Record<TokColours, THREE.Color>>;
 const C = {
   slot: col(EMPTY_SLOT.base), slotGlow: col(EMPTY_SLOT.emissive).multiplyScalar(EMPTY_SLOT.emissiveIntensity),
-  slotBorder: col(EMPTY_SLOT.accent), slotSide: col(sideColour(EMPTY_SLOT.base)),
+  slotBorder: col(EMPTY_SLOT.accent), slotSide: col(sideColour(EMPTY_SLOT.base, 'bottom')), slotSideTop: col(sideColour(EMPTY_SLOT.base, 'top')),
   next: col(NEXT_SLOT.base), nextBorder: col(NEXT_SLOT.border),
   white: col(BOARD.hover), adj: col(BOARD.adjacency), gold: col(BOARD.gold), bridge: col(PREVIEW.bridgeOutline),
   dim: col(EMPTY_SLOT.base), black: col(0),
 };
 
-/** Procedural cartographer's tabletop: rhumb lines, graticule, contours and constellations in ink. Local, no assets. */
+/**
+ * Procedural cartographer's tabletop: a dark lacquered night-sea chart with fine brass graticule, rhumb lines, ruler ticks,
+ * a compass rose and a few constellations. Thin, low-contrast ink on a dark ground so tiles and UI read first. Local, no assets.
+ * 2048 canvas with 8x anisotropy; line widths are doubled against the old 1024 canvas so the world-space look matches the spec.
+ */
 function tableTexture(round: boolean): THREE.CanvasTexture {
-  const N = 1024, cv = document.createElement('canvas');
+  const N = 2048, c = N / 2, cv = document.createElement('canvas');
   cv.width = cv.height = N;
   const g = cv.getContext('2d')!;
+  const hex = (v: number) => '#' + v.toString(16).padStart(6, '0');
+  const brass = (a: number) => `rgba(232,200,114,${a})`;
   let seed = 7;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  const grad = g.createRadialGradient(N / 2, N / 2, N * 0.05, N / 2, N / 2, N * 0.72);
-  grad.addColorStop(0, '#6a4e86');
-  grad.addColorStop(1, '#' + BOARD.table.toString(16).padStart(6, '0'));
+  const ring = (r: number) => { g.beginPath(); g.arc(c, c, r, 0, Math.PI * 2); g.stroke(); };
+  // base: deep lacquer, lightest at the centre, darkest at the edge
+  const grad = g.createRadialGradient(c, c, 0, c, c, N * 0.72);
+  grad.addColorStop(0, hex(BOARD.tableCentre));
+  grad.addColorStop(0.6, hex(BOARD.table));
+  grad.addColorStop(1, hex(BOARD.tableEdge));
   g.fillStyle = grad;
   g.fillRect(0, 0, N, N);
-  for (let i = 0; i < 9000; i++) { // parchment grain
-    g.fillStyle = `rgba(232,216,176,${0.02 + rnd() * 0.04})`;
-    g.fillRect(rnd() * N, rnd() * N, 1.5, 1.5);
+  // vignette: the outer quarter sinks into the edge colour so the slab edge melts into the dark scene
+  const vig = g.createRadialGradient(c, c, N * 0.36, c, c, N * 0.5);
+  vig.addColorStop(0, 'rgba(13,10,30,0)');
+  vig.addColorStop(1, 'rgba(13,10,30,1)');
+  g.fillStyle = vig;
+  g.fillRect(0, 0, N, N);
+  for (let i = 0; i < 36000; i++) { // fine paper grain
+    g.fillStyle = `rgba(232,216,176,${0.015 + rnd() * 0.015})`;
+    g.fillRect(rnd() * N, rnd() * N, 2, 2);
   }
-  g.lineWidth = 1.5;
-  g.strokeStyle = 'rgba(232,200,114,0.22)'; // graticule
-  for (let i = 1; i < 12; i++) {
-    g.beginPath(); g.arc(N / 2, N / 2, (i * N) / 22, 0, Math.PI * 2); g.stroke();
+  for (let i = 1; i < 12; i++) { // graticule: every 4th ring a little stronger
+    const strong = i % 4 === 0;
+    g.strokeStyle = brass(strong ? 0.2 : 0.085);
+    g.lineWidth = strong ? 3 : 2;
+    ring((i * N) / 22);
   }
-  g.strokeStyle = 'rgba(95,212,255,0.16)'; // compass-rose rhumb lines
-  for (let i = 0; i < 32; i++) {
-    const a = (i / 32) * Math.PI * 2;
-    g.beginPath(); g.moveTo(N / 2, N / 2); g.lineTo(N / 2 + Math.cos(a) * N, N / 2 + Math.sin(a) * N); g.stroke();
+  for (let i = 0; i < 16; i++) { // rhumb lines; every other one is a principal line
+    const a = (i / 16) * Math.PI * 2;
+    g.strokeStyle = brass(i % 2 ? 0.06 : 0.14);
+    g.lineWidth = 2;
+    g.beginPath(); g.moveTo(c, c); g.lineTo(c + Math.cos(a) * N, c + Math.sin(a) * N); g.stroke();
   }
-  g.strokeStyle = 'rgba(208,112,154,0.18)'; // wobbly contours
-  for (let c = 0; c < 6; c++) {
-    const cx = rnd() * N, cy = rnd() * N;
-    for (let r = 20; r < 140; r += 18) {
+  // compass rose at the centre: 8 points (4 long, 4 short), faint alternating wedge fill, thin outline
+  const R = N * 0.09;
+  const pt = (k: number): [number, number] => {
+    const a = (k / 16) * Math.PI * 2 - Math.PI / 2;
+    const r = k % 2 ? R * 0.22 : k % 4 === 0 ? R : R * 0.5;
+    return [c + Math.cos(a) * r, c + Math.sin(a) * r];
+  };
+  for (let t = 0; t < 8; t++) {
+    const [ax, ay] = pt((2 * t + 15) % 16), [bx, by] = pt(2 * t), [dx, dy] = pt((2 * t + 1) % 16);
+    g.fillStyle = brass(t % 2 ? 0.04 : 0.1);
+    g.beginPath(); g.moveTo(c, c); g.lineTo(ax, ay); g.lineTo(bx, by); g.lineTo(dx, dy); g.closePath(); g.fill();
+  }
+  g.strokeStyle = brass(0.35); g.lineWidth = 2;
+  g.beginPath(); for (let k = 0; k < 16; k++) g.lineTo(...pt(k)); g.closePath(); g.stroke();
+  g.strokeStyle = brass(0.2); g.lineWidth = 2; ring(R * 1.15);
+  g.strokeStyle = brass(0.18); g.lineWidth = 2; // ruler ticks on the 4th and 8th rings: every 5°, longer every 15°
+  for (const n of [4, 8]) {
+    const r0 = (n * N) / 22;
+    for (let k = 0; k < 72; k++) {
+      const a = (k / 72) * Math.PI * 2, len = k % 3 === 0 ? 22 : 10;
       g.beginPath();
-      for (let a = 0; a <= 64; a++) {
-        const th = (a / 64) * Math.PI * 2, rr = r * (1 + 0.18 * Math.sin(th * 3 + c));
-        g.lineTo(cx + Math.cos(th) * rr, cy + Math.sin(th) * rr);
-      }
+      g.moveTo(c + Math.cos(a) * r0, c + Math.sin(a) * r0);
+      g.lineTo(c + Math.cos(a) * (r0 + len), c + Math.sin(a) * (r0 + len));
       g.stroke();
     }
   }
-  for (let k = 0; k < 7; k++) { // constellations
+  for (let k = 0; k < 5; k++) { // five small constellations
     const pts: [number, number][] = [];
     let x = rnd() * N, y = rnd() * N;
-    for (let j = 0; j < 5; j++) pts.push([(x += (rnd() - 0.5) * 120), (y += (rnd() - 0.5) * 120)]);
-    g.strokeStyle = 'rgba(255,240,208,0.25)';
-    g.beginPath(); pts.forEach(([a, b]) => g.lineTo(a, b)); g.stroke();
-    g.fillStyle = 'rgba(255,240,208,0.7)';
-    pts.forEach(([a, b]) => { g.beginPath(); g.arc(a, b, 2.5 + rnd() * 2, 0, Math.PI * 2); g.fill(); });
+    for (let j = 0; j < 5; j++) pts.push([(x += (rnd() - 0.5) * 140), (y += (rnd() - 0.5) * 140)]);
+    g.strokeStyle = 'rgba(255,240,208,0.18)'; g.lineWidth = 2;
+    g.beginPath(); pts.forEach(([a, b], j) => (j ? g.lineTo(a, b) : g.moveTo(a, b))); g.stroke();
+    g.fillStyle = 'rgba(255,240,208,0.5)';
+    pts.forEach(([a, b]) => { g.beginPath(); g.arc(a, b, 3 + rnd() * 2, 0, Math.PI * 2); g.fill(); });
   }
-  if (round) {
-    g.strokeStyle = 'rgba(232,200,114,0.5)'; g.lineWidth = 6;
-    g.beginPath(); g.arc(N / 2, N / 2, N / 2 - 8, 0, Math.PI * 2); g.stroke();
+  if (round) { // double brass rim: a faint wide glow under a bright thin line
+    g.strokeStyle = brass(0.12); g.lineWidth = 12; ring(N / 2 - 8);
+    g.strokeStyle = brass(0.85); g.lineWidth = 4; ring(N / 2 - 8);
   }
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 8;
   return tex;
 }
 
@@ -120,6 +152,8 @@ export class Board {
   private sc = new THREE.Vector3();
   private c = new THREE.Color();
   private side = new THREE.Color();
+  private sideTop = new THREE.Color();
+  private hub = new THREE.Color();
   private border = new THREE.Color();
   private glow = new THREE.Color();
   private trim = new THREE.Color();
@@ -179,12 +213,11 @@ export class Board {
     for (const name of ['position', 'normal', 'color', 'glow'])
       this.geom.setAttribute(name, new THREE.BufferAttribute(new Float32Array(verts * 3), 3).setUsage(THREE.DynamicDrawUsage));
     // one merged draw call, so roughness/metalness are shared: the mean of the tile tokens
-    const toks = TILE_TYPES.map((t) => TILE_IDENTITIES[t]);
     // explicit envMap: three ignores envMapIntensity when envMap is null and scene.environment is used
     const mat = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: toks.reduce((a, t) => a + t.roughness, 0) / toks.length,
-      metalness: toks.reduce((a, t) => a + t.metalness, 0) / toks.length,
+      roughness: MATERIAL.bodyRoughness,
+      metalness: MATERIAL.bodyMetalness,
       envMap: env, envMapIntensity: MATERIAL.bodyEnv,
     });
     mat.onBeforeCompile = (sh) => {
@@ -397,8 +430,9 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
   /** Bevelled table (square) or hyperbolic disk with a luminous rim, both in the ink-map language. */
   private buildTable() {
     const tex = tableTexture(!!this.hyper);
-    const top = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, metalness: 0 });
-    const edge = new THREE.MeshStandardMaterial({ color: BOARD.tableEdge, roughness: 0.5, metalness: 0.35 });
+    // lacquer: soft sheen from the key light, not a chalk surface
+    const top = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.15 });
+    const edge = new THREE.MeshStandardMaterial({ color: BOARD.tableEdge, roughness: 0.55, metalness: 0.15 });
     const DEPTH = 0.35;
     if (this.hyper) {
       const slab = new THREE.Mesh(new THREE.CylinderGeometry(DISK_R + 0.25, DISK_R + 0.55, DEPTH, 128, 1, true), edge);
@@ -407,10 +441,14 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       const face = new THREE.Mesh(new THREE.CircleGeometry(DISK_R + 0.25, 128).rotateX(-Math.PI / 2), top);
       face.position.y = -0.01;
       face.receiveShadow = true;
-      // colour scaled past the bloom threshold: the rim is meant to glow
-      const rimCol = col(BOARD.rim).multiplyScalar(BLOOM.threshold + 1.2);
+      // brass rim: a bright thin line that just clears the bloom threshold, plus a faint wide glow under it
+      const rimCol = col(BOARD.gold).multiplyScalar(BLOOM.threshold + 0.4);
       const rim = new THREE.Mesh(new THREE.TorusGeometry(DISK_R + 0.25, 0.07, 8, 160).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: rimCol }));
-      this.group.add(slab, face, rim);
+      const halo = new THREE.Mesh(
+        new THREE.TorusGeometry(DISK_R + 0.25, 0.22, 8, 160).rotateX(Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: col(BOARD.gold).multiplyScalar(0.18), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
+      );
+      this.group.add(slab, face, halo, rim);
     } else {
       const S = 12;
       const slab = new THREE.Mesh(new THREE.BoxGeometry(S + 0.6, DEPTH, S + 0.6), [edge, edge, top, edge, edge, edge]);
@@ -480,7 +518,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
     const pos = this.geom.attributes.position.array as Float32Array;
     const colA = this.geom.attributes.color.array as Float32Array;
     const glowA = this.geom.attributes.glow.array as Float32Array;
-    const g = GRAPHS[this.geometry], K = this.K, { c, side, border, glow, trim } = this;
+    const g = GRAPHS[this.geometry], K = this.K, { c, side, sideTop, hub, border, glow, trim } = this;
     for (const t of TILE_TYPES) this.motifs[t].count = 0;
     this.rings.count = 0;
     this.pr = prod(s);
@@ -505,6 +543,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         h = tileHeight(L);
         c.copy(i === hover ? tk.hover : tk.face);
         side.copy(tk.side);
+        sideTop.copy(tk.sideTop);
         border.copy(pinned ? tk.bevelPin : tk.bevel);
         glow.copy(tk.faceGlow);
         trim.copy(tk.emissive).multiplyScalar(i === hover ? MATERIAL.hoverTrim : trimGlow(L));
@@ -513,6 +552,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
           const sat = 1 - PREVIEW.inspectSatMul * hl.dim;
           c.lerp(C.dim, d).multiplyScalar(sat);
           side.lerp(C.dim, d * 0.88).multiplyScalar(sat);
+          sideTop.lerp(C.dim, d * 0.88).multiplyScalar(sat);
           border.lerp(C.dim, d * 0.72).multiplyScalar(sat);
           trim.lerp(C.dim, d * 0.78).multiplyScalar(sat);
           glow.multiplyScalar(1 - 0.92 * hl.dim);
@@ -522,6 +562,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         const edge = active ? C.slotBorder : C.nextBorder, face = active ? C.slot : C.next;
         c.copy(face);
         side.copy(C.slotSide);
+        sideTop.copy(C.slotSideTop);
         glow.copy(active ? C.slotGlow : C.black);
         if (i === hover || near) {
           border.copy(edge); trim.copy(glow); // focus or neighbour: the current bright rim at the placed-tile inset
@@ -541,6 +582,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
           const sat = 1 - PREVIEW.inspectSatMul * hl.dim;
           c.lerp(C.dim, d).multiplyScalar(sat);
           side.lerp(C.dim, d * 0.85).multiplyScalar(sat);
+          sideTop.lerp(C.dim, d * 0.85).multiplyScalar(sat);
           border.lerp(C.dim, d * 0.65).multiplyScalar(sat);
           trim.lerp(C.dim, d * 0.7).multiplyScalar(sat);
           glow.multiplyScalar(1 - 0.82 * hl.dim);
@@ -561,7 +603,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
       writeFrame(embed, i, { p: [cx, h, cz], s: o.scale, n: [0, 1, 0] });
       if (t && o.scale > 0.02) {
         const im = this.motifs[t], st = this.strain(i, t);
-        const sc = MOTIF.fill * GAP * Math.sqrt(o.scale) * (this.hyper ? 1.3 : 1) * motifScale(L) * (1 - MOTIF.strainShrink * st.k);
+        const sc = MOTIF.fill * GAP * Math.sqrt(o.scale) * (this.hyper ? 1.9 : 1) * motifScale(L) * (1 - MOTIF.strainShrink * st.k);
         this.m4.compose(this.tops[i], this.q, this.sc.setScalar(sc));
         this.motifSlot[i] = im.count;
         im.setColorAt(im.count, st.tint);
@@ -578,6 +620,7 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         }
       } else this.motifSlot[i] = -1;
       const hidden = o.scale <= 0, hb = h * 0.82;
+      hub.copy(c).lerp(C.white, t ? MATERIAL.hubLift : 0); // domed enamel on placed tiles only; empty slots stay flat and quiet
       let v = i * K * PER_K;
       const put = (x: number, y: number, z: number, cc: THREE.Color, gl: THREE.Color) => {
         const j = v * 3;
@@ -590,11 +633,11 @@ vGlow += 0.5 * clamp(1.0 - abs(rvT - 0.1) / 0.1, 0.0, 1.0) * step(0.0, rvT) * ve
         // hidden tiles collapse to the centre, giving zero-area triangles
         const [px, pz] = hidden ? o.c : o.pts[k], [qx, qz] = hidden ? o.c : o.pts[(k + 1) % K];
         const ax = cx + (px - cx) * ins, az = cz + (pz - cz) * ins, bx = cx + (qx - cx) * ins, bz = cz + (qz - cz) * ins;
-        put(cx, h, cz, c, glow); put(bx, h, bz, c, glow); put(ax, h, az, c, glow); // inner face (CCW from above)
+        put(cx, h, cz, hub, glow); put(bx, h, bz, c, glow); put(ax, h, az, c, glow); // inner face (CCW from above)
         put(ax, h, az, border, trim); put(bx, h, bz, border, trim); put(qx, hb, qz, border, trim); // bevel / slot border
         put(ax, h, az, border, trim); put(qx, hb, qz, border, trim); put(px, hb, pz, border, trim);
-        put(px, hb, pz, side, C.black); put(qx, hb, qz, side, C.black); put(qx, 0, qz, side, C.black); // side
-        put(px, hb, pz, side, C.black); put(qx, 0, qz, side, C.black); put(px, 0, pz, side, C.black);
+        put(px, hb, pz, sideTop, C.black); put(qx, hb, qz, sideTop, C.black); put(qx, 0, qz, side, C.black); // side wall: top edge
+        put(px, hb, pz, sideTop, C.black); put(qx, 0, qz, side, C.black); put(px, 0, pz, side, C.black);
       }
     }
     this.geom.computeVertexNormals(); // non-indexed: face normals, written in place

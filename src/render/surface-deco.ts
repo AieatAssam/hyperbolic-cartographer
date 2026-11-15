@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { SurfaceGraph } from '../core/geometry/quotient';
-import { SURFACE } from '../art/palette';
+import type { Surface } from '../core/state';
+import { STAGE, SURFACE } from '../art/palette';
 import { chartCell, chartCellCenter } from './surface-params';
 const col = (h: number) => new THREE.Color(h);
 
@@ -37,11 +38,12 @@ function lineAlong(group: THREE.Group, a: THREE.Vector3, b: THREE.Vector3, color
   group.add(line);
 }
 
-/** Identification arrows + thick dashed seam borders on the fundamental square. */
-export function buildChartSeams(
-  g: SurfaceGraph,
-  flipVertical: boolean,
-): THREE.Group {
+/**
+ * Identification arrows and dashed seam borders on the fundamental chart. Matching colour and arrow direction mean
+ * "glued". The x seam is flipped on the Möbius strip and Klein bottle (gold, arrows opposed); the Möbius strip's
+ * long edges are its boundary (solid brass, no arrows).
+ */
+export function buildChartSeams(g: SurfaceGraph, surf: Surface): THREE.Group {
   const cell = chartCell(g.width, g.height);
   const w = g.width, h = g.height;
   const box = new THREE.Group();
@@ -50,42 +52,33 @@ export function buildChartSeams(
   const right = chartCellCenter(w - 1, 0, w, h, cell)[0] + cell * 0.5;
   const top = chartCellCenter(0, 0, w, h, cell)[2] - cell * 0.5;
   const bottom = chartCellCenter(0, h - 1, w, h, cell)[2] + cell * 0.5;
-  lineAlong(box, new THREE.Vector3(left, y, top), new THREE.Vector3(left, y, bottom), SURFACE.seamA, y);
-  lineAlong(box, new THREE.Vector3(right, y, top), new THREE.Vector3(right, y, bottom), SURFACE.seamA, y);
+  const flipX = surf !== 'torus';
+  const xCol = flipX ? SURFACE.seamFlip : SURFACE.seamA;
+  lineAlong(box, new THREE.Vector3(left, y, top), new THREE.Vector3(left, y, bottom), xCol, y);
+  lineAlong(box, new THREE.Vector3(right, y, top), new THREE.Vector3(right, y, bottom), xCol, y);
+  const midZ = (top + bottom) / 2, a = Math.min(cell * 0.5, (bottom - top) * 0.3);
+  arrowAt(box, new THREE.Vector3(left - cell * 0.3, y, midZ - a), new THREE.Vector3(left - cell * 0.3, y, midZ + a), xCol);
+  const r = flipX ? -1 : 1;
+  arrowAt(box, new THREE.Vector3(right + cell * 0.3, y, midZ - r * a), new THREE.Vector3(right + cell * 0.3, y, midZ + r * a), xCol);
+  if (surf === 'mobius') {
+    const edge = new THREE.LineBasicMaterial({ color: col(STAGE.brass), transparent: true, opacity: 0.9 });
+    for (const z of [top, bottom]) {
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.Float32BufferAttribute([left, y, z, right, y, z], 3));
+      box.add(new THREE.Line(geom, edge));
+    }
+    return box;
+  }
   lineAlong(box, new THREE.Vector3(left, y, top), new THREE.Vector3(right, y, top), SURFACE.seamB, y);
   lineAlong(box, new THREE.Vector3(left, y, bottom), new THREE.Vector3(right, y, bottom), SURFACE.seamB, y);
-  const midZ = (top + bottom) / 2;
-  arrowAt(box, new THREE.Vector3(left + cell * 0.35, y, midZ - cell * 0.5), new THREE.Vector3(left + cell * 0.35, y, midZ + cell * 0.5), SURFACE.seamA);
-  arrowAt(box, new THREE.Vector3(right - cell * 0.35, y, midZ - cell * 0.5), new THREE.Vector3(right - cell * 0.35, y, midZ + cell * 0.5), SURFACE.seamA);
   const midX = (left + right) / 2;
-  arrowAt(box, new THREE.Vector3(midX - cell * 0.45, y, top + cell * 0.3), new THREE.Vector3(midX + cell * 0.45, y, top + cell * 0.3), SURFACE.seamB);
-  const rev = flipVertical;
-  const flipCol = flipVertical ? SURFACE.seamFlip : SURFACE.seamB;
-  arrowAt(
-    box,
-    new THREE.Vector3(midX + (rev ? -1 : 1) * cell * 0.45, y, bottom - cell * 0.3),
-    new THREE.Vector3(midX + (rev ? 1 : -1) * cell * 0.45, y, bottom - cell * 0.3),
-    flipCol,
-  );
+  arrowAt(box, new THREE.Vector3(midX - cell * 0.45, y, top - cell * 0.3), new THREE.Vector3(midX + cell * 0.45, y, top - cell * 0.3), SURFACE.seamB);
+  arrowAt(box, new THREE.Vector3(midX - cell * 0.45, y, bottom + cell * 0.3), new THREE.Vector3(midX + cell * 0.45, y, bottom + cell * 0.3), SURFACE.seamB);
   return box;
 }
 
-type GhostSpec = { i: number; ox: number; oy: number; flipY?: boolean };
-
-function chartGhostSpecs(g: SurfaceGraph, klein: boolean): GhostSpec[] {
-  const w = g.width, h = g.height;
-  const specs: GhostSpec[] = [];
-  for (let i = 0; i < g.ring.length; i++) {
-    const [x, y] = g.xy[i];
-    if (x === 0) specs.push({ i, ox: -1, oy: 0 });
-    if (x === w - 1) specs.push({ i, ox: 1, oy: 0, flipY: klein });
-    if (y === 0) specs.push({ i, ox: 0, oy: -1 });
-    if (y === h - 1) specs.push({ i, ox: 0, oy: 1 });
-  }
-  return specs;
-}
-
-export function buildEdgeGhosts(g: SurfaceGraph, klein: boolean): THREE.Group {
+/** Faint copies of the edge cells drawn just past each glued edge, where the gluing puts them. */
+export function buildEdgeGhosts(g: SurfaceGraph, surf: Surface): THREE.Group {
   const cell = chartCell(g.width, g.height);
   const w = g.width, h = g.height;
   const grp = new THREE.Group();
@@ -96,14 +89,23 @@ export function buildEdgeGhosts(g: SurfaceGraph, klein: boolean): THREE.Group {
     depthWrite: false,
     side: THREE.DoubleSide,
   });
-  for (const spec of chartGhostSpecs(g, klein)) {
-    const [x, y] = g.xy[spec.i];
-    const gy = klein && spec.flipY ? h - 1 - y : y;
-    const c = chartCellCenter(x + spec.ox, gy + spec.oy, w, h, cell);
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(cell * (1 - 0.12), cell * (1 - 0.12)), mat);
+  const geo = new THREE.PlaneGeometry(cell * (1 - 0.12), cell * (1 - 0.12));
+  const put = (x: number, yy: number) => {
+    const c = chartCellCenter(x, yy, w, h, cell);
+    const m = new THREE.Mesh(geo, mat);
     m.rotation.x = -Math.PI / 2;
     m.position.set(c[0], 0.018, c[2]);
     grp.add(m);
+  };
+  const flip = surf !== 'torus';
+  for (let i = 0; i < g.ring.length; i++) {
+    const [x, y] = g.xy[i];
+    const fy = flip ? h - 1 - y : y;
+    if (x === w - 1) put(-1, fy);
+    if (x === 0) put(w, fy);
+    if (surf === 'mobius') continue;
+    if (y === 0) put(x, h);
+    if (y === h - 1) put(x, -1);
   }
   return grp;
 }

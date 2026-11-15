@@ -119,7 +119,7 @@ export function pickImmediateGoal(s: GameState, { fmt }: GoalFmt): GoalPick {
   if (s.drifts === 0 && canDrift(s)) {
     return {
       tier: 'prestigeReady',
-      text: `Drift is ready for ${fmt(chartsOnDrift(s), s.notation)} Charts: open the Drift tab`,
+      text: `Drift is ready for ${fmt(chartsOnDrift(s), s.notation)} ${chartsOnDrift(s).eq(1) ? 'Chart' : 'Charts'}: open the Drift tab`,
       short: 'Drift',
       icon: 'drift',
       progress: 1,

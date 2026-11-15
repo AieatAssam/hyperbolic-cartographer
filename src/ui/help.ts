@@ -11,7 +11,7 @@ import { fmt } from './format';
  */
 
 export type Tool = TileType | 'sell' | 'pin';
-export type Tab = 'map' | 'constellations' | 'drift' | 'charts' | 'proj' | 'miles' | 'save' | 'guide';
+export type Tab = 'map' | 'constellations' | 'drift' | 'charts' | 'proj' | 'miles' | 'atlas' | 'save' | 'guide';
 type Dec = GameState['ink'];
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -45,18 +45,19 @@ export const TOOL_EFFECT: Record<Tool, string> = {
 };
 
 export const TAB_HELP: Record<Tab, string> = {
-  map: 'Your board. Pick a tool from the palette (keys 1-5, S, P), then tap or click a cell. Survey adds rings of cells to build on.',
+  map: 'Your board. Pick a tool from the palette (keys 1-8, S, P), then tap or click a cell. Survey adds rings of cells to build on.',
   constellations: 'Named tile patterns on the board. Complete one to earn Ink and see gold lines. Each unique shape counts once per run.',
   drift: 'Drift ends the current run and turns its Ink into Charts. Charts buy permanent upgrades. Only pinned tiles survive.',
   charts: 'Charts buy permanent upgrades. Each upgrade has levels, and the button shows the cost of the next one.',
-  proj: 'Projection is the next step after Drift. It spends this cycle\'s Charts on Curvature, moves you to the hyperbolic board, and resets the run.',
+  proj: 'Projection is the next step after Drift. It spends this cycle\'s Charts on Curvature, moves the map to the hyperbolic disk (or a surface you have folded, if you pick one), and resets the run.',
   miles: 'Milestones unlock as you Drift and Project. Each one changes how the game plays, so check here when a new feature appears.',
+  atlas: 'Achievements and lifetime numbers. Each achievement adds +1% Ink.',
   save: 'Sound and music volume, the number format, and your save: export, import or wipe it. Save strings include a checksum, so edits are rejected.',
   guide: 'A short guide to tiles, Survey, Drift and Projection. Open it any time from the Guide button.',
 };
 
 export const BUTTON_HELP: Record<
-  'menu' | 'guide' | 'survey' | 'recenter' | 'drift' | 'project' | 'buyChart' | 'buyCurv' | 'autoDrift' |
+  'menu' | 'guide' | 'survey' | 'recenter' | 'drift' | 'project' | 'buyChart' | 'buyCurv' | 'autoDrift' | 'blueprintSave' | 'blueprintClear' | 'blueprintAuto' |
   'copy' | 'download' | 'import' | 'notation' | 'reset' | 'place' | 'cancel' |
   'tutNext' | 'tutBack' | 'tutHide' | 'tutRestart' | 'check' | 'overwrite' | 'confirmReset' | 'close' | 'sound',
   string
@@ -70,6 +71,9 @@ export const BUTTON_HELP: Record<
   buyChart: 'Spend Charts to raise this upgrade by one level.',
   buyCurv: 'Spend Curvature to raise this upgrade by one level.',
   autoDrift: 'Drift automatically once run Charts reach the number you set.',
+  blueprintSave: 'Save the current layout as this board\'s blueprint. Replaces any blueprint already saved here.',
+  blueprintClear: 'Forget this board\'s blueprint. Tiles already placed stay where they are.',
+  blueprintAuto: 'Rebuild the blueprint automatically as Ink allows, after each Drift.',
   copy: 'Copy the save string to the clipboard. Paste it into Import later to restore progress.',
   download: 'Download your save as a .json file to keep as a backup.',
   import: 'Load a save string or .json file. You see a preview before anything is overwritten.',

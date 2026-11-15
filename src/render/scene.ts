@@ -70,7 +70,7 @@ uniform float uTime;
 uniform vec2 uRes;
 uniform vec3 uTop, uHorizon, uBottom, uNebulaA, uNebulaB, uStar;
 uniform float uVignette, uGrain;
-uniform float uFocus; // 0 = default look, 1 = manifold on stage (calmer grid and nebula, darker corners)
+uniform float uFocus; // 0 = default look, 1 = manifold on stage (calmer grid, slightly brighter nebula)
 varying vec3 vDir;
 
 float hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -81,6 +81,34 @@ float noise(vec3 x) {
 }
 float fbm(vec3 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 4; i++) { s += a * noise(p); p *= 2.03; a *= 0.5; } return s; }
 
+// Hairline at fract(x) = 0.5, about 1.5 px wide at any resolution (fwidth = change per pixel).
+// Fades out where x jumps (the atan seam), where fwidth is huge, so no seam line appears.
+float hairline(float x) {
+  float w = fwidth(x);
+  float dist = abs(fract(x) - 0.5);
+  float hw = max(w * 0.75, 1e-5);
+  return (1.0 - smoothstep(hw * 0.3, hw, dist)) * (1.0 - smoothstep(0.1, 0.2, w));
+}
+
+// Crisp stars: one hashed star per cell of a 40-cell direction grid, about 14% of cells lit.
+// Sizes and halos are in screen pixels (fwidth). Twinkle uses t, so drift 0 freezes it.
+float stars(vec3 d, float t) {
+  vec3 p = d * 40.0;
+  vec3 cell = floor(p);
+  vec4 r = vec4(hash(cell), hash(cell + 17.3), hash(cell + 41.7), hash(cell + 73.1));
+  float present = step(0.86, r.x);
+  vec3 sp = cell + 0.2 + 0.6 * vec3(hash(cell + 3.1), hash(cell + 7.7), hash(cell + 11.9));
+  float px = length(fwidth(p));
+  float dist = length(p - sp);
+  float big = step(0.9, r.y);
+  float size = mix(0.8, 1.8, big); // radius in pixels
+  float core = 1.0 - smoothstep(px * size * 0.5, px * size, dist);
+  float halo = big * exp(-dist / (px * 5.0)) * 0.3;
+  float tw = 0.85 + 0.15 * sin(t * (0.5 + 1.5 * r.z) + r.w * 6.2831);
+  float b = 0.5 + 0.5 * r.w * r.w;
+  return present * (core + halo) * b * tw;
+}
+
 void main() {
   vec3 d = normalize(vDir);
   float h = d.y;
@@ -89,33 +117,33 @@ void main() {
 
   float t = uTime;
   float n1 = fbm(d * 2.2 + vec3(t * 0.012, 0.0, t * 0.008));
-  float n2 = fbm(d * 4.1 + vec3(0.0, -t * 0.010, 0.0) + n1 * 1.5);
-  float nebulaK = 1.0 - 0.3 * uFocus;
-  col += uNebulaA * smoothstep(0.42, 0.82, n1) * 0.55 * nebulaK;
-  col += uNebulaB * smoothstep(0.48, 0.88, n2) * 0.42 * nebulaK;
+  float n2 = fbm(d * 3.2 + vec3(0.0, -t * 0.010, 0.0) + n1 * 1.5);
+  float nebulaK = 1.0 + 0.25 * uFocus; // the sky is dark already: lift the clouds a little behind a manifold
+  col += uNebulaA * smoothstep(0.42, 0.82, n1) * 0.3 * nebulaK;
+  col += uNebulaB * smoothstep(0.48, 0.88, n2) * 0.24 * nebulaK;
 
-  // Sparse ink-speck stars, kept under the bloom threshold.
-  float s = noise(d * 160.0);
-  col += uStar * pow(s, 24.0) * 0.6 * smoothstep(-0.1, 0.3, h);
+  // Crisp stars, kept under the bloom threshold.
+  col += uStar * stars(d, t) * smoothstep(-0.1, 0.3, h);
 
-  // Cartographic overlay on the dark nebula (thin gold + teal, no grey wash).
+  // Cartographic overlay: hairline graticule in teal and gold, quiet on the dark sky.
   vec2 dir = normalize(d.xz + 1e-5);
   float lon = atan(dir.y, dir.x);
   float lat = asin(clamp(d.y, -1.0, 1.0));
-  float rhumb = smoothstep(0.04, 0.0, abs(fract(lon * 4.0 + t * 0.01) - 0.5));
-  float parallel = smoothstep(0.038, 0.0, abs(fract((lat + 1.0) * 5.8 - t * 0.007) - 0.5));
-  float contour = smoothstep(0.036, 0.0, abs(fract(fbm(d * 3.2 + t * 0.004) * 3.0) - 0.5));
+  float rhumb = hairline(lon * 4.0 + t * 0.01);
+  float parallel = hairline((lat + 1.0) * 5.8 - t * 0.007);
+  float contour = hairline(fbm(d * 3.2 + t * 0.004) * 3.0);
   vec3 teal = vec3(0.22, 0.72, 0.82);
   vec3 gold = vec3(0.91, 0.78, 0.45);
   float gratK = 1.0 - 0.88 * uFocus;
-  col += teal * parallel * 0.2 * gratK;
-  col += gold * (rhumb * 0.22 + contour * 0.15) * gratK;
+  col += teal * parallel * 0.08 * gratK;
+  col += gold * (rhumb * 0.08 + contour * 0.05) * gratK;
 
-  // Parchment grain + vignette; keep the fog floor plum-dark (no milky haze).
+  // Parchment grain + vignette; keep the floor dark (no milky haze).
   vec2 uv = gl_FragCoord.xy / uRes;
   col += (hash(vec3(gl_FragCoord.xy, 0.0)) - 0.5) * uGrain;
-  // Focus adds 0.23 to the vignette strength: corners land about 25% darker than at focus 0, centre unchanged.
-  col *= mix(1.0 - (uVignette + uFocus * 0.23), 1.0, smoothstep(0.92, 0.18, length(uv - 0.5)));
+  // Corners ~45% darker at focus 0 (uVignette 0.55); focus adds 0.1 more. Centre untouched.
+  col *= mix(1.0 - uVignette, 1.0, smoothstep(0.92, 0.18, length(uv - 0.5)));
+  col *= 1.0 + 0.4 * uFocus; // behind a manifold the sky is most of the frame: keep it from reading as black
   col = max(col, uBottom * 0.32);
 
   gl_FragColor = vec4(col, 1.0);
@@ -223,7 +251,9 @@ export function createScene(canvas: HTMLCanvasElement, opts: { preserveDrawingBu
   controls.maxDistance = 40;
 
   // Post: Render -> UnrealBloom -> Output (tone mapping + sRGB happen once, in OutputPass).
-  const composer = new EffectComposer(renderer);
+  // The composer draws into its own targets, so the canvas `antialias` flag does nothing here: MSAA must be on the target.
+  // ponytail: 4 samples at every quality level; drop to 0 at level 0 if a slow phone shows it in the frame time.
+  const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), BLOOM.strength, BLOOM.radius, BLOOM.threshold);
   composer.addPass(bloom);
@@ -263,7 +293,7 @@ export function createScene(canvas: HTMLCanvasElement, opts: { preserveDrawingBu
   let focusTarget = 0;
   let focus = 0;
   const FOCUS_TAU_S = 0.2;
-  /** 0 = default backdrop, 1 = manifold on stage (grid x0.12, nebula x0.7, corners ~25% darker). Clamped to 0..1. */
+  /** 0 = default backdrop, 1 = manifold on stage (grid x0.12, nebula x1.25). Clamped to 0..1. */
   const setStageFocus = (target: number) => { focusTarget = Math.min(1, Math.max(0, target)); };
   /** Call once per rAF with frame delta in seconds. Replaces renderer.render(scene, camera). */
   const renderFrame = (dt: number) => {

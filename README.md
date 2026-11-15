@@ -26,7 +26,7 @@ Tiles (from `TILE_INFO` in `src/core/tiles.ts`):
 - **Mill**: produces Ink, +100% per adjacent Spring.
 - **Beacon**: adjacent tiles x1.5 (stacks multiplicatively).
 - **Lighthouse**: producers exactly two steps away x1.25 (stacks). Bridges do not extend its reach.
-- **Trade Wind**: a wind occasionally blows in during live play. Catch it from the HUD chip for a burst of Ink and a short x3 Ink/s surge. Surges do not carry into offline progress.
+- **Trade Winds**: a wind occasionally blows in during live play, in one of three kinds. Catch it from the HUD chip. **Trade Wind** (most common) pays a burst of Ink and a 20 s x3 Ink/s surge. **Gale** (less common) pays a smaller burst and a 12 s x7 surge. **Monsoon** (rare) pays a large burst of Ink and no surge. Surges do not carry into offline progress.
 - **Bridge**: its neighbours count as adjacent to each other. Long Bridges extends the reach.
 - **Vault**: improves offline progress and adds a small global Ink bonus.
 
@@ -34,6 +34,7 @@ Other controls:
 
 - **Sell**: removes a tile for a 50% refund.
 - **Pin**: pins a tile so it survives Drift. Pin slots are limited; Brass Pins adds more.
+- **Blueprint** (Drift tab, unlocked by 1 Drift): save the current layout, and after each Drift it rebuilds the tiles, cheapest first, as Ink allows. Each board shape keeps its own.
 - Disabled buttons show a line saying what is missing.
 - Some upgrades automate play: Survey Crew (auto-Survey) and Well Diggers (auto-place Springs).
 
@@ -56,7 +57,7 @@ Hover is never required: everything it shows is also available by tapping.
 
 **Keyboard**
 
-- **1-5**: select a tile tool.
+- **1-8**: select a tile tool.
 - **S**: Sell tool. **P**: Pin tool. Then click or tap a cell.
 - **Esc**: closes an open dialog, or cancels the current preview. On small screens it also closes the side panel.
 - **`** (backtick): toggles the dev panel, where enabled (see below).
@@ -68,6 +69,7 @@ Keys are ignored while focus is in a text field, with Ctrl/Cmd/Alt held, or whil
 - The first run shows a 5-step tutorial above the tools: Ink buys tiles, place your first Spring, save for a Mill, the adjacency boost, and reading the preview. Each step moves on once its goal is met.
 - **Hide** dismisses the card. The **Guide** button reopens it.
 - The Menu's Guide tab has tutorial controls and a reference for every tool and button.
+- The Menu's **Atlas** tab lists 24 permanent achievements (`src/core/achievements.ts`) and lifetime stats. Each earned achievement adds +1% Ink (`achievements.inkPerEach` **0.01**).
 - Tutorial progress is stored in `localStorage` under `hc-tutorial`, separate from your save.
 - The top bar shows **Now** (your next step, with progress and an ETA), a live line about what the board is producing, and the next unlock.
 - Panels scroll. Close them with **Close** or **Menu**.
@@ -118,7 +120,7 @@ npm run layout      # layout QA; after npm run build and npx playwright install 
 Two ways to see a whole run quickly, both on the same simulation rules as live play:
 
 - **Live, in the browser (dev only):** `npm run dev`, then open the app with `?dev&speed=N` (N from 1 to 1000; `speed` is clamped and ignored in production builds). Economy and Trade Winds run N times faster. From the console, `window.game` exposes `setSpeed(x)`, `pause()`, `resume()`, `step(seconds)` (advance simulated time at once), `snapshot()`, `cells()`, `place(i, t)`, `sell(i)`, `survey()`, `catchWind()`, `drift()` and `project()`. Add `qa` (`?dev&qa`) to keep the run out of localStorage.
-- **Headless:** `npm run playtest` runs the greedy bot for 120 minutes of game time (`MIN=60 npm run playtest` for less), prints a timeline with milestones, wall time and peak heap, and exits 1 on the same limits as `npm run pacing`.
+- **Headless:** `npm run playtest` runs the greedy bot for 120 minutes of game time (`MIN=60 npm run playtest` for less), prints a timeline with milestones, wall time and peak heap, and exits 1 on the same limits as `npm run pacing`. `npm run playtest:quick` runs the first 30 minutes for a fast check of the early game.
 
 Trade Winds come up on the simulated clock, so a fast run sees the same wind schedule per game minute. The core pieces are `fastForward` in `src/core/tick.ts` and the timer in `src/core/wind.ts`; `tests/fast-clock.test.ts` covers them.
 
@@ -142,7 +144,7 @@ One-time setup: in the repo's **Settings → Pages**, set **Source** to **GitHub
 ## Design documents
 
 - [Full game design](docs/design/full-game-design.md): the complete design, including future layers; the playable slice does not implement it all.
-- [Geometry and rendering roadmap](docs/art/geometry-roadmap.md): proposed C0–C7 work for surfaces, particles, cameras and accessible picking. Documentation only; no new layer is implemented.
+- [Geometry and rendering roadmap](docs/art/geometry-roadmap.md): proposed C0–C7 work for surfaces, particles, cameras and accessible picking. Mostly a plan; the Möbius strip, torus and Klein bottle stages are playable (see "Balance").
 
 ## Architecture
 
@@ -173,14 +175,17 @@ tests/           Vitest suites, plus the opt-in pacing bot
 
 Changes from the original brief (all in `src/core/config.ts`; formulas unchanged):
 
+- Achievements (new): each earned achievement multiplies global Ink output by 1 + `achievements.inkPerEach` (**0.01**), so 24 give +24%. Achievements are permanent and survive Drift and Projection.
+
 - Mill output 5 → 9 Ink/s (pacing: first Drift was ~25 min); now 9 → 18 Ink/s (`tiles.mill.out`) under the spring strain rule below. A Mill counts only its strongest 8 Spring shares (`tiles.mill.maxSprings`), which caps Bridge hubs. Likewise only the strongest 6 Bridge-relayed Beacons count per producer (`tiles.beacon.maxRelayed`), and Vault global bonus now has diminishing returns: the first Vault gives +2%, each further one 0.97x the one before (`tiles.vault.decay`, limit +67%; was a flat +2% each).
 - Spring strain (new, `tiles.spring.strain` **0.33**): a Spring's output is split among the Mills it feeds. With k Mills, each gets share 1/(1 + 0.33·(k−1)): 100%, 75%, 60%, 50%. A Spring touching a Bridge is channelled and gives every Mill full share (the Bridge exception).
 - Deep Wells (replaces the old Spring Charts discount; same id `cheapSprings`, no migration): each level multiplies strain by `tiles.spring.deepWells` **0.8** (Springs thin 20% less per extra Mill). Springs no longer have a cost discount.
 - Beacon-through-Bridge rule (new): Beacons that are true graph neighbours multiply the output of a tile. A Beacon reached only through a Bridge relay adds `mult - 1` to a multiplier instead (so two relayed Beacons give 1 + 2·bonus, not (1+bonus)²). Scriptorium only sees true neighbours. This stops one Bridge hub from stacking Beacons exponentially.
 - Cistern (new): cost **2,500**, `cistern.mult` **3**. Each adjacent Spring multiplies its own output by 3 per adjacent Cistern.
 - Scriptorium (new): cost **8,000** (was 12,000 in the first draft), `scriptorium.out` **15** Ink/s × the number of distinct other tile kinds adjacent (other Scriptoria do not count, and relayed Beacons are ignored).
+- Polish pass (2026-11): Cistern cost 2,500 → **1,200** and a Cistern-fed Spring now also counts as `cistern.millFlow` **1.5** Springs for each Mill it feeds (formula change: the greedy bot never bought a Cistern before). Scriptorium `out` 15 → **40** Ink/s per kind. Greedy bot after the whole pass: Drift available 3.5 min, first Drift 25.0 min, Projection 46.0 min, second Projection 86.9 min; it now builds all eight tile kinds.
 - Lighthouse: cost 50,000 Ink, x1.25 to producers two steps away (`config.tiles.lighthouse`).
-- Trade Winds: appear every 40–80 s of live play for 14 s; catching pays max(30 s of Ink/s, 25 Ink) and grants a 20 s x3 surge (`config.wind`).
+- Trade Winds: appear every 40–80 s of live play for 14 s, weighted 75 Trade Wind / 20 Gale / 5 Monsoon. Catching pays max(burst of Ink/s, 25 Ink), where the burst is 30 s (Trade Wind), 10 s (Gale) or 240 s (Monsoon). Trade Wind grants a 20 s x3 surge, Gale a 12 s x7 surge, Monsoon none (`config.wind.kinds`).
 - Survey growth 8^ring → 6^ring on the square board (base 50).
 - Charts on Drift = floor((runInk / 2.5e5)^0.5) instead of /1e6 (Drift still unlocks at 1e6 Ink); otherwise Projection took > 2 h.
 - Hyperbolic survey: base 2e5, growth 12^ring; board starts at radius 2, base max radius 3, +1 via the "Deeper Horizon" Curvature upgrade (radius 4 = 232 tiles).
@@ -190,7 +195,15 @@ Changes from the original brief (all in `src/core/config.ts`; formulas unchanged
 - Manifold preview grids (visual only, not economy): torus **16×8**, Klein **8×8**; framing/spin/demo pulse rates in `config.manifold`.
 - Manifold 3D flow (visual only): the tiling slides over the surface so far-side and interior cells come to you. Drag the torus to spin it (x) or roll it through the hole (y); drag the Klein bottle vertically to glide tiles through the neck, horizontally to turn it; right-drag orbits the camera. `dragFlow` **0.0025** turns/px, `idleFlow` **0.012** turns/s (off with reduced motion), tile patch subdivision `patchSubdiv` **6**.
 - Portrait playable framing: `camera.portraitPolar` 0.55 rad and `portraitTopPad` 18 px so a square board fills more of the HUD-to-dock band without clipping (width still limits size; leftover height sits above the info card).
-- Visual only (`src/art/palette.ts`, not balance): key-light shadows on high quality only (`QUALITY_PROFILES.shadows`; 2048 map, ±11 ortho extent, bias -0.0005, normal bias 0.02), and empty slots `EMPTY_SLOT.emissiveIntensity` **0.2** and `restRimMix` **0.28** so the rest border reads as an inviting slot.
+- Visual only (`src/art/palette.ts`, not balance): key-light shadows on high quality only (`QUALITY_PROFILES.shadows`; 2048 map, ±11 ortho extent, bias -0.0005, normal bias 0.02), and empty slots `EMPTY_SLOT.emissiveIntensity` **0.1** and `restRimMix` **0.28** so the rest border reads as an inviting slot.
+- Constellations (`config.constellations`): five new shapes (Water Garden 400, Crown of Light 600, Grand Library 2,500, Long Span 4,000, Safe Harbour 20,000 Ink). Each pays max(its bonus, 20 s of Ink/s) for the first of its kind in a run, then 1/(1+k) of that for repeats (`config.constellationScale.sec` **20**).
+
+- Closed surfaces (`config.surfaces`, one row per stage). Folds spend Curvature in the order Möbius, torus, Klein; `foldCost` is that spend. Final values: Möbius `startRing` 1, `maxRing` 5, `surveyBase` 5e6, `surveyGrowth` 14, `foldCost` **40**, `inkMult` 4, `loopMult` 3. Torus `startRing` 1, `maxRing` 4, `surveyBase` 5e7, `surveyGrowth` 16, `foldCost` **80**, `inkMult` 12, `loopMult` 2.5. Klein `startRing` 1, `maxRing` 4, `surveyBase` 5e8, `surveyGrowth` 18, `foldCost` **130**, `inkMult` 40, `loopMult` 3. Each closed loop on a surface multiplies global Ink by `loopMult` (a loop counts when every cell of its cycle is surveyed and holds a tile). Tuning only moved `foldCost`; the other numbers are the first-draft values.
+- Measured with the greedy bot on the fast clock (`MIN=800 npm run playtest`, 2026-11, game minutes). Target windows were Möbius surface 150–210 min, torus 300–420 min, Klein 540–780 min:
+  - `surfaces: fold mobius 157.4 min, surface mobius 185.4 min, fold torus 334.5 min, surface torus 359.2 min, fold klein 643.3 min, surface klein 674.2 min`
+  - `loops: first loop closed 200.1 min, torus both loops 381.1 min`
+  - Earlier drafts with fold costs 6/16/40 reached Möbius at 110 min, torus at 159 min, Klein at 284 min; with 12/40/120 Klein was not reached by 800 min.
+  - Greedy bot with these numbers, 120-minute check: Drift available 3.5 min, first Drift 25.0 min, Projection 46.0 min, Projection 2 77.0 min (`npm run pacing` and `npm run playtest` still pass).
 
 ## Credits and related works
 

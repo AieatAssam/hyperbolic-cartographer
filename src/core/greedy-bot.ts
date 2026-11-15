@@ -3,9 +3,9 @@
  * Pure core: no DOM. Each candidate placement is scored by its production delta per ink.
  */
 import { chartUpgrades, config, curvUpgrades } from './config';
-import { graphOf, initialState, type GameState } from './state';
-import { buyChartUpg, buyCurvUpg, isActive, maxRing, place, previewDelta, prod, sell, survey, surveyCost, tileCost } from './economy';
-import { canProject, chartsOnDrift, drift, project } from './prestige';
+import { graphOf, initialState, isSurface, type GameState } from './state';
+import { buyChartUpg, buyCurvUpg, deltaScan, isActive, maxRing, place, prod, scanDelta, sell, survey, surveyCost, tileCost, type DeltaScan } from './economy';
+import { canProject, chartsOnDrift, closedLoops, curvatureOnProjection, drift, fold, foldCost, nextFold, project } from './prestige';
 import { fastForward } from './tick';
 import { TILE_TYPES, type TileType } from './tiles';
 
@@ -17,18 +17,18 @@ export interface GreedyBuy {
 
 /** Everything previewDelta depends on besides the candidate itself. */
 function boardSignature(s: GameState): string {
-  return [s.geometry, s.drifts, s.projections, s.tiles.join(), JSON.stringify(s.chartUpg), JSON.stringify(s.curvUpg)].join('|');
+  return [s.geometry, s.drifts, s.projections, s.tiles.join(), JSON.stringify(s.chartUpg), JSON.stringify(s.curvUpg), s.achievements.length].join('|');
 }
 
 // previewDelta is a pure function of the board, so scans between two board changes reuse it.
-let memo: { sig: string; deltas: Map<string, number> } | null = null;
+let memo: { sig: string; deltas: Map<number, number> } | null = null;
 
-function deltaFor(s: GameState, sig: string, i: number, t: TileType): number {
+function deltaFor(scan: DeltaScan, sig: string, i: number, t: TileType): number {
   if (memo?.sig !== sig) memo = { sig, deltas: new Map() };
-  const key = `${i}:${t}`;
+  const key = i * TILE_TYPES.length + TILE_TYPES.indexOf(t);
   let d = memo.deltas.get(key);
   if (d === undefined) {
-    d = previewDelta(s, i, t);
+    d = scanDelta(scan, i, t);
     memo.deltas.set(key, d);
   }
   return d;
@@ -45,18 +45,33 @@ export function bestGreedyBuy(s: GameState): GreedyBuy | null {
   const cells = graphOf(s).ring.map((_, i) => i).filter((i) => isActive(s, i));
   const sig = boardSignature(s);
   const costs = TILE_TYPES.map((t) => tileCost(s, t).toNumber());
+  let scan: DeltaScan | null = null;
   for (const i of cells) {
     for (let ti = 0; ti < TILE_TYPES.length; ti++) {
       const t = TILE_TYPES[ti];
       const cost = costs[ti];
       if (cost > budget || s.tiles[i] === t) continue;
-      const score = deltaFor(s, sig, i, t) / (cost * (s.tiles[i] ? 1.5 : 1)); // replacing wastes the old tile
+      // The scan (base production and relay) is only built when some delta is not memoised yet.
+      if (memo?.sig !== sig || !memo.deltas.has(i * TILE_TYPES.length + ti)) scan ??= deltaScan(s);
+      const score = deltaFor(scan!, sig, i, t) / (cost * (s.tiles[i] ? 1.5 : 1)); // replacing wastes the old tile
       if (score <= 0) continue;
       const beats = !best || score > best.score || (score === best.score && (ti < best.ti || (ti === best.ti && i < best.i)));
       if (beats) best = { i, t, cost, score, ti };
     }
   }
   return best && { i: best.i, t: best.t, cost: best.cost };
+}
+
+/**
+ * Curvature buys upgrades only above the cost of the next closed surface, so the bot keeps enough to fold.
+ * Once every surface is unlocked nothing is reserved.
+ */
+function buyCurvature(s: GameState) {
+  const reserve = nextFold(s) ? foldCost(s) : 0;
+  for (const u of curvUpgrades) {
+    const lvl = s.curvUpg[u.id];
+    if (lvl < u.max && s.curvature.toNumber() - u.cost(lvl) >= reserve) buyCurvUpg(s, u.id);
+  }
 }
 
 /** Milestone times in minutes, filled in by playGreedy when first reached. */
@@ -73,7 +88,7 @@ export function playGreedy(
 ): { log: GreedyLog; s: GameState } {
   const s = initialState();
   const log: GreedyLog = {};
-  let target = bestGreedyBuy(s), bestChartRate = 0;
+  let target = bestGreedyBuy(s), bestChartRate = 0, driftsAtProjection = 0;
   for (let sec = 0; sec < limitMin * 60; sec++) {
     fastForward(s, 1);
     const sc = surveyCost(s).toNumber();
@@ -86,7 +101,7 @@ export function playGreedy(
       target = bestGreedyBuy(s);
     }
     for (const u of [...chartUpgrades].sort((a, b) => a.cost(s.chartUpg[a.id]) - b.cost(s.chartUpg[b.id]))) buyChartUpg(s, u.id);
-    for (const u of curvUpgrades) buyCurvUpg(s, u.id);
+    buyCurvature(s);
     const gain = chartsOnDrift(s).toNumber();
     const raw = s.runInk.div(config.drift.divisor).pow(config.drift.exponent).toNumber(); // unfloored, for peak-finding
     const rate = raw / s.runTime;
@@ -99,13 +114,26 @@ export function playGreedy(
         target = bestGreedyBuy(s);
       } else bestChartRate = Math.max(bestChartRate, rate);
     }
-    if (canProject(s) && s.projections === 0) {
-      log.projection = sec / 60;
-      log.curvature = project(s).toNumber();
-      for (const u of curvUpgrades) buyCurvUpg(s, u.id);
+    // Again once the cycle has built curvature >= 4 and the bot has Drifted 3 times since the last Projection.
+    const again = s.projections > 0 && s.drifts - driftsAtProjection >= 3 && curvatureOnProjection(s).gte(4);
+    if (canProject(s) && (s.projections === 0 || again)) {
+      if (s.projections === 0) {
+        log.projection = sec / 60;
+        log.curvature = curvatureOnProjection(s).toNumber();
+      } else log.projection2 ??= sec / 60;
+      project(s);
+      driftsAtProjection = s.drifts;
+      if (isSurface(s.geometry)) log[`surface_${s.geometry}`] ??= sec / 60;
+      buyCurvature(s);
       target = bestGreedyBuy(s);
     }
-    if (s.projections > 0 && s.ring === maxRing(s) && !target && !log.hyperFull) log.hyperFull = sec / 60;
+    // Fold as soon as Curvature allows; the next Projection then lands on the new surface.
+    for (let f = fold(s); f; f = fold(s)) log[`fold_${f}`] ??= sec / 60;
+    if (isSurface(s.geometry) && closedLoops(s).length > 0) log.firstLoop ??= sec / 60;
+    if (isSurface(s.geometry) && s.geometry === 'torus' && closedLoops(s).length >= 2) log.torusBothLoops ??= sec / 60;
+    // Hyperbolic "full": past the first Projection, at max ring, with every active cell holding a tile.
+    const boardFull = graphOf(s).ring.every((_, i) => !isActive(s, i) || s.tiles[i]);
+    if (s.projections > 0 && s.ring === maxRing(s) && boardFull && !log.hyperFull) log.hyperFull = sec / 60;
     onSecond?.(s, sec, log);
   }
   return { log, s };

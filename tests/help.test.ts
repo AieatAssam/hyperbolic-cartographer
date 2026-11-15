@@ -22,7 +22,7 @@ import {
 } from '../src/ui/help';
 
 const TOOLS: Tool[] = [...TILE_TYPES, 'sell', 'pin'];
-const TABS: Tab[] = ['map', 'drift', 'charts', 'proj', 'miles', 'save', 'guide'];
+const TABS: Tab[] = ['map', 'drift', 'charts', 'proj', 'miles', 'atlas', 'save', 'guide'];
 
 /** First active cell with no tile, plus its index. */
 const emptyActive = (s: ReturnType<typeof initialState>) => {

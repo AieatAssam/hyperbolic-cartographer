@@ -1,14 +1,18 @@
 import Decimal from 'break_eternity.js';
-import type { GameState, SurfacePreview } from '../core/state';
+import { SURFACES, isSurface, type GameState, type Geometry, type Surface } from '../core/state';
 import { TILE_INFO, TILE_TYPES, type TileType } from '../core/tiles';
 import type { ImportResult } from '../core/save';
 import type { OfflineReport } from '../core/tick';
 import { autoSurveyOn } from '../core/tick';
+import { blueprintProgress, clearBlueprint, saveBlueprint } from '../core/blueprint';
 import { config, chartUpgrades, curvUpgrades, type ChartUpgradeId, type CurvUpgradeId, type UpgradeDef } from '../core/config';
 import { MILESTONES, has } from '../core/milestones';
-import { canProject, chartsOnDrift, curvatureOnProjection } from '../core/prestige';
+import { ACHIEVEMENTS, achievementBonus } from '../core/achievements';
+import { canFold, canProject, chartsOnDrift, curvatureOnProjection, foldCost, nextFold, projectionTargets } from '../core/prestige';
 import { cellsInRing, isActive, maxPins, maxRing, prod, surveyCost, tileCost } from '../core/economy';
 import { fmt, fmtTime } from './format';
+import { icon, type IconName } from './icons';
+import { constellationFigure } from './constellation-art';
 import {
   BUTTON_HELP, DRIFT_EXPLAIN, DRIFT_KEEPS, DRIFT_RESETS, PROJECTION_KEEPS, PROJECTION_RESETS, SURVEY_EXPLAIN, TAB_HELP, TOOL_EFFECT, TOOL_HELP,
   driftBlocked, placeBlocked, projectBlocked, projectionCompare, surveyBlocked, upgradeBlocked,
@@ -17,6 +21,10 @@ import {
 import { attentionCleared, menuAttention } from '../core/menu-attention';
 import type { ConstellationId } from '../core/constellations';
 import { explainNow, immediateGoal, longGoal, type GoalIcon } from './goals';
+import {
+  announceMilestones, floatGain, floatLump, goalCompleted, milestoneEvents, milestoneFacts, notePlacement, rateFlashed,
+  setJuiceAnchors, shimmerOnce, type MilestoneFacts,
+} from './juice';
 import {
   STEPS, currentStep, dismissTutorial, nextStep, parseTutorial, prevStep, reopenTutorial, restartTutorial, serializeTutorial, syncTutorial,
   type TutorialState,
@@ -40,7 +48,8 @@ export interface UICtx {
   flowRateLabels?(): readonly { x: number; y: number; text: string }[];
   tutorial: { load(): string | null; save(v: string): void }; // stored apart from the game save
   act: {
-    survey(): void; drift(): void; project(): void;
+    survey(): void; drift(): void; project(target?: Geometry): void;
+    fold(): void; // spend Curvature on the next closed surface
     buyChart(id: ChartUpgradeId): void; buyCurv(id: CurvUpgradeId): void;
     exportString(): string; // returns compressed save string
     exportFile(): void; // triggers the .json download
@@ -52,20 +61,22 @@ export interface UICtx {
     recenter(): void; // reset camera / hyperbolic view
     confirmPlace(): void; // apply the current tool to the selected cell
     cancelPlace(): void; // clear the selected cell
-    centreSelected(): void; // move the selected cell to the disk centre (hyperbolic only; keeps selection and zoom)
-    enterManifoldPreview?(which: 'torus' | 'klein'): void;
+    centreSelected(): void; // bring the selected (or inspected) cell to the middle / facing the viewer; keeps selection and zoom
+    enterManifoldPreview?(which: Surface): void;
     exitManifoldPreview?(): void;
     toggleSurfaceChart?(): void;
     toggleSeamView?(): void;
     toggleKleinImmersion?(): void;
-    switchManifold?(which: 'torus' | 'klein'): void;
-    manifoldPreview?(): SurfacePreview;
+    switchManifold?(which: Surface): void;
+    manifoldPreview?(): 'off' | Surface;
+    /** Surface stage or preview: true while the flat chart is on show. */
+    surfaceChart?(): boolean;
   };
   dev: boolean;
   /** Sound settings, credits and the header mute button appear only when provided. */
   audio?: AudioApi;
-  /** Trade Wind: `left` seconds a wind is catchable (0 when none), `surge` seconds of boosted output left. */
-  wind(): { left: number; surge: number; mult: number };
+  /** Trade Wind: `left` seconds a wind is catchable (0 when none), `surge` seconds of boosted output left; `kind` and `name` of the current wind. */
+  wind(): { left: number; surge: number; mult: number; kind: string; name: string };
   catchWind(): void;
 }
 export interface UI {
@@ -80,10 +91,14 @@ export interface UI {
   flash(): void;
   /** Visual-only pulse on the HUD Ink counter (GPU mote arrival). */
   bumpInk(weight: number): void;
+  /** A tile was placed: floats "+x/s" from the last tap and counts toward the build streak. `delta` is the Ink/s rise. */
+  placed(delta: number): void;
+  /** Ink paid out as a lump (wind, constellation): the number flies to the Ink counter. */
+  lump(text: string): void;
   /** Plain-words goal override while a prestige transition plays; null restores the normal goal. `short` is its compact chip label, `icon` its glyph (default 'project'). */
   setTransition(text: string | null, short?: string, icon?: GoalIcon): void;
   /** Manifold preview: hide the panel and show the floating surface toolbar. */
-  setManifoldPreview(on: boolean, surface?: SurfacePreview): void;
+  setManifoldPreview(on: boolean, surface?: Surface): void;
   /** Dev/QA hooks (main.ts exposes them only under ?dev&qa). Each one calls an existing internal. */
   qa: {
     tab(id: string): void; openImport(text?: string): void; checkImport(): void; showExport(): void; openReset(): void;
@@ -96,13 +111,10 @@ export interface UI {
 
 type Dec = GameState['ink'];
 const TABS: [Tab, string][] = [
-  ['map', 'Map'], ['constellations', 'Stars'], ['drift', 'Drift'], ['charts', 'Charts'], ['proj', 'Projection'], ['miles', 'Milestones'], ['save', 'Settings'], ['guide', 'Guide'],
+  ['map', 'Map'], ['constellations', 'Stars'], ['drift', 'Drift'], ['charts', 'Charts'], ['proj', 'Projection'], ['miles', 'Milestones'], ['atlas', 'Atlas'], ['save', 'Settings'], ['guide', 'Guide'],
 ];
-const CONST_NAMES: Record<ConstellationId, string> = {
-  inkstream: config.constellations.inkstream.name,
-  millwheel: config.constellations.millwheel.name,
-  twinmills: config.constellations.twinmills.name,
-};
+const CONST_DEFS = Object.entries(config.constellations) as [ConstellationId, (typeof config.constellations)[ConstellationId]][];
+const CONST_NAMES = Object.fromEntries(CONST_DEFS.map(([id, d]) => [id, d.name])) as Record<ConstellationId, string>;
 const TOOL_NAME: Record<Tool, string> = { ...Object.fromEntries(TILE_TYPES.map((t) => [t, TILE_INFO[t].name])), sell: 'Sell', pin: 'Pin' } as Record<Tool, string>;
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] => {
@@ -156,13 +168,26 @@ const ctl = (b: HTMLElement, name: string, text: string) => {
   box.append(b, why, h);
   return { box, why: (reason: string | null) => ((why.hidden = !reason), (why.textContent = reason ?? '')) };
 };
+const GEO_NAME: Record<Geometry, string> = { square: 'Square grid', hyper: 'Hyperbolic disk', mobius: 'Möbius strip', torus: 'Torus', klein: 'Klein bottle' };
+const FOLD_BLURB: Record<Surface, string> = {
+  mobius: 'A band with one twist: walk once round and the map comes back mirrored, twice and it is home.',
+  torus: 'A ring: walk off any edge and you come back on the opposite one.',
+  klein: 'A bottle with no inside: one way round wraps, the other comes back flipped.',
+};
 const clamp = (x: number) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0);
 const hex = hexString;
 
-/** 8×8 px tool chip: tile `base` fill; ring when base contrast on HUD glass is low. */
-const paletteDot = (base: number) => {
-  const dot = el('span', 'palette-dot');
-  dot.style.background = hex(base);
+/**
+ * Tool chip badge: a round gem tinted with the tile colour (22% alpha fill, 1px border), holding the tile's icon.
+ * Without an icon name it stays the plain colour dot. A ring is added when the colour is low-contrast on the glass.
+ */
+const paletteDot = (base: number, name?: IconName) => {
+  const dot = el('span', name ? 'palette-dot palette-gem' : 'palette-dot');
+  const rgb = [(base >> 16) & 255, (base >> 8) & 255, base & 255];
+  dot.style.background = name ? `rgba(${rgb.join(', ')}, 0.22)` : hex(base);
+  dot.style.borderColor = hex(base);
+  dot.style.setProperty('--gem', hex(base));
+  if (name) dot.append(icon(name, 11));
   if (contrastRatio(base, UI.hudChipBg) < 2.8) dot.classList.add('palette-dot--ring');
   return dot;
 };
@@ -199,20 +224,23 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   // ---- HUD ----
   const topbar = el('div', 'topbar');
   const hud = el('div', 'hud');
-  const stat = (label: string) => {
+  const stat = (label: string, glyph?: IconName) => {
     const box = el('div', 'stat');
     const v = el('span', 'value');
     const sub = el('span', 'muted');
-    box.append(el('span', 'label', label), v, sub);
+    const lab = el('span', 'label');
+    if (glyph) lab.append(icon(glyph, 12));
+    lab.append(label);
+    box.append(lab, v, sub);
     hud.append(box);
     return { box, v, sub };
   };
-  const sInk = stat('Ink');
+  const sInk = stat('Ink', 'ink');
   sInk.box.id = 'ink-counter';
   sInk.box.dataset.fxTarget = 'ink';
   const sRate = stat('Ink/s');
-  const sCharts = stat('Charts');
-  const sCurv = stat('Curvature');
+  const sCharts = stat('Charts', 'charts');
+  const sCurv = stat('Curvature', 'curvature');
   const sCod = stat('Charts on Drift');
   // Phone portrait collapses these to the compact row (CSS: .hud:not(.hud-open) .hud-detail).
   sCharts.box.classList.add('hud-detail');
@@ -274,7 +302,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     b.setAttribute('aria-label', `${TOOL_NAME[t]}, key ${key}. ${desc}`);
     const n = el('span', 'name');
     if (tile !== undefined) {
-      n.append(paletteDot(tileChipColour(tile)));
+      n.append(paletteDot(tileChipColour(tile), tile));
     }
     n.append(TOOL_NAME[t]);
     const cost = el('span', 'cost');
@@ -326,6 +354,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
         || (t === 'charts' && (k.startsWith('chart-') || k.startsWith('curv-')))) menuAttSeen.add(k);
     }
     update();
+    tabBtns.get(t)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   };
   const head = el('div', 'panel-head');
   head.append(
@@ -370,35 +399,44 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     b.dataset.qa = qaId;
     return b;
   };
+  // Preview: surface switches, seams, 2D/3D and Exit. Surface stage (no preview): a slim side bar with 2D/3D and Centre.
+  let barKey = '';
   const barSync = () => {
     const mp = ctx.act.manifoldPreview?.() ?? 'off';
-    manifoldBar.classList.toggle('hidden', mp === 'off');
+    const stage = mp === 'off' && isSurface(get().geometry);
+    const chart = ctx.act.surfaceChart?.() ?? false;
+    const key = `${mp}|${stage}|${chart}`;
+    if (key === barKey) return;
+    barKey = key;
+    manifoldBar.classList.toggle('hidden', mp === 'off' && !stage);
+    manifoldBar.classList.toggle('stage', stage);
+    manifoldBar.setAttribute('aria-label', stage ? 'Surface view' : 'Manifold preview');
     root.classList.toggle('manifold-preview', mp !== 'off');
     if (mp !== 'off') setPanel(false);
-    torusBtn.classList.toggle('active', mp === 'torus');
-    kleinBtn.classList.toggle('active', mp === 'klein');
-    chartBtn.style.display = mp === 'klein' ? 'none' : '';
-    immBtn.style.display = mp === 'klein' ? '' : 'none';
-    chartBtn.textContent = '2D chart';
-    immBtn.textContent = '3D';
+    for (const [k, b] of surfBtns) (b.classList.toggle('active', mp === k), (b.style.display = stage ? 'none' : ''));
+    seamBtn.style.display = exitBtn.style.display = stage ? 'none' : '';
+    centreBarBtn.style.display = stage ? '' : 'none';
+    // Klein keeps its own 3D button and QA id; the others share the chart toggle.
+    const klein = mp === 'klein' || (stage && get().geometry === 'klein');
+    chartBtn.style.display = klein ? 'none' : '';
+    immBtn.style.display = klein ? '' : 'none';
+    chartBtn.textContent = chart ? '3D surface' : '2D chart';
+    immBtn.textContent = chart ? '3D' : '2D chart';
+    chartBtn.setAttribute('aria-pressed', String(chart));
+    immBtn.setAttribute('aria-pressed', String(!chart));
   };
-  const torusBtn = mBtn('Torus', 'mf-torus', () => ctx.act.switchManifold?.('torus') ?? ctx.act.enterManifoldPreview?.('torus'));
-  const kleinBtn = mBtn('Klein', 'mf-klein', () => ctx.act.switchManifold?.('klein') ?? ctx.act.enterManifoldPreview?.('klein'));
+  const SURF_LABEL: Record<Surface, string> = { mobius: 'Möbius', torus: 'Torus', klein: 'Klein' };
+  const surfBtns = SURFACES.map((k) => [k, mBtn(SURF_LABEL[k], `mf-${k}`, () => ctx.act.switchManifold?.(k) ?? ctx.act.enterManifoldPreview?.(k))] as const);
   const seamBtn = mBtn('Seams', 'mf-seams', () => ctx.act.toggleSeamView?.());
   const chartBtn = mBtn('2D chart', 'mf-chart', () => ctx.act.toggleSurfaceChart?.());
   const immBtn = mBtn('3D', 'mf-immersion', () => ctx.act.toggleKleinImmersion?.());
+  const centreBarBtn = mBtn('Centre', 'mf-centre', () => ctx.act.centreSelected());
+  help(centreBarBtn, 'Centre', 'Turns the surface so the selected cell faces you. With nothing selected, resets the view.');
   const exitBtn = mBtn('Exit', 'mf-exit', () => ctx.act.exitManifoldPreview?.());
-  manifoldBar.append(torusBtn, kleinBtn, seamBtn, chartBtn, immBtn, exitBtn);
-  const setManifoldPreview = (on: boolean, surface?: SurfacePreview) => {
-    root.classList.toggle('manifold-preview', on);
-    manifoldBar.classList.toggle('hidden', !on);
-    if (on) {
-      setPanel(false);
-      torusBtn.classList.toggle('active', surface === 'torus');
-      kleinBtn.classList.toggle('active', surface === 'klein');
-      chartBtn.style.display = surface === 'klein' ? 'none' : '';
-      immBtn.style.display = surface === 'klein' ? '' : 'none';
-    }
+  manifoldBar.append(...surfBtns.map(([, b]) => b), seamBtn, chartBtn, immBtn, centreBarBtn, exitBtn);
+  const setManifoldPreview = (on: boolean, _surface?: Surface) => {
+    if (on) setPanel(false);
+    barKey = '';
     barSync();
   };
 
@@ -613,15 +651,34 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const confirmProject = () => {
     const g = get();
     const why = projectBlocked(g);
+    const targets = projectionTargets(g);
+    let target: Geometry = targets[targets.length - 1];
     const go = help(btn('Confirm Projection', 'primary', () => {
       closeModal();
       setPanel(false);
-      ctx.act.project();
+      ctx.act.project(target);
     }), 'Confirm Projection', BUTTON_HELP.project);
     go.disabled = why !== null;
     const content = el('div');
     content.append(txt(`Payoff: +${fmt(curvatureOnProjection(g), g.notation)} Curvature.`));
     if (why) content.append(el('p', 'neg', why));
+    if (targets.length > 1) {
+      const pick = el('div', 'proj-targets');
+      pick.setAttribute('role', 'radiogroup');
+      pick.setAttribute('aria-label', 'Project onto');
+      const opts = targets.map((t) => {
+        const b = btn(GEO_NAME[t], 'proj-target', () => {
+          target = t;
+          for (const o of opts) o.setAttribute('aria-checked', String(o === b));
+        });
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', String(t === target));
+        b.dataset.qa = `proj-target-${t}`;
+        return b;
+      });
+      pick.append(...opts);
+      content.append(title('Project onto'), pick);
+    }
     content.append(title('Resets'), list('reset', PROJECTION_RESETS), title('Keeps'), list('keep', PROJECTION_KEEPS));
     openModal('Projection?', content, [closeBtn('Cancel'), go]);
   };
@@ -634,21 +691,41 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     bank: (s: GameState) => Dec,
     buy: (id: Id) => void,
   ) => {
-    const lv = txt('');
+    // Level pips on the right of the title row; the "Lv n/max" text stays for assistive tech (sr-only).
+    const lv = el('span', 'sr-only');
+    const pips = el('span', 'pips');
+    pips.setAttribute('role', 'img');
+    const pipEls: HTMLElement[] = [];
+    for (let i = 0; i < d.max; i++) {
+      const p = el('span', 'pip');
+      pips.append(p);
+      pipEls.push(p);
+    }
+    const check = icon('check', 14);
+    check.classList.add('up-check');
+    check.style.display = 'none';
+    const head = el('div', 'up-head');
+    const rank = el('span', 'up-rank');
+    rank.append(pips, lv, check);
+    head.append(title(d.name), rank);
     const b = btn('', 'buy', () => buy(d.id));
-    const c = ctl(b, d.name, `${d.desc} ${unit === 'Charts' ? BUTTON_HELP.buyChart : BUTTON_HELP.buyCurv}`);
-    const box = card(title(d.name), lv, c.box);
+    const c = ctl(b, d.name, unit === 'Charts' ? BUTTON_HELP.buyChart : BUTTON_HELP.buyCurv);
+    const box = card(head, el('p', 'up-effect', d.desc), c.box);
     watch(() => {
       const g = get();
       const l = levels(g)[d.id];
       const maxed = l >= d.max;
       const cost = d.cost(l);
       lv.textContent = `Lv ${l}/${d.max}`;
+      pips.setAttribute('aria-label', `Level ${l} of ${d.max}`);
+      pipEls.forEach((p, i) => p.classList.toggle('on', i < l));
+      check.style.display = maxed ? '' : 'none';
       b.textContent = maxed ? 'Maxed' : `Buy · ${fmt(cost, g.notation)} ${unit}`;
       const why = upgradeBlocked(l, d.max, new Decimal(cost), bank(g), unit, g.notation);
       b.disabled = why !== null;
       c.why(maxed ? null : why);
       box.classList.toggle('done', maxed);
+      box.classList.toggle('maxed', maxed);
     });
     return box;
   };
@@ -656,18 +733,68 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const constellationsTab = (_s: GameState): HTMLElement[] => {
     const intro = card(
       title('Constellations'),
-      txt('Place named shapes on the board for Ink bonuses. Gold lines mark a pattern; dashed lines show a hint while you preview.'),
-      list('guide-list', [
-        `${config.constellations.inkstream.name}: ${config.constellations.inkstream.blurb} (+${config.constellations.inkstream.bonusInk} Ink)`,
-        `${config.constellations.millwheel.name}: ${config.constellations.millwheel.blurb} (+${config.constellations.millwheel.bonusInk} Ink)`,
-        `${config.constellations.twinmills.name}: ${config.constellations.twinmills.blurb} (+${config.constellations.twinmills.bonusInk} Ink)`,
-      ]),
+      txt(`Place named shapes on the board for Ink bonuses. Each pays its bonus or ${config.constellationScale.sec} s of Ink/s, whichever is more; repeats of the same shape in one run pay less. Gold lines mark a pattern; dashed lines show a hint while you preview.`),
     );
+    const shapeCard = card(title('Shapes'));
+    const discoveredLine = el('p', 'muted', '');
+    const shapeGrid = el('ul', 'cst-grid');
+    shapeCard.append(discoveredLine, shapeGrid);
     const logCard = card(title('Completed this journey'));
     const logList = el('ul', 'guide-list');
     logCard.append(logList);
+    // One card per shape, built once. The figure is rebuilt only when discovered-state flips, so a tap-to-replay
+    // is not undone by the next state update.
+    const cards = new Map<ConstellationId, { el: HTMLElement; key: 'found' | 'hidden' | ''; fig: HTMLElement; name: HTMLElement; blurb: HTMLElement; stats: HTMLElement }>();
+    const cardFor = (id: ConstellationId) => {
+      let c = cards.get(id);
+      if (c) return c;
+      const box = el('div', 'cst-card');
+      const fig = el('div', 'cst-fig');
+      const name = el('div', 'cst-name');
+      const blurb = el('div', 'cst-blurb');
+      const stats = el('div', 'cst-stats');
+      box.append(fig, name, blurb, stats);
+      const replay = () => {
+        if (box.classList.contains('found')) fig.replaceChildren(constellationFigure(id, 112, { animate: true }));
+      };
+      box.addEventListener('click', replay);
+      box.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') (e.preventDefault(), replay());
+      });
+      c = { el: box, key: '', fig, name, blurb, stats };
+      cards.set(id, c);
+      return c;
+    };
     watch(() => {
       const g = get();
+      const rows = new Map<ConstellationId, number[]>();
+      for (const r of g.constellationLog) rows.set(r.id, [...(rows.get(r.id) ?? []), r.bonusInk]);
+      discoveredLine.textContent = `Discovered ${rows.size} of ${CONST_DEFS.length} shapes`;
+      shapeGrid.replaceChildren(
+        ...CONST_DEFS.map(([id, d]) => {
+          const c = cardFor(id);
+          const hits = rows.get(id) ?? [];
+          const found = hits.length > 0;
+          const key = found ? 'found' : 'hidden';
+          if (c.key !== key) {
+            c.key = key;
+            c.fig.replaceChildren(constellationFigure(id, 112, { dim: !found }));
+          }
+          c.el.classList.toggle('found', found);
+          c.el.classList.toggle('hidden-shape', !found);
+          c.el.tabIndex = found ? 0 : -1;
+          c.el.setAttribute('role', found ? 'button' : 'group');
+          c.el.setAttribute('aria-label', found ? `${d.name}, tap to replay` : 'Unknown shape');
+          c.name.textContent = found ? d.name : 'Unknown shape';
+          c.blurb.textContent = found ? d.blurb : `Hint: ${d.blurb}`;
+          c.stats.innerHTML = found
+            ? `Formed <b>${hits.length}</b>× · best <b>+${fmt(Math.max(...hits), g.notation)}</b> Ink`
+            : `Not yet formed · +${d.bonusInk} Ink`;
+          const li = el('li');
+          li.append(c.el);
+          return li;
+        }),
+      );
       logList.replaceChildren();
       if (!g.constellationLog.length) {
         logList.append(el('li', 'muted', 'None yet — complete a pattern on the board.'));
@@ -677,12 +804,13 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
         logList.append(el('li', '', `${CONST_NAMES[row.id]} · +${fmt(row.bonusInk, g.notation)} Ink`));
       }
     });
-    return [intro, logCard];
+    return [intro, shapeCard, logCard];
   };
 
   const mapTab = (s: GameState): HTMLElement[] => {
     const full = s.ring >= maxRing(s);
     const sb = btn('', 'buy', () => ctx.act.survey());
+    sb.dataset.juice = 'survey';
     const sc = ctl(sb, 'Survey', BUTTON_HELP.survey);
     watch(() => {
       const g = get();
@@ -704,7 +832,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       const g = get();
       const active = g.tiles.filter((_, i) => isActive(g, i)).length;
       const placed = g.tiles.filter((t) => t).length;
-      const geo = g.geometry === 'square' ? 'Square grid' : 'Hyperbolic {7,3}';
+      const geo = g.geometry === 'square' ? 'Square grid' : g.geometry === 'hyper' ? 'Hyperbolic {7,3}' : GEO_NAME[g.geometry];
       boardP.textContent = `${geo}: ${active} active cells, ${placed} tiles placed, ${g.pinned.length}/${maxPins(g)} pins.`;
     });
     const board = card(title('Board'), boardP, ctl(btn('Recenter view', '', () => ctx.act.recenter()), 'Recenter view', BUTTON_HELP.recenter).box);
@@ -713,7 +841,10 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       list('guide-list', [
         'Mouse: click a cell to use the tool at once; hover shows cost and Ink/s change.',
         'Touch: tap a cell to preview it, then tap it again or press Place to buy.',
-        'Drag to pan, pinch or scroll to zoom, right-drag to tilt. Dragging never buys.',
+        isSurface(s.geometry)
+          ? 'Drag to slide the tiles round the surface, pinch or scroll to zoom, right-drag or two fingers to turn it. Arrow keys slide too. Dragging never buys.'
+          : 'Drag to pan, pinch or scroll to zoom, right-drag to tilt. Dragging never buys.',
+        ...(isSurface(s.geometry) ? ['2D chart shows the whole surface flat: arrows on matching edges are glued together; gold arrows that point opposite ways mean the edge is glued flipped.'] : []),
       ]),
     );
     return [survey, board, how];
@@ -737,6 +868,56 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       card(title('Drift'), txt(DRIFT_EXPLAIN), stats, dc.box),
       card(title('Drift resets'), list('reset', DRIFT_RESETS), title('Drift keeps'), list('keep', DRIFT_KEEPS)),
     ];
+    if (!has(s, 'blueprint')) {
+      out.push(el('p', 'help', 'First Drift unlocks Blueprints: save a layout and it rebuilds itself.'));
+    } else {
+      const bpLine = txt('');
+      const sb = btn('Save layout', 'primary', () => {
+        const n = saveBlueprint(get());
+        if (n > 0) toast(`Blueprint saved: ${n} tiles`);
+      });
+      sb.dataset.qa = 'bp-save';
+      const sc = ctl(sb, 'Save layout', BUTTON_HELP.blueprintSave);
+      const clr = btn('Clear', '', () => clearBlueprint(get()));
+      clr.dataset.qa = 'bp-clear';
+      const cc = ctl(clr, 'Clear', BUTTON_HELP.blueprintClear);
+      watch(() => {
+        const g = get();
+        const bp = g.blueprints[g.geometry];
+        if (!bp) {
+          bpLine.textContent = 'No blueprint saved for this board.';
+        } else {
+          const { total, placed } = blueprintProgress(g);
+          bpLine.textContent = `Blueprint: ${placed} of ${total} tiles placed.`;
+        }
+        const empty = g.tiles.every((t) => t === null);
+        sb.disabled = empty;
+        sc.why(empty ? 'Place some tiles first. The board is empty.' : null);
+        clr.disabled = !bp;
+      });
+      // A button, not a checkbox: every control must be a 44px tap target.
+      const alab = btn('', '', () => {
+        const g = get();
+        g.autoBuild = !g.autoBuild;
+      });
+      alab.dataset.qa = 'bp-auto';
+      help(alab, 'Rebuild automatically', BUTTON_HELP.blueprintAuto);
+      watch(() => {
+        const on = get().autoBuild;
+        alab.textContent = `Rebuild automatically: ${on ? 'On' : 'Off'}`;
+        alab.setAttribute('aria-pressed', String(on));
+      });
+      out.push(
+        card(
+          title('Blueprint'),
+          bpLine,
+          sc.box,
+          cc.box,
+          alab,
+          el('p', 'help', 'After a Drift the blueprint places its tiles again, cheapest first, as Ink allows. It never sells or replaces tiles. Each board shape keeps its own blueprint.'),
+        ),
+      );
+    }
     if (has(s, 'autoDrift')) {
       const cb = el('input');
       cb.type = 'checkbox';
@@ -763,6 +944,29 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     s.drifts === 0
       ? [card(title('Locked until your first Drift'), txt(`Drift (at ${fmt(config.drift.minInk)} run Ink) to earn Charts. Charts buy permanent upgrades that survive every Drift.`))]
       : chartUpgrades.map((d) => upgCard(d, 'Charts', (g) => g.chartUpg, (g) => g.charts, (id) => ctx.act.buyChart(id)));
+
+  /** Fold the map: spend Curvature to unlock the next closed surface as a Projection target. */
+  const foldCard = () => {
+    const head = title('');
+    const body = txt('');
+    const fb = btn('', 'primary', () => ctx.act.fold());
+    fb.dataset.qa = 'fold-buy';
+    const fc = ctl(fb, 'Fold the map', 'Spends Curvature. The new surface becomes a place your next Projection can land. Permanent.');
+    watch(() => {
+      const g = get();
+      const f = nextFold(g);
+      head.textContent = f ? `Fold the map: ${GEO_NAME[f]}` : 'Fold the map: every surface unlocked';
+      body.textContent = f
+        ? `${FOLD_BLURB[f]} Loops of tiles around it multiply Ink by ${config.surfaces[f].loopMult}.`
+        : 'Pick any unlocked surface when you Project.';
+      fb.textContent = f ? `Fold for ${fmt(foldCost(g), g.notation)} Curvature` : 'All folded';
+      fb.disabled = !canFold(g);
+      fc.why(!f ? null : canFold(g) ? null : `Needs ${fmt(foldCost(g), g.notation)} Curvature (you have ${fmt(g.curvature, g.notation)}).`);
+    });
+    const c = card(head, body, fc.box);
+    c.classList.add('fold-card');
+    return c;
+  };
 
   const projTab = (s: GameState): HTMLElement[] => {
     const cmp = projectionCompare();
@@ -791,6 +995,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       card(title(lead), compare, list('guide-list', cmp.lines), req, curvP, pc.box),
       card(title('Projection resets'), list('reset', PROJECTION_RESETS), title('Projection keeps'), list('keep', PROJECTION_KEEPS)),
     ];
+    if (s.projections > 0) out.unshift(foldCard());
     if (s.projections > 0 || s.curvature.gt(0))
       out.push(...curvUpgrades.map((d) => upgCard(d, 'Curvature', (g) => g.curvUpg, (g) => g.curvature, (id) => ctx.act.buyCurv(id))));
     const mp = ctx.act.manifoldPreview?.() ?? 'off';
@@ -799,11 +1004,11 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       txt('Layer 3 surfaces: orbit a 3D torus or study the Klein bottle fundamental square with coloured seams. Controls move to a floating bar on the board. No Handles currency or Loops scoring yet.'),
     );
     const row = el('div', 'row');
-    const torusB = btn(mp === 'torus' ? 'Torus (active)' : 'Open torus preview', mp === 'torus' ? 'primary' : '', () => ctx.act.enterManifoldPreview?.('torus'));
-    const kleinB = btn(mp === 'klein' ? 'Klein (active)' : 'Open Klein preview', mp === 'klein' ? 'primary' : '', () => ctx.act.enterManifoldPreview?.('klein'));
-    torusB.dataset.qa = 'open-torus-preview';
-    kleinB.dataset.qa = 'open-klein-preview';
-    row.append(torusB, kleinB);
+    for (const k of SURFACES) {
+      const b = btn(mp === k ? `${GEO_NAME[k]} (active)` : `Preview ${GEO_NAME[k]}`, mp === k ? 'primary' : '', () => ctx.act.enterManifoldPreview?.(k));
+      b.dataset.qa = `open-${k}-preview`;
+      row.append(b);
+    }
     prev.append(row);
     if (mp !== 'off') prev.append(txt('Preview is open — use the floating toolbar on the board.'));
     out.push(prev);
@@ -813,11 +1018,53 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const milesTab = (s: GameState): HTMLElement[] => [
     txt(`Drifts: ${s.drifts} · Projections: ${s.projections}`),
     ...MILESTONES.map((m) => {
-      const c = card(title(m.name), txt(m.desc));
-      c.classList.add(m.req(s) ? 'done' : 'locked');
+      const got = m.req(s);
+      const h = title('');
+      h.append(icon(got ? 'check' : 'lock', 14), m.name);
+      h.classList.add('ms-title');
+      const c = card(h, txt(m.desc));
+      c.classList.add(got ? 'done' : 'locked');
       return c;
     }),
   ];
+
+  const atlasTab = (s: GameState): HTMLElement[] => {
+    const count = txt('');
+    const earned = card(title('Achievements'), count);
+    watch(() => {
+      const g = get();
+      count.textContent = `${g.achievements.length} of ${ACHIEVEMENTS.length} earned · +${Math.round((achievementBonus(g) - 1) * 100)}% Ink`;
+    });
+    const grid = el('ul', 'ach-list');
+    for (const a of ACHIEVEMENTS) {
+      const got = s.achievements.includes(a.id);
+      const li = el('li', got ? 'done' : 'locked');
+      const name = el('b');
+      const star = icon('star', 12);
+      if (got) star.setAttribute('fill', 'currentColor');
+      name.append(star, a.name);
+      li.append(name, el('span', '', a.desc));
+      grid.append(li);
+    }
+    earned.append(grid);
+    const journey: [string, (g: GameState) => string][] = [
+      ['Lifetime Ink', (g) => fmt(g.lifetimeInk, g.notation)],
+      ['Time played', (g) => fmtTime(g.totalTime)],
+      ['Drifts', (g) => String(g.drifts)],
+      ['Projections', (g) => String(g.projections)],
+      ['Tiles placed', (g) => fmt(g.stats.tilesPlaced, g.notation)],
+      ['Best Ink/s', (g) => fmt(g.stats.bestInkPerSec, g.notation)],
+      ['Winds caught', (g) => String(g.windsCaught)],
+      ['Constellations completed', (g) => String(g.stats.constellations)],
+    ];
+    const lines = el('ul', 'guide-list');
+    for (const [label, f] of journey) {
+      const li = el('li', '', '');
+      watch(() => (li.textContent = `${label}: ${f(get())}`));
+      lines.append(li);
+    }
+    return [earned, card(title('Journey so far'), lines)];
+  };
 
   const saveTab = (s: GameState): HTMLElement[] => {
     const copy = btn('Copy save string', '', async () => {
@@ -898,12 +1145,12 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
           ['Greyed-out buttons', 'A red line under a disabled button says exactly what is missing.'],
         ]),
       ),
-      card(title('Keyboard'), txt('1-5 pick tiles, S Sell, P Pin, Esc cancels a preview or closes a window. Tab moves between buttons; focused buttons show their help in the card above the tools.')),
+      card(title('Keyboard'), txt('1-8 pick tiles, S Sell, P Pin, Esc cancels a preview or closes a window. Tab moves between buttons; focused buttons show their help in the card above the tools.')),
     ];
   };
 
   const tabs: Record<Tab, (s: GameState) => HTMLElement[]> = {
-    map: mapTab, constellations: constellationsTab, drift: driftTab, charts: chartsTab, proj: projTab, miles: milesTab, save: saveTab, guide: guideTab,
+    map: mapTab, constellations: constellationsTab, drift: driftTab, charts: chartsTab, proj: projTab, miles: milesTab, atlas: atlasTab, save: saveTab, guide: guideTab,
   };
 
   // ---- Tooltip / toast / flash ----
@@ -1032,7 +1279,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       const why = placeBlocked(s, sel, tl);
       placeBtn.disabled = why !== null;
       placeBtn.textContent = tl === 'sell' ? 'Sell' : tl === 'pin' ? (s.pinned.includes(sel) ? 'Unpin' : 'Pin') : `Place ${TOOL_NAME[tl]}`;
-      centreBtn.hidden = s.geometry !== 'hyper';
+      centreBtn.hidden = s.geometry !== 'hyper' && !isSurface(s.geometry);
       infoActs.hidden = false;
     } else {
       const isTile = tl !== 'sell' && tl !== 'pin';
@@ -1088,18 +1335,40 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     } else boardGain.classList.add('hidden');
   }
 
+  // ---- Juice bookkeeping (cosmetic only; see ui/juice.ts) ----
+  let prevRate = Number.NaN;
+  let prevGoalKey = '';
+  let prevGoalProgress = 0;
+  let prevFacts: MilestoneFacts | null = null;
+  const affordPrev = new Map<string, boolean>();
+  /** True only on the frame a control turns affordable (not for controls already affordable at load). */
+  const newlyAfford = (key: string, now: boolean) => {
+    const was = affordPrev.get(key);
+    affordPrev.set(key, now);
+    return was === false && now;
+  };
+
   function update() {
     const s = get();
+    barSync();
     sInk.v.textContent = fmt(s.ink, s.notation);
-    sRate.v.textContent = fmt(prod(s).total, s.notation);
+    const rate = prod(s).total;
+    if (rateFlashed(prevRate, rate)) {
+      sRate.box.classList.remove('rate-up');
+      void sRate.box.offsetWidth;
+      sRate.box.classList.add('rate-up');
+    }
+    prevRate = rate;
+    sRate.v.textContent = fmt(rate, s.notation);
     const w = ctx.wind();
     const windShow = w.left > 0 || w.surge > 0;
     windBtn.style.display = windShow ? '' : 'none';
     if (windShow) {
       const label = w.left > 0
-        ? `Trade Wind ${Math.ceil(w.left)}s`
+        ? `${w.name} ${Math.ceil(w.left)}s`
         : `Surge x${w.mult} ${Math.ceil(w.surge)}s`;
       if (windBtn.textContent !== label) windBtn.textContent = label;
+      if (windBtn.dataset.kind !== w.kind) windBtn.dataset.kind = w.kind;
       windBtn.disabled = w.left <= 0;
       windBtn.classList.toggle('wind-live', w.left > 0);
     }
@@ -1122,6 +1391,13 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     goal.title = g.text;
     goalEta.textContent = g.eta;
     goalFill.style.width = `${Math.round(clamp(g.progress) * 100)}%`;
+    // A goal that was ready (progress ~1) and is now a different goal has been completed.
+    if (!transitionText && prevGoalKey && g.short !== prevGoalKey && prevGoalProgress >= 0.95) goalCompleted(goal, goalBar);
+    prevGoalKey = transitionText ? '' : g.short;
+    prevGoalProgress = g.progress;
+    const surveyOk = s.ring < maxRing(s) && s.ink.gte(surveyCost(s));
+    const surveyNew = newlyAfford('survey', surveyOk);
+    if (surveyNew) shimmerOnce('survey', g.short === 'Survey' ? goal : body.querySelector<HTMLElement>('[data-juice="survey"]'), true);
     explain.textContent = explainNow(s);
     const [label, p] = longGoal(s);
     nextLabel.textContent = `Next unlock: ${label}`;
@@ -1131,6 +1407,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       const c = tileCost(s, x.t);
       x.cost.textContent = fmt(c, s.notation);
       x.b.classList.toggle('cant', s.ink.lt(c));
+      shimmerOnce(`tile:${x.t}`, x.b, newlyAfford(`tile:${x.t}`, s.ink.gte(c)));
       x.b.classList.toggle('active', ctx.tool.current === x.t);
       x.b.setAttribute('aria-pressed', String(ctx.tool.current === x.t));
     }
@@ -1150,6 +1427,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     const key = [
       tab, s.drifts, s.projections, s.ring, s.geometry, s.curvature.gt(0), canProject(s), autoSurveyOn(s),
       JSON.stringify(s.chartUpg), JSON.stringify(s.curvUpg), MILESTONES.map((m) => (m.req(s) ? 1 : 0)).join(''),
+      s.achievements.length,
     ].join('|');
     if (key !== bodyKey) {
       bodyKey = key;
@@ -1158,6 +1436,9 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     }
     for (const f of live) f();
     updateDock(s);
+    const facts = milestoneFacts(s);
+    announceMilestones(milestoneEvents(prevFacts, facts), !tutVisible() && s.drifts === 0 && s.projections === 0); // first session only
+    prevFacts = facts;
   }
 
   // ---- Keyboard ----
@@ -1189,10 +1470,11 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
 
   // ---- Mount ----
   root.append(topbar, panel, dock, palette, manifoldBar, tip, toastEl, dev, backdrop);
+  setJuiceAnchors({ ink: sInk.box, palette, topbar });
   document.body.append(boardGain, flowLabelRoot);
   update();
   return {
-    update, syncBridgeGain: syncBridgeGainLabel, syncFlowLabels: syncFlowRateLabels, tooltip, showOffline, toast, flash, bumpInk, setTransition, setManifoldPreview,
+    update, syncBridgeGain: syncBridgeGainLabel, syncFlowLabels: syncFlowRateLabels, tooltip, showOffline, toast, flash, bumpInk, placed: (delta) => (floatGain(delta, get()), notePlacement()), lump: floatLump, setTransition, setManifoldPreview,
     qa: {
       tab: (id: string) => tabBtns.has(id as Tab) && openTab(id as Tab),
       openImport: (text?: string) => openImport(text),

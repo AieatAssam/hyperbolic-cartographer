@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { config } from '../src/core/config';
 import { GRAPHS, initialState, type GameState } from '../src/core/state';
-import { catchWind, mods, production, ring2 } from '../src/core/economy';
+import { catchWind, inkPerSec, mods, production, prod, ring2 } from '../src/core/economy';
 import { simulate } from '../src/core/tick';
 import { migrations } from '../src/core/save';
+import { pickWindKind } from '../src/core/wind';
 import type { TileType } from '../src/core/tiles';
 
 describe('lighthouse', () => {
@@ -40,22 +41,51 @@ describe('lighthouse', () => {
 });
 
 describe('trade wind', () => {
-  it('catching pays at least minInk and starts a surge', () => {
+  const withSpring = (): GameState => {
+    const s: GameState = initialState();
+    s.tiles[0] = 'spring';
+    return s;
+  };
+  const K = config.wind.kinds;
+
+  it('picks kinds by weight from one rand() call', () => {
+    expect(pickWindKind(() => 0.0)).toBe('trade');
+    expect(pickWindKind(() => 0.74)).toBe('trade');
+    expect(pickWindKind(() => 0.76)).toBe('gale');
+    expect(pickWindKind(() => 0.96)).toBe('monsoon');
+  });
+
+  it('a Trade Wind pays at least minInk and starts its surge', () => {
     const s: GameState = initialState();
     const before = s.ink;
-    const gain = catchWind(s);
+    const gain = catchWind(s, 'trade');
     expect(gain.gte(config.wind.minInk)).toBe(true);
     expect(s.ink.sub(before).eq(gain)).toBe(true);
-    expect(s.surge).toBe(config.wind.surgeSec);
+    expect(s.surge).toBe(K.trade.surgeSec);
+    expect(s.surgeMult).toBe(K.trade.surgeMult);
+    expect(s.windsCaught).toBe(1);
+  });
+
+  it('a Gale sets a x7 surge', () => {
+    const s = withSpring();
+    catchWind(s, 'gale');
+    expect(s.surge).toBe(K.gale.surgeSec);
+    expect(s.surgeMult).toBe(7);
+  });
+
+  it('a Monsoon pays a long burst and leaves the surge untouched', () => {
+    const s = withSpring();
+    const expected = Math.max(prod(s).total * K.monsoon.burstSec, config.wind.minInk);
+    const gain = catchWind(s, 'monsoon');
+    expect(gain.toNumber()).toBeCloseTo(expected, 6);
+    expect(s.surge).toBe(0);
     expect(s.windsCaught).toBe(1);
   });
 
   it('the surge multiplies live output and expires', () => {
-    const surged: GameState = initialState();
-    const calm: GameState = initialState();
-    surged.tiles[0] = 'spring';
-    calm.tiles[0] = 'spring';
-    catchWind(surged); // the catch itself pays Ink; measure only the per-second gain after it
+    const surged = withSpring();
+    const calm = withSpring();
+    catchWind(surged, 'trade'); // the catch itself pays Ink; measure only the per-second gain after it
     const inkBefore = surged.ink;
     const calmBefore = calm.ink;
     simulate(surged, 1);
@@ -63,13 +93,21 @@ describe('trade wind', () => {
     const surgeGain = surged.ink.sub(inkBefore).toNumber();
     const calmGain = calm.ink.sub(calmBefore).toNumber();
     expect(calmGain).toBeGreaterThan(0);
-    expect(surgeGain).toBeCloseTo(calmGain * config.wind.surgeMult, 6);
-    expect(surged.surge).toBe(config.wind.surgeSec - 1);
+    expect(surgeGain).toBeCloseTo(calmGain * K.trade.surgeMult, 6);
+    expect(surged.surge).toBe(K.trade.surgeSec - 1);
+  });
+
+  it('inkPerSec uses the running surgeMult', () => {
+    const s = withSpring();
+    s.surge = 5;
+    s.surgeMult = 4;
+    expect(inkPerSec(s)).toBeCloseTo(prod(s).total * 4, 6);
+    s.surge = 0;
+    expect(inkPerSec(s)).toBeCloseTo(prod(s).total, 6);
   });
 
   it('offline progress ignores an active surge', () => {
-    const s: GameState = initialState();
-    s.tiles[0] = 'spring';
+    const s = withSpring();
     s.surge = 10;
     simulate(s, 1, 1, true);
     expect(s.surge).toBe(0);
