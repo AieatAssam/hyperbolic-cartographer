@@ -1,6 +1,8 @@
 # Geometry and rendering roadmap
 
-**Status: plan only. None of the C0–C7 phases below is implemented or authorised for gameplay release by this document.** This documentation change adds no renderer, surface, prestige layer, upgrade or teaser. The existing playable slice stays unchanged.
+**Update (2026-11): the Möbius strip, torus and Klein bottle are now playable stages (unlocked with Curvature, chosen as the Projection target); loops, chart/3D morph and surface scrolling are implemented. The rest of this document is still a plan.**
+
+**Status of everything else: plan only. None of the C0–C7 phases below is implemented or authorised for gameplay release by this document.** This documentation change adds no renderer, surface, prestige layer, upgrade or teaser. The existing playable slice stays unchanged.
 
 The [full game design](../design/full-game-design.md) is the source of truth for progression. This roadmap develops the reviewed Step C Opus proposal into a rendering plan. Read it alongside the [style guide](style-guide.md) and [particle language](particle-language.md).
 

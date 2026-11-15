@@ -11,7 +11,7 @@
 ## Design documents
 
 - [Full game design](docs/design/full-game-design.md): the complete design, including future layers; the playable slice does not implement it all.
-- [Geometry and rendering roadmap](docs/art/geometry-roadmap.md): proposed C0–C7 work for surfaces, particles, cameras and accessible picking. Documentation only; no new layer is implemented.
+- [Geometry and rendering roadmap](docs/art/geometry-roadmap.md): proposed C0–C7 work for surfaces, particles, cameras and accessible picking. Mostly a plan; the closed-surface stages (Möbius, torus, Klein) are implemented.
 
 ## Architecture rules
 - `src/core/` is pure and deterministic: no DOM, no Three imports. Must stay unit-testable in Node.
