@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import type { SurfacePreview } from '../src/core/state';
+import { SURFACES, type Surface } from '../src/core/state';
 import { SURFACE } from '../src/art/palette';
 
 /** Pure mirror of main.ts surface URL parsing. */
-const surfaceFromUrl = (q: string): SurfacePreview => {
+const surfaceFromUrl = (q: string): 'off' | Surface => {
   const v = new URLSearchParams(q).get('surface');
-  return v === 'torus' || v === 'klein' ? v : 'off';
+  return (SURFACES as readonly string[]).includes(v ?? '') ? (v as Surface) : 'off';
 };
 
 describe('manifold preview URL flag', () => {
-  it('parses ?surface=torus and klein', () => {
+  it('parses ?surface=mobius, torus and klein', () => {
+    expect(surfaceFromUrl('?surface=mobius')).toBe('mobius');
     expect(surfaceFromUrl('?surface=torus')).toBe('torus');
     expect(surfaceFromUrl('?surface=klein')).toBe('klein');
+    expect(surfaceFromUrl('?surface=sphere')).toBe('off');
     expect(surfaceFromUrl('')).toBe('off');
   });
 });

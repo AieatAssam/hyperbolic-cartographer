@@ -86,6 +86,10 @@ export const config = {
     kleinHeight: 8,
     torusMajorR: 6.1,
     torusMinorR: 1.65,
+    /** Möbius stage (render only): centre-line radius, half band width and glass slab thickness. */
+    mobiusMajorR: 4.6,
+    mobiusHalfWidth: 2.1,
+    mobiusSlab: 0.14,
     chartSpan: 8.8,
     chartFill: 0.82,
     boardFillTarget: 0.8,

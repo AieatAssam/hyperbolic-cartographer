@@ -49,7 +49,7 @@ export const TAB_HELP: Record<Tab, string> = {
   constellations: 'Named tile patterns on the board. Complete one to earn Ink and see gold lines. Each unique shape counts once per run.',
   drift: 'Drift ends the current run and turns its Ink into Charts. Charts buy permanent upgrades. Only pinned tiles survive.',
   charts: 'Charts buy permanent upgrades. Each upgrade has levels, and the button shows the cost of the next one.',
-  proj: 'Projection is the next step after Drift. It spends this cycle\'s Charts on Curvature, moves you to the hyperbolic board, and resets the run.',
+  proj: 'Projection is the next step after Drift. It spends this cycle\'s Charts on Curvature, moves the map to the hyperbolic disk (or a surface you have folded, if you pick one), and resets the run.',
   miles: 'Milestones unlock as you Drift and Project. Each one changes how the game plays, so check here when a new feature appears.',
   atlas: 'Achievements and lifetime numbers. Each achievement adds +1% Ink.',
   save: 'Sound and music volume, the number format, and your save: export, import or wipe it. Save strings include a checksum, so edits are rejected.',

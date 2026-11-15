@@ -7,6 +7,7 @@ import {
   torusFitAabb, torusPosFromUv,
 } from './surface-params';
 import { boxCorners } from './projected-fit';
+import { shapeFrame } from './surface-shape';
 import { config } from '../core/config';
 import { phoneLandscape } from './framing';
 
@@ -59,9 +60,23 @@ function kleinFitSamples(): [number, number, number][] {
   return pts;
 }
 
+/** Möbius band samples, pushed out by the tile height on both faces. */
+function mobiusFitSamples(): [number, number, number][] {
+  const W = config.manifold.mobiusWidth, H = config.manifold.mobiusHeight, f = new Float64Array(9);
+  const pts: [number, number, number][] = [];
+  const h = config.manifold.tileExtrude3d * 0.6;
+  for (let i = 0; i <= 48; i++) {
+    for (let j = 0; j <= 4; j++) {
+      shapeFrame('mobius', (i / 48) * W, (j / 4) * H, W, H, 1, f);
+      for (const s of [h, -h]) pts.push([f[0] + f[3] * s, f[1] + f[4] * s, f[2] + f[5] * s]);
+    }
+  }
+  return pts;
+}
+
 export function manifoldFitSamples(board: SurfaceBoard): [number, number, number][] {
   if (board.isChartFlat()) return [];
-  return board.surface === 'torus' ? torusFitSamples() : kleinFitSamples();
+  return board.surface === 'torus' ? torusFitSamples() : board.surface === 'mobius' ? mobiusFitSamples() : kleinFitSamples();
 }
 
 export function manifoldFitCorners(board: SurfaceBoard): [number, number, number][] {
@@ -69,6 +84,10 @@ export function manifoldFitCorners(board: SurfaceBoard): [number, number, number
   if (board.surface === 'torus') {
     const { lo, hi } = torusFitAabb();
     return boxCorners(lo, hi);
+  }
+  if (board.surface === 'mobius') {
+    const R = config.manifold.mobiusMajorR + config.manifold.mobiusHalfWidth, y = config.manifold.mobiusHalfWidth;
+    return boxCorners([-R, -y, -R], [R, y, R]);
   }
   const { lo, hi } = kleinBottleAabb(KLEIN_SCALE());
   return boxCorners(lo, hi);
@@ -463,8 +482,8 @@ export function fitManifoldProjected(
   }
   if (board.surface === 'klein' && !board.isChartFlat()) {
     d = tuneKleinFillDistance(board, samples, camera, target, free, W, H, fitPolar, azimuth, boardRect, d);
-  } else if (board.surface === 'torus' && !board.isChartFlat()) {
-    if (phoneLandscape(W, H)) {
+  } else if (!board.isChartFlat()) {
+    if (board.surface === 'torus' && phoneLandscape(W, H)) {
       d = tuneTorusLandscapeVisual(
         board, samples, camera, target, free, W, H, fitPolar, azimuth, boardRect, d,
       );

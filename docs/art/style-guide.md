@@ -369,3 +369,14 @@ These works inform readability and framing. They are **not** sources to copy or 
 | `config.manifold.kleinSkinAlpha` | Klein immersion glass (~32%); torus uses `skinAlpha` (~50%). |
 | `config.manifold.kleinTileAlpha` | Opaque tile patches over Klein glass; back faces dimmed via `kleinBackfaceDim`. |
 | Manifold placed `inset` 0.66 / empty ~0.9 | Active versus inactive rim weight on 3D surfaces. |
+
+### Surface stages (Wired in `surface-board.ts`)
+
+| Token | Hex | Meaning |
+|---|---|---|
+| `SURFACE.uncharted` | `#1b1530` | Dark-glass cells beyond the survey on a stage surface. |
+| `SURFACE.unchartedEdge` | `#4b3f78` | Faint outline of the next ring Survey will chart. |
+| `SURFACE.loopGold` | `#ffcf6a` | Closed loop: the gold band that races around it, then the loop's permanent glow. |
+| `SURFACE.surveyFlash` | `#7fe0ff` | Rim flash on cells as the survey ripple reaches them. |
+
+A tile that has flowed once around the Möbius strip or Klein bottle sits on the other face and is drawn mirrored, with a `SURFACE.seamFlip` rim. Two laps bring it home.

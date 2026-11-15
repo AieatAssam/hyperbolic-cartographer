@@ -919,3 +919,26 @@ button.sound-toggle[aria-pressed="true"] { color: var(--muted); }
 .guide-list li.found .ico-star { color: var(--gold); }
 /* HUD currency labels: muted glyph before the text, sized so the stat keeps its height */
 .stat .label > .ico { margin: -2px 4px -2px 0; }
+
+/* ==== Surface stages (surface-board.ts, main.ts): side view bar, Fold card, Projection target picker ==== */
+/* On a surface stage the manifold bar is a slim column at the left edge, clear of the menu panel, dock and palette. */
+.manifold-bar.stage {
+  left: max(8px, env(safe-area-inset-left));
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+  flex-direction: column;
+  flex-wrap: nowrap;
+  max-width: none;
+  padding: 5px;
+  gap: 5px;
+}
+.manifold-bar.stage button.mf-btn { flex: 0 0 auto; max-width: none; width: 64px; padding: 6px 4px; font-size: 11px; }
+@media (max-height: 420px) and (orientation: landscape) {
+  /* Short landscape phones: a row, so it fits between the tall topbar and the tooltip. */
+  .manifold-bar.stage { flex-direction: row; }
+}
+.fold-card h3 { color: var(--gold); }
+.proj-targets { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+button.proj-target { min-width: 44px; min-height: 44px; padding: 6px 12px; border-radius: var(--radius-md); background: rgb(255 255 255 / 8%); }
+button.proj-target[aria-checked="true"] { background: var(--gold-dim); color: var(--gold); outline: 1px solid var(--gold); }
