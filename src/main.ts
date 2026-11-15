@@ -486,7 +486,7 @@ function syncLoops(celebrate: boolean) {
     seen.add(key);
     if (!celebrate || loopsSeen.has(key)) continue;
     board.raceLoop(loop, fx.now);
-    ui.toast(`Loop closed ${loopName(geo, loop)}! Ink ×${config.surfaces[geo].loopMult}`);
+    ui.toast(`Loop closed ${loopName(geo, loop)}! Ink ×${config.surfaces[geo].loopMult}, +${config.surfaces[geo].loopCurvature} Curvature on your next Projection`);
     playChime('constellation');
   }
   loopsSeen = seen;

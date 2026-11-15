@@ -1027,6 +1027,8 @@ button.sound-toggle[aria-pressed="true"] { color: var(--muted); }
   86% { opacity: 1; transform: translate(-50%, 0); }
   100% { opacity: 0; transform: translate(-50%, -4px); }
 }
+/* A banner already showing when the menu opens must not sit on its tabs */
+@media (max-width: 700px) { :root:has(.panel-open) .juice-milestone { display: none; } }
 @media (max-width: 480px) {
   .juice-milestone { left: 12px; right: 12px; transform: none; max-width: none; font-size: 13px; }
 }
@@ -1183,9 +1185,16 @@ button.sound-toggle[aria-pressed="true"] { color: var(--muted); }
   .cel-spark { display: none; }
 }
 
+/* Menu open beside the board: centre the pill over the board, not under the panel */
+@media (min-width: 701px) {
+  :root:has(.panel-open) .cel-medal, :root:has(.panel-open) .cel-more, :root:has(.panel-open) .juice-milestone { left: calc((100vw - 380px) / 2); }
+  :root:has(.panel-open) .juice-milestone { max-width: calc(100vw - 404px); }
+}
+
 /* Phone: keep the reward below the HUD strip */
 @media (max-width: 700px) {
   .cel-medal { top: calc(env(safe-area-inset-top) + 64px); }
+  .cel-more { top: calc(env(safe-area-inset-top) + 128px); }
   .cel-stage { top: 44%; }
 }
 

@@ -27,12 +27,13 @@ export const config = {
    * Closed-surface stages (after the hyperbolic board), in order. Each is unlocked once with Curvature (foldCost),
    * then chosen as the Projection target. Survey grows a patch from the chart's middle until the surface closes
    * (ring 0..maxRing). inkMult multiplies all Ink output on that surface; every closed loop of tiles around the
-   * surface (graph cycleBasis) multiplies it by loopMult again.
+   * surface (graph cycleBasis) multiplies it by loopMult again, and adds loopCurvature to the next Projection's
+   * Curvature (banked once closed, even if a Drift clears the tiles; see GameState.cycleLoops).
    */
   surfaces: {
-    mobius: { name: 'Möbius strip', startRing: 1, maxRing: 5, surveyBase: 5e6, surveyGrowth: 14, foldCost: 24, inkMult: 4, loopMult: 3 },
-    torus: { name: 'Torus', startRing: 1, maxRing: 4, surveyBase: 5e7, surveyGrowth: 16, foldCost: 32, inkMult: 12, loopMult: 2.5 },
-    klein: { name: 'Klein bottle', startRing: 1, maxRing: 4, surveyBase: 5e8, surveyGrowth: 18, foldCost: 40, inkMult: 40, loopMult: 3 },
+    mobius: { name: 'Möbius strip', startRing: 1, maxRing: 5, surveyBase: 5e6, surveyGrowth: 14, foldCost: 24, inkMult: 4, loopMult: 3, loopCurvature: 6 },
+    torus: { name: 'Torus', startRing: 1, maxRing: 4, surveyBase: 5e7, surveyGrowth: 16, foldCost: 32, inkMult: 12, loopMult: 2.5, loopCurvature: 4 },
+    klein: { name: 'Klein bottle', startRing: 1, maxRing: 4, surveyBase: 5e8, surveyGrowth: 18, foldCost: 40, inkMult: 40, loopMult: 3, loopCurvature: 5 },
   },
   drift: { minInk: 2.42e5, divisor: 2.5e5, exponent: 0.5 },
   projection: { minCharts: 25 },

@@ -35,6 +35,8 @@ export interface GameState {
   projections: number;
   /** Closed surfaces unlocked so far, in SURFACES order (0..3). Permanent. */
   folds: number;
+  /** Most loops closed at once on the current surface since the last Projection; pays Curvature on the next one. */
+  cycleLoops: number;
   autoDrift: { on: boolean; at: number };
   runTime: number;
   totalTime: number;
@@ -97,6 +99,7 @@ export function initialState(): GameState {
     drifts: 0,
     projections: 0,
     folds: 0,
+    cycleLoops: 0,
     autoDrift: { on: false, at: 10 },
     runTime: 0,
     totalTime: 0,
