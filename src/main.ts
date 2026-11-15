@@ -472,6 +472,7 @@ function applyTool(i: number): boolean {
   if (tl === 'pin') return togglePin(s, i);
   const before = s.tiles.slice();
   if (!place(s, i, tl)) return false;
+  ui.placed(delta);
   const g = graphOf(s);
   const links = networkLinkEdges(g, before, s.tiles, i);
   if (links?.length) {
@@ -484,6 +485,7 @@ function applyTool(i: number): boolean {
     applyConstellationRewards(s, events);
     for (const e of events) {
       ui.toast(`★ ${e.name}: +${fmt(e.bonusInk, s.notation)} Ink`);
+      ui.lump(`+${fmt(e.bonusInk, s.notation)} Ink`);
       constellationBurstEdges = e.edges;
       constellationPermanent = mergeEdges(constellationPermanent, e.edges);
       constellationPulseUntil = performance.now() / 1000 + 1.5;
@@ -518,6 +520,7 @@ function catchWindNow(): boolean {
   const gain = catchWind(s, kind);
   const k = config.wind.kinds[kind];
   audio.cue('upgrade');
+  ui.lump(`+${fmt(gain, s.notation)} Ink`);
   ui.toast(kind === 'monsoon'
     ? `Monsoon! +${fmt(gain, s.notation)} Ink (${k.burstSec / 60} minutes of rain)`
     : `${k.name} caught! +${fmt(gain, s.notation)} Ink and x${k.surgeMult} Ink/s for ${k.surgeSec}s`);

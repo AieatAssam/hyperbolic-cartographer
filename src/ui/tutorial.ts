@@ -34,8 +34,8 @@ export const STEPS: TutStep[] = [
     id: 'ink',
     title: 'Ink buys tiles',
     body: (s) =>
-      `Ink (shown top-left) is your money. Every tile costs Ink, and each copy costs ${pct(config.costGrowth - 1)}% more. ` +
-      `You have ${money(s.ink, s)} Ink now.`,
+      `Ink (top left) pays for every tile. Each extra copy of a tile costs ${pct(config.costGrowth - 1)}% more. ` +
+      `You have ${money(s.ink, s)} Ink.`,
     complete: (s) => owned(s, 'spring') >= 1,
     manual: true,
   },
@@ -43,8 +43,8 @@ export const STEPS: TutStep[] = [
     id: 'spring',
     title: 'Place your first Spring',
     body: () =>
-      `Spring makes ${config.tiles.spring.out} Ink/s. ` +
-      'Pick Spring (key 1) at the bottom. Tap or click a lit cell to preview it, then tap or click again (or press Place) to buy.',
+      `A Spring makes ${config.tiles.spring.out} Ink/s. ` +
+      'Pick Spring (key 1), tap a lit cell to preview it, then tap again to place it.',
     complete: (s) => owned(s, 'spring') >= 1,
     manual: false,
     tool: 'spring',
@@ -54,13 +54,13 @@ export const STEPS: TutStep[] = [
     title: 'Save up for a Mill',
     body: (s) => {
       const cost = tileCost(s, 'mill');
-      const head = `Mill costs ${money(cost, s)} Ink. You have ${money(s.ink, s)}.`;
-      if (s.ink.gte(cost)) return `${head} You can afford it now. Put it on a cell touching a Spring.`;
+      const head = `A Mill costs ${money(cost, s)} Ink. You have ${money(s.ink, s)}.`;
+      if (s.ink.gte(cost)) return `${head} You can afford it. Place it on a cell touching a Spring.`;
       const r = rate(s);
-      if (r <= 0) return `${head} Place more Springs first, then save up.`;
+      if (r <= 0) return `${head} Place a Spring first, then save up.`;
       const wait = cost.sub(s.ink).toNumber() / r;
-      return `${head} At ${money(r, s)} Ink/s that's about ${fmtTime(Number.isFinite(wait) ? wait : 0)}. ` +
-        'Extra Springs speed this up. Plan to put the Mill on a cell touching a Spring.';
+      return `${head} At ${money(r, s)} Ink/s that is about ${fmtTime(Number.isFinite(wait) ? wait : 0)}. ` +
+        'More Springs speed this up. Aim the Mill at a cell touching a Spring.';
     },
     complete: (s) => owned(s, 'mill') >= 1,
     manual: false,
@@ -70,8 +70,8 @@ export const STEPS: TutStep[] = [
     id: 'boost',
     title: 'Adjacency boost',
     body: () =>
-      `Mill makes ${config.tiles.mill.out} Ink/s, +${pct(config.tiles.mill.perSpring)}% for each Spring sharing an edge. A Spring feeding several Mills gives each less. ` +
-      'Only edge neighbours count (up to 4 on the square grid). Get a Mill touching a Spring.',
+      `A Mill makes ${config.tiles.mill.out} Ink/s, plus ${pct(config.tiles.mill.perSpring)}% for each Spring it touches. ` +
+      'A Spring shared by several Mills splits its Ink between them. Only edge neighbours count.',
     complete: (s) => hasBoostedMill(s),
     manual: false,
     tool: 'mill',
@@ -80,8 +80,8 @@ export const STEPS: TutStep[] = [
     id: 'preview',
     title: 'Read the preview before buying',
     body: () =>
-      'Tap or click an empty cell to open its card. It shows the cost and the exact Ink/s change (green +) before you buy. ' +
-      'Pick the cell with the biggest +. Next goals live in the top bar; the Guide button reopens this tutorial.',
+      'Tap an empty cell to open its card. The green + shows the Ink/s gain before you buy, so pick the biggest one. ' +
+      'Your next goal sits in the top bar, and Guide brings this card back.',
     complete: () => false,
     manual: true,
   },

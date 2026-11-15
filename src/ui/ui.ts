@@ -21,6 +21,10 @@ import { attentionCleared, menuAttention } from '../core/menu-attention';
 import type { ConstellationId } from '../core/constellations';
 import { explainNow, immediateGoal, longGoal, type GoalIcon } from './goals';
 import {
+  announceMilestones, floatGain, floatLump, goalCompleted, milestoneEvents, milestoneFacts, notePlacement, rateFlashed,
+  setJuiceAnchors, shimmerOnce, type MilestoneFacts,
+} from './juice';
+import {
   STEPS, currentStep, dismissTutorial, nextStep, parseTutorial, prevStep, reopenTutorial, restartTutorial, serializeTutorial, syncTutorial,
   type TutorialState,
 } from './tutorial';
@@ -83,6 +87,10 @@ export interface UI {
   flash(): void;
   /** Visual-only pulse on the HUD Ink counter (GPU mote arrival). */
   bumpInk(weight: number): void;
+  /** A tile was placed: floats "+x/s" from the last tap and counts toward the build streak. `delta` is the Ink/s rise. */
+  placed(delta: number): void;
+  /** Ink paid out as a lump (wind, constellation): the number flies to the Ink counter. */
+  lump(text: string): void;
   /** Plain-words goal override while a prestige transition plays; null restores the normal goal. `short` is its compact chip label, `icon` its glyph (default 'project'). */
   setTransition(text: string | null, short?: string, icon?: GoalIcon): void;
   /** Manifold preview: hide the panel and show the floating surface toolbar. */
@@ -726,6 +734,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
   const mapTab = (s: GameState): HTMLElement[] => {
     const full = s.ring >= maxRing(s);
     const sb = btn('', 'buy', () => ctx.act.survey());
+    sb.dataset.juice = 'survey';
     const sc = ctl(sb, 'Survey', BUTTON_HELP.survey);
     watch(() => {
       const g = get();
@@ -1223,10 +1232,30 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     } else boardGain.classList.add('hidden');
   }
 
+  // ---- Juice bookkeeping (cosmetic only; see ui/juice.ts) ----
+  let prevRate = Number.NaN;
+  let prevGoalKey = '';
+  let prevGoalProgress = 0;
+  let prevFacts: MilestoneFacts | null = null;
+  const affordPrev = new Map<string, boolean>();
+  /** True only on the frame a control turns affordable (not for controls already affordable at load). */
+  const newlyAfford = (key: string, now: boolean) => {
+    const was = affordPrev.get(key);
+    affordPrev.set(key, now);
+    return was === false && now;
+  };
+
   function update() {
     const s = get();
     sInk.v.textContent = fmt(s.ink, s.notation);
-    sRate.v.textContent = fmt(prod(s).total, s.notation);
+    const rate = prod(s).total;
+    if (rateFlashed(prevRate, rate)) {
+      sRate.box.classList.remove('rate-up');
+      void sRate.box.offsetWidth;
+      sRate.box.classList.add('rate-up');
+    }
+    prevRate = rate;
+    sRate.v.textContent = fmt(rate, s.notation);
     const w = ctx.wind();
     const windShow = w.left > 0 || w.surge > 0;
     windBtn.style.display = windShow ? '' : 'none';
@@ -1258,6 +1287,13 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     goal.title = g.text;
     goalEta.textContent = g.eta;
     goalFill.style.width = `${Math.round(clamp(g.progress) * 100)}%`;
+    // A goal that was ready (progress ~1) and is now a different goal has been completed.
+    if (!transitionText && prevGoalKey && g.short !== prevGoalKey && prevGoalProgress >= 0.95) goalCompleted(goal, goalBar);
+    prevGoalKey = transitionText ? '' : g.short;
+    prevGoalProgress = g.progress;
+    const surveyOk = s.ring < maxRing(s) && s.ink.gte(surveyCost(s));
+    const surveyNew = newlyAfford('survey', surveyOk);
+    if (surveyNew) shimmerOnce('survey', g.short === 'Survey' ? goal : body.querySelector<HTMLElement>('[data-juice="survey"]'), true);
     explain.textContent = explainNow(s);
     const [label, p] = longGoal(s);
     nextLabel.textContent = `Next unlock: ${label}`;
@@ -1267,6 +1303,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
       const c = tileCost(s, x.t);
       x.cost.textContent = fmt(c, s.notation);
       x.b.classList.toggle('cant', s.ink.lt(c));
+      shimmerOnce(`tile:${x.t}`, x.b, newlyAfford(`tile:${x.t}`, s.ink.gte(c)));
       x.b.classList.toggle('active', ctx.tool.current === x.t);
       x.b.setAttribute('aria-pressed', String(ctx.tool.current === x.t));
     }
@@ -1295,6 +1332,9 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
     }
     for (const f of live) f();
     updateDock(s);
+    const facts = milestoneFacts(s);
+    announceMilestones(milestoneEvents(prevFacts, facts), !tutVisible());
+    prevFacts = facts;
   }
 
   // ---- Keyboard ----
@@ -1326,10 +1366,11 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
 
   // ---- Mount ----
   root.append(topbar, panel, dock, palette, manifoldBar, tip, toastEl, dev, backdrop);
+  setJuiceAnchors({ ink: sInk.box, palette, topbar });
   document.body.append(boardGain, flowLabelRoot);
   update();
   return {
-    update, syncBridgeGain: syncBridgeGainLabel, syncFlowLabels: syncFlowRateLabels, tooltip, showOffline, toast, flash, bumpInk, setTransition, setManifoldPreview,
+    update, syncBridgeGain: syncBridgeGainLabel, syncFlowLabels: syncFlowRateLabels, tooltip, showOffline, toast, flash, bumpInk, placed: (delta) => (floatGain(delta, get()), notePlacement()), lump: floatLump, setTransition, setManifoldPreview,
     qa: {
       tab: (id: string) => tabBtns.has(id as Tab) && openTab(id as Tab),
       openImport: (text?: string) => openImport(text),
