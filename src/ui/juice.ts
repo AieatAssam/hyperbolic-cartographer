@@ -90,7 +90,7 @@ if (typeof window !== 'undefined') {
 }
 
 /** Elements the caller asked us to read positions from; set once by the UI. */
-const anchors: { ink?: HTMLElement; palette?: HTMLElement; topbar?: HTMLElement } = {};
+const anchors: { ink?: HTMLElement; palette?: HTMLElement; card?: HTMLElement; topbar?: HTMLElement } = {};
 export function setJuiceAnchors(a: typeof anchors): void {
   Object.assign(anchors, a);
 }
@@ -130,7 +130,7 @@ export function floatText(text: string, x: number, y: number, opts: { toInk?: bo
   if (opts.toInk && anchors.ink) {
     const r = anchors.ink.getBoundingClientRect();
     el.style.setProperty('--dx', `${r.left + r.width / 2 - cx}px`);
-    el.style.setProperty('--dy', `${r.top + r.height / 2 - cy}px`);
+    el.style.setProperty('--dy', `${r.top + 6 - cy}px`); // lands on the label, not over the number
     el.classList.add('to-ink');
   }
   getLayer().append(el);
@@ -180,7 +180,9 @@ export function notePlacement(now = performance.now()): void {
     streakEl.setAttribute('aria-hidden', 'true');
     getLayer().append(streakEl);
   }
-  const p = anchors.palette?.getBoundingClientRect();
+  // above the info card when it is showing, so the chip never covers its text
+  const c = anchors.card?.getBoundingClientRect();
+  const p = c && c.height > 0 ? c : anchors.palette?.getBoundingClientRect();
   if (p) {
     streakEl.style.left = `${Math.round(p.right - 12)}px`;
     streakEl.style.top = `${Math.round(p.top - 6)}px`;
@@ -262,7 +264,9 @@ function showMilestone(id: MilestoneId, now: number): void {
     milestoneEl.setAttribute('role', 'status');
     getLayer().append(milestoneEl);
   }
-  const top = anchors.topbar ? Math.round(anchors.topbar.getBoundingClientRect().bottom + 10) : 164;
+  // the achievement pill's slot (.cel-medal top) sits above; CSS margin-top clears its height
+  const medalTop = innerWidth <= 700 ? 64 : 164;
+  const top = Math.max(medalTop, anchors.topbar ? Math.round(anchors.topbar.getBoundingClientRect().bottom + 10) : 0);
   milestoneEl.style.top = `${top}px`;
   milestoneEl.dataset.id = id;
   const text = Object.assign(document.createElement('span'), { className: 'juice-milestone-text' });
