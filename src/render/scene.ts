@@ -143,6 +143,7 @@ void main() {
   col += (hash(vec3(gl_FragCoord.xy, 0.0)) - 0.5) * uGrain;
   // Corners ~45% darker at focus 0 (uVignette 0.55); focus adds 0.1 more. Centre untouched.
   col *= mix(1.0 - uVignette, 1.0, smoothstep(0.92, 0.18, length(uv - 0.5)));
+  col *= 1.0 + 0.4 * uFocus; // behind a manifold the sky is most of the frame: keep it from reading as black
   col = max(col, uBottom * 0.32);
 
   gl_FragColor = vec4(col, 1.0);

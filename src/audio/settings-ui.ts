@@ -148,6 +148,8 @@ function creditsList(): HTMLElement[] {
   return out;
 }
 
+let creditsOpen = false;
+
 /** Settings > Credits: every track and sound pack, in plain words. */
 export function creditsCard(): HTMLElement {
   const card = el('div', 'card audio-credits');
@@ -158,7 +160,11 @@ export function creditsCard(): HTMLElement {
   const body = el('div');
   details.append(summary);
   // Built only while open: Chromium still lays out a closed <details>' content.
-  details.addEventListener('toggle', () => (details.open ? (body.replaceChildren(...creditsList()), details.append(body)) : body.remove()));
+  details.addEventListener('toggle', () => {
+    creditsOpen = details.open;
+    if (details.open) { body.replaceChildren(...creditsList()); details.append(body); } else body.remove();
+  });
+  details.open = creditsOpen; // the panel rebuilds this card; stay open across rebuilds
   card.append(
     el('h3', '', 'Music and sound credits'),
     el('p', '', 'All music and sound effects are by other artists, shared under Creative Commons licences (CC0 or CC BY) that allow reuse. Thank you to them.'),
