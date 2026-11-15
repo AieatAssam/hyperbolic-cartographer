@@ -1470,7 +1470,7 @@ export function createUI(root: HTMLElement, ctx: UICtx): UI {
 
   // ---- Mount ----
   root.append(topbar, panel, dock, palette, manifoldBar, tip, toastEl, dev, backdrop);
-  setJuiceAnchors({ ink: sInk.box, palette, topbar });
+  setJuiceAnchors({ ink: sInk.box, palette, card: info, topbar });
   document.body.append(boardGain, flowLabelRoot);
   update();
   return {
