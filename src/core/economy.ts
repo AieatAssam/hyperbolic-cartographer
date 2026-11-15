@@ -1,8 +1,9 @@
 import Decimal from 'break_eternity.js';
 import { chartUpgrades, config, curvUpgrades, type ChartUpgradeId, type CurvUpgradeId } from './config';
-import { GRAPHS, graphOf, type GameState } from './state';
+import { GRAPHS, graphOf, isSurface, type GameState } from './state';
 import type { TileType } from './tiles';
 import type { TileGraph } from './geometry/graph';
+import type { SurfaceGraph } from './geometry/quotient';
 import { has } from './milestones';
 import { bridgeComponents, bridgeTouchSet, bridgeTouchSetExtended } from './bridge-relay';
 import type { WindKind } from './wind';
@@ -14,6 +15,10 @@ export interface Mods {
   reach: number;
   /** Effective Spring strain (Deep Wells lowers it). */
   strain: number;
+  /** Closed-surface Ink multiplier (1 off-surface). */
+  surface: number;
+  /** Per closed loop of tiles on a surface (1 off-surface). */
+  loopMult: number;
 }
 
 export function mods(s: GameState): Mods {
@@ -23,7 +28,21 @@ export function mods(s: GameState): Mods {
     beaconPerDegree: 0.05 * s.curvUpg.beaconDegree,
     reach: 1 + s.curvUpg.bridgeReach,
     strain: config.tiles.spring.strain * config.tiles.spring.deepWells ** s.chartUpg.cheapSprings,
+    surface: isSurface(s.geometry) ? config.surfaces[s.geometry].inkMult : 1,
+    loopMult: isSurface(s.geometry) ? config.surfaces[s.geometry].loopMult : 1,
   };
+}
+
+/**
+ * Closed loops of tiles on this board: each graph cycle (cycleBasis) whose every cell holds a tile.
+ * Loops are a function of tiles and geometry only, so the production cache key already covers them.
+ */
+export function closedLoopCount(g: TileGraph, tiles: (TileType | null)[]): number {
+  const basis = (g as Partial<SurfaceGraph>).cycleBasis;
+  if (!basis) return 0;
+  let n = 0;
+  for (const c of basis) if (c.every((i) => tiles[i])) n++;
+  return n;
 }
 
 /**
@@ -148,7 +167,7 @@ export function production(
   const n = tiles.length;
   let vaults = 0;
   for (let i = 0; i < n; i++) if (tiles[i] === 'vault') vaults++;
-  const global = m.global * (1 + vaultBonus(vaults));
+  const global = m.global * (1 + vaultBonus(vaults)) * m.surface * m.loopMult ** closedLoopCount(g, tiles);
   const perTile: number[] = new Array(n).fill(0);
   // Strain pass: how many Mills each Spring feeds. A Spring touching a Bridge is channelled (full share).
   const feeds: number[] = new Array(n).fill(0);

@@ -1,5 +1,6 @@
 import { config } from './config';
-import type { GameState } from './state';
+import { closedLoopCount } from './economy';
+import { GRAPHS, graphOf, type GameState } from './state';
 import { TILE_TYPES } from './tiles';
 
 export interface Achievement {
@@ -50,6 +51,22 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'star1', name: 'Stargazer', desc: 'Complete a constellation.', req: (s) => s.stats.constellations >= 1 },
   { id: 'star25', name: 'Astronomer', desc: 'Complete 25 constellations.', req: (s) => s.stats.constellations >= 25 },
   { id: 'pins3', name: 'Well Anchored', desc: 'Have 3 tiles pinned at once.', req: (s) => s.pinned.length >= 3 },
+  { id: 'fold1', name: 'Hinged Paper', desc: 'Fold the chart onto a closed surface.', req: (s) => s.folds >= 1 },
+  { id: 'mobius', name: 'One-Sided', desc: 'Project onto the Möbius strip.', req: (s) => s.geometry === 'mobius' },
+  { id: 'torus', name: 'Round Trip', desc: 'Project onto the torus.', req: (s) => s.geometry === 'torus' },
+  { id: 'klein', name: 'Inside Out', desc: 'Project onto the Klein bottle.', req: (s) => s.geometry === 'klein' },
+  {
+    id: 'loop1',
+    name: 'Closed Circuit',
+    desc: 'Close a loop of tiles around a closed surface.',
+    req: (s) => closedLoopCount(graphOf(s), s.tiles) >= 1,
+  },
+  {
+    id: 'torusBoth',
+    name: 'Both Ways Round',
+    desc: 'Close both loops of the torus at once.',
+    req: (s) => s.geometry === 'torus' && closedLoopCount(GRAPHS.torus, s.tiles) >= 2,
+  },
 ];
 
 /** Adds newly met achievements to s.achievements and returns them. */

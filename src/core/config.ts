@@ -30,9 +30,9 @@ export const config = {
    * surface (graph cycleBasis) multiplies it by loopMult again.
    */
   surfaces: {
-    mobius: { name: 'Möbius strip', startRing: 1, maxRing: 5, surveyBase: 5e6, surveyGrowth: 14, foldCost: 6, inkMult: 4, loopMult: 3 },
-    torus: { name: 'Torus', startRing: 1, maxRing: 4, surveyBase: 5e7, surveyGrowth: 16, foldCost: 16, inkMult: 12, loopMult: 2.5 },
-    klein: { name: 'Klein bottle', startRing: 1, maxRing: 4, surveyBase: 5e8, surveyGrowth: 18, foldCost: 40, inkMult: 40, loopMult: 3 },
+    mobius: { name: 'Möbius strip', startRing: 1, maxRing: 5, surveyBase: 5e6, surveyGrowth: 14, foldCost: 40, inkMult: 4, loopMult: 3 },
+    torus: { name: 'Torus', startRing: 1, maxRing: 4, surveyBase: 5e7, surveyGrowth: 16, foldCost: 80, inkMult: 12, loopMult: 2.5 },
+    klein: { name: 'Klein bottle', startRing: 1, maxRing: 4, surveyBase: 5e8, surveyGrowth: 18, foldCost: 130, inkMult: 40, loopMult: 3 },
   },
   drift: { minInk: 2.42e5, divisor: 2.5e5, exponent: 0.5 },
   projection: { minCharts: 25 },
