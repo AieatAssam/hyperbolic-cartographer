@@ -3,9 +3,9 @@
  * Pure core: no DOM. Each candidate placement is scored by its production delta per ink.
  */
 import { chartUpgrades, config, curvUpgrades } from './config';
-import { graphOf, initialState, type GameState } from './state';
+import { graphOf, initialState, isSurface, type GameState } from './state';
 import { buyChartUpg, buyCurvUpg, deltaScan, isActive, maxRing, place, prod, scanDelta, sell, survey, surveyCost, tileCost, type DeltaScan } from './economy';
-import { canProject, chartsOnDrift, curvatureOnProjection, drift, project } from './prestige';
+import { canProject, chartsOnDrift, closedLoops, curvatureOnProjection, drift, fold, foldCost, nextFold, project } from './prestige';
 import { fastForward } from './tick';
 import { TILE_TYPES, type TileType } from './tiles';
 
@@ -62,6 +62,18 @@ export function bestGreedyBuy(s: GameState): GreedyBuy | null {
   return best && { i: best.i, t: best.t, cost: best.cost };
 }
 
+/**
+ * Curvature buys upgrades only above the cost of the next closed surface, so the bot keeps enough to fold.
+ * Once every surface is unlocked nothing is reserved.
+ */
+function buyCurvature(s: GameState) {
+  const reserve = nextFold(s) ? foldCost(s) : 0;
+  for (const u of curvUpgrades) {
+    const lvl = s.curvUpg[u.id];
+    if (lvl < u.max && s.curvature.toNumber() - u.cost(lvl) >= reserve) buyCurvUpg(s, u.id);
+  }
+}
+
 /** Milestone times in minutes, filled in by playGreedy when first reached. */
 export type GreedyLog = Record<string, number>;
 
@@ -89,7 +101,7 @@ export function playGreedy(
       target = bestGreedyBuy(s);
     }
     for (const u of [...chartUpgrades].sort((a, b) => a.cost(s.chartUpg[a.id]) - b.cost(s.chartUpg[b.id]))) buyChartUpg(s, u.id);
-    for (const u of curvUpgrades) buyCurvUpg(s, u.id);
+    buyCurvature(s);
     const gain = chartsOnDrift(s).toNumber();
     const raw = s.runInk.div(config.drift.divisor).pow(config.drift.exponent).toNumber(); // unfloored, for peak-finding
     const rate = raw / s.runTime;
@@ -111,9 +123,14 @@ export function playGreedy(
       } else log.projection2 ??= sec / 60;
       project(s);
       driftsAtProjection = s.drifts;
-      for (const u of curvUpgrades) buyCurvUpg(s, u.id);
+      if (isSurface(s.geometry)) log[`surface_${s.geometry}`] ??= sec / 60;
+      buyCurvature(s);
       target = bestGreedyBuy(s);
     }
+    // Fold as soon as Curvature allows; the next Projection then lands on the new surface.
+    for (let f = fold(s); f; f = fold(s)) log[`fold_${f}`] ??= sec / 60;
+    if (isSurface(s.geometry) && closedLoops(s).length > 0) log.firstLoop ??= sec / 60;
+    if (isSurface(s.geometry) && s.geometry === 'torus' && closedLoops(s).length >= 2) log.torusBothLoops ??= sec / 60;
     // Hyperbolic "full": past the first Projection, at max ring, with every active cell holding a tile.
     const boardFull = graphOf(s).ring.every((_, i) => !isActive(s, i) || s.tiles[i]);
     if (s.projections > 0 && s.ring === maxRing(s) && boardFull && !log.hyperFull) log.hyperFull = sec / 60;

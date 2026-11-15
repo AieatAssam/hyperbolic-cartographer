@@ -74,6 +74,19 @@ export function closedLoops(s: GameState): number[][] {
     .filter((c) => c.every((i) => s.tiles[i] && g.ring[i] <= s.ring));
 }
 
+/**
+ * One entry per cycleBasis loop of the current surface: its cells (without the closing repeat), how many hold a tile,
+ * and whether it is closed. Empty off-surface. Pure helper for the UI.
+ */
+export function loopStatus(s: GameState): { cells: number[]; filled: number; closed: boolean }[] {
+  if (!isSurface(s.geometry)) return [];
+  return SURFACE_GRAPHS[s.geometry].cycleBasis.map((c) => {
+    const cells = c.slice(0, -1);
+    const filled = cells.filter((i) => s.tiles[i]).length;
+    return { cells, filled, closed: filled === cells.length };
+  });
+}
+
 export function project(s: GameState, target?: Geometry): Decimal {
   if (!canProject(s)) return new Decimal(0);
   const targets = projectionTargets(s);

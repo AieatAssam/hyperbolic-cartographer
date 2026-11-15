@@ -6,10 +6,10 @@ import { isActive, place, prod } from '../src/core/economy';
 import { simulate } from '../src/core/tick';
 
 describe('achievements', () => {
-  it('has 24 unique ids', () => {
+  it('has 30 unique ids', () => {
     const ids = ACHIEVEMENTS.map((a) => a.id);
-    expect(ids).toHaveLength(24);
-    expect(new Set(ids).size).toBe(24);
+    expect(ids).toHaveLength(30);
+    expect(new Set(ids).size).toBe(30);
   });
 
   it('a fresh state earns none', () => {
